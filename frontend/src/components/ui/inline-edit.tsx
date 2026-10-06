@@ -53,7 +53,8 @@ export function InlineEdit({
         e.stopPropagation()
       }}
       className={cn(
-        'w-full min-w-0 rounded-md border border-ring/60 bg-background px-2 py-0.5 text-sm outline-none',
+        // Sans fond ni bordure : le texte reste à sa place, seul le curseur et la sélection signalent l'édition.
+        'w-full min-w-0 border-0 bg-transparent p-0 text-sm text-foreground outline-none selection:bg-violet-500/40',
         className,
       )}
     />

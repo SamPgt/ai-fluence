@@ -20,20 +20,36 @@ function NewThread() {
     <>
       <PageHeader>
         <span className="text-sm font-medium">Nouveau fil</span>
-        {persona && <span className="text-sm text-muted-foreground">· {persona.name}</span>}
+        {persona && (
+          <span className="text-sm text-muted-foreground">
+            · {persona.name}
+          </span>
+        )}
       </PageHeader>
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
         {persona ? (
-          <PersonaAvatar persona={persona} size={64} className="mb-4 rounded-2xl" />
+          <PersonaAvatar
+            persona={persona}
+            size={64}
+            className="mb-4 rounded-2xl"
+          />
         ) : (
-          <img src="/logo.svg" alt="" className="mb-4 h-14 w-14 select-none" draggable={false} />
+          <img
+            src="/logo.svg"
+            alt=""
+            className="mb-4 h-14 w-14 select-none"
+            draggable={false}
+          />
         )}
         <h1 className="text-2xl font-semibold">
-          {persona ? `Que fait ${persona.name} aujourd’hui ?` : 'Que veux-tu créer ?'}
+          {persona
+            ? `Que fait ${persona.name} aujourd’hui ?`
+            : 'Que veux-tu créer ?'}
         </h1>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
           {persona
-            ? persona.description || 'Choisis un modèle LORA ou REF pour garder le personnage cohérent.'
+            ? persona.description ||
+              'Choisis un modèle LORA ou REF pour garder le personnage cohérent.'
             : 'Photo ou vidéo : choisis un modèle, ajoute des références si besoin, et décris la scène.'}
         </p>
       </div>

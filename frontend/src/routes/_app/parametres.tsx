@@ -1,14 +1,15 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, FolderOpen, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Camera, ExternalLink, FolderOpen, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { MediaKind, PromptPreset } from '@ai-fluence/shared'
 
-import { authApi, presetsApi, settingsApi } from '@/lib/api'
+import { assetsApi, authApi, presetsApi, settingsApi } from '@/lib/api'
 import { catalogQuery, presetsQuery, qk, settingsQuery } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
-import { SESSION_QUERY_KEY } from '@/server/auth'
+import { SESSION_QUERY_KEY, sessionQueryOptions } from '@/server/auth'
+import { initials } from '@/components/personas/PersonaAvatar'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ModelBadge } from '@/components/ui/model-badge'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 const TABS = ['api-key', 'storage', 'models', 'credits', 'presets', 'account'] as const
 type Tab = (typeof TABS)[number]
@@ -100,6 +102,7 @@ function ApiKeyTab() {
   const queryClient = useQueryClient()
   const { data: settings } = useQuery(settingsQuery())
   const [key, setKey] = useState('')
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const refreshAll = () => {
     queryClient.invalidateQueries({ queryKey: qk.settings })
     queryClient.invalidateQueries({ queryKey: qk.catalog })
@@ -117,6 +120,7 @@ function ApiKeyTab() {
   const remove = useMutation({
     mutationFn: () => settingsApi.removeApiKey(),
     onSuccess: () => {
+      setConfirmRemove(false)
       refreshAll()
       toast.success('Clé supprimée')
     },
@@ -136,7 +140,7 @@ function ApiKeyTab() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => confirm('Supprimer la clé API ?') && remove.mutate()}
+            onClick={() => setConfirmRemove(true)}
             className="text-muted-foreground"
           >
             <Trash2 className="h-4 w-4" /> Supprimer
@@ -169,6 +173,14 @@ function ApiKeyTab() {
       >
         Créer une clé dans la console SpicyAPI <ExternalLink className="h-3 w-3" />
       </a>
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title="Supprimer la clé API ?"
+        description="Tu ne pourras plus générer tant que tu n’as pas ajouté une nouvelle clé."
+        pending={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
     </Section>
   )
 }
@@ -393,22 +405,85 @@ function PresetsTab() {
 
 function AccountTab() {
   const queryClient = useQueryClient()
-  const { user } = Route.useRouteContext()
+  const { user: ctxUser } = Route.useRouteContext()
+  const { data } = useQuery({ ...sessionQueryOptions(), initialData: ctxUser })
+  const user = data ?? ctxUser
   const [name, setName] = useState(user.name)
-  const save = useMutation({
-    mutationFn: () => authApi.updateMe({ name }),
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const update = useMutation({
+    mutationFn: (body: { name?: string; avatarAssetId?: string | null }) => authApi.updateMe(body),
     onSuccess: ({ user: u }) => {
       queryClient.setQueryData(SESSION_QUERY_KEY, u)
-      toast.success('Nom mis à jour')
+      toast.success('Compte mis à jour')
     },
+    onError: (e) => toast.error((e as Error).message),
   })
+
+  const onAvatar = async (file: File | undefined) => {
+    if (!file) return
+    setUploading(true)
+    try {
+      const { asset } = await assetsApi.upload(file)
+      update.mutate({ avatarAssetId: asset.id })
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   return (
     <Section title="Compte" description={user.email}>
-      <div className="flex gap-2">
-        <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
-        <Button onClick={() => save.mutate()} disabled={!name.trim() || name === user.name}>
-          Enregistrer
-        </Button>
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full bg-secondary"
+          aria-label="Changer la photo de profil"
+        >
+          {user.avatarUrl ? (
+            <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center text-lg font-semibold">
+              {initials(user.name)}
+            </span>
+          )}
+          <span className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition group-hover:opacity-100">
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Camera className="h-4 w-4 text-white" />}
+          </span>
+        </button>
+        <div className="space-y-1.5">
+          <div className="text-sm font-medium">Photo de profil</div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              Choisir une image
+            </Button>
+            {user.avatarUrl && (
+              <Button variant="ghost" size="sm" onClick={() => update.mutate({ avatarAssetId: null })}>
+                Retirer
+              </Button>
+            )}
+          </div>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => onAvatar(e.target.files?.[0])}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Nom</Label>
+        <div className="flex gap-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+          <Button onClick={() => update.mutate({ name })} disabled={!name.trim() || name === user.name}>
+            Enregistrer
+          </Button>
+        </div>
       </div>
     </Section>
   )

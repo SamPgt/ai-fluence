@@ -78,7 +78,7 @@ export const authApi = {
   login: (body: LoginRequest) => apiFetch<AuthResponse>('/auth/login', { method: 'POST', body }),
   signup: (body: SignupRequest) => apiFetch<AuthResponse>('/auth/signup', { method: 'POST', body }),
   logout: () => apiFetch<{ ok: true }>('/auth/logout', { method: 'POST' }),
-  updateMe: (body: { name: string }) => apiFetch<AuthResponse>('/auth/me', { method: 'PATCH', body }),
+  updateMe: (body: { name?: string; avatarAssetId?: string | null }) => apiFetch<AuthResponse>('/auth/me', { method: 'PATCH', body }),
 }
 
 export const settingsApi = {

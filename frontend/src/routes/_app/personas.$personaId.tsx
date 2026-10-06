@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModelBadge } from '@/components/ui/model-badge'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -52,6 +53,7 @@ function PersonaEditor({ persona }: { persona: Persona }) {
   const queryClient = useQueryClient()
   const [, setSelected] = useUiPref('personaId')
   const [draft, setDraft] = useState<Persona>(persona)
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const avatarRef = useRef<HTMLInputElement>(null)
   const dirty = JSON.stringify(draft) !== JSON.stringify(persona)
 
@@ -292,13 +294,21 @@ function PersonaEditor({ persona }: { persona: Persona }) {
             <Button
               variant="ghost"
               className="text-destructive-foreground"
-              onClick={() => confirm(`Supprimer ${persona.name} ? Les fils et les fichiers sont conservés.`) && remove.mutate()}
+              onClick={() => setConfirmRemove(true)}
             >
               <Trash2 className="h-4 w-4" /> Supprimer le persona
             </Button>
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title={`Supprimer ${persona.name} ?`}
+        description="Ses fils, ses images et ses vidéos sont conservés, seul le persona est retiré."
+        pending={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
     </>
   )
 }

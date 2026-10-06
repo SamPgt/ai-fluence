@@ -125,9 +125,14 @@ export function PersonaRail({ user }: { user: User }) {
   }
 
   return (
-    <nav className="flex w-[64px] shrink-0 flex-col items-center gap-2 border-r border-border/40 bg-sidebar py-3">
+    <nav className="flex w-[62px] shrink-0 flex-col items-center gap-2 border-r border-border/40 bg-sidebar py-3">
       {/* Marque de l'app : simple logo, non cliquable. */}
-      <img src="/logo.svg" alt="AI Fluence" className="pointer-events-none mb-1 h-8 w-8 select-none" draggable={false} />
+      <img
+        src="/logo.svg"
+        alt="AI Fluence"
+        className="pointer-events-none mb-1 h-8 w-8 select-none"
+        draggable={false}
+      />
 
       <Bubble
         active={personaId === ''}
@@ -180,10 +185,14 @@ export function PersonaRail({ user }: { user: User }) {
         <DropdownMenuTrigger asChild>
           <button
             aria-label="Menu utilisateur"
-            className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-secondary text-sm font-semibold text-secondary-foreground ring-offset-2 ring-offset-sidebar transition hover:ring-2 hover:ring-border"
+            className="flex h-9.25 w-9.25 items-center justify-center overflow-hidden rounded-full bg-secondary text-sm font-semibold text-secondary-foreground ring-offset-2 ring-offset-sidebar transition hover:ring-2 hover:ring-border"
           >
             {user.avatarUrl ? (
-              <img src={user.avatarUrl} alt={user.name} className="h-full w-full object-cover" />
+              <img
+                src={user.avatarUrl}
+                alt={user.name}
+                className="h-full w-full object-cover"
+              />
             ) : (
               initials(user.name)
             )}
@@ -204,7 +213,7 @@ export function PersonaRail({ user }: { user: User }) {
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem onClick={logout} variant="destructive">
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-4 w-4 text-red-500" />
             Déconnexion
           </DropdownMenuItem>
         </DropdownMenuContent>

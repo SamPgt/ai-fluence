@@ -53,7 +53,7 @@ export function ChatListItem({ thread, isActive, onDelete, onTogglePin }: ChatLi
                 rename.mutate({ id: thread.id, title })
               }}
               onCancel={() => setEditing(false)}
-              className="h-6 text-foreground"
+              className="block h-5 leading-5"
             />
           ) : (
             <span className="block truncate" title="Double-clic pour renommer">

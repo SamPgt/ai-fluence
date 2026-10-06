@@ -3,7 +3,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Wallet } from 'lucide-react'
 
 import { threadsApi } from '@/lib/api'
-import { balanceQuery, personasQuery, qk, settingsQuery, threadsQuery } from '@/lib/queries'
+import {
+  balanceQuery,
+  personasQuery,
+  qk,
+  settingsQuery,
+  threadsQuery,
+} from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useUiPref } from '@/components/providers/ui-prefs'
@@ -13,7 +19,11 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
-  return <div className="px-2 pt-3 pb-1 text-xs font-semibold text-muted-foreground/80">{children}</div>
+  return (
+    <div className="px-2 pt-3 pb-1 text-xs font-semibold text-muted-foreground/80">
+      {children}
+    </div>
+  )
 }
 
 export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
@@ -27,7 +37,8 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
   const { data: settings } = useQuery(settingsQuery())
   const { data: balance } = useQuery(balanceQuery(Boolean(settings?.hasApiKey)))
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: qk.threadsAll })
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: qk.threadsAll })
 
   const remove = useMutation({
     mutationFn: (id: string) => threadsApi.remove(id),
@@ -37,7 +48,8 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
     },
   })
   const togglePin = useMutation({
-    mutationFn: (t: { id: string; isPinned: boolean }) => threadsApi.update(t.id, { isPinned: !t.isPinned }),
+    mutationFn: (t: { id: string; isPinned: boolean }) =>
+      threadsApi.update(t.id, { isPinned: !t.isPinned }),
     onSuccess: invalidate,
   })
 
@@ -54,7 +66,9 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
       <div className="flex h-full w-72 flex-col">
         <div className="space-y-3 p-3">
           <div className="flex items-center justify-between px-1">
-            <span className="truncate text-sm font-semibold">{persona ? persona.name : 'Tous les fils'}</span>
+            <span className="truncate text-sm font-semibold">
+              {persona ? persona.name : 'Tous les fils'}
+            </span>
             {persona && (
               <Link
                 to="/personas/$personaId"
@@ -70,7 +84,7 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
             className="w-full gap-2 border border-violet-400/30 font-medium text-white brand-gradient brand-shadow transition-all duration-150 hover:opacity-90 active:scale-[0.99]"
             size="sm"
           >
-            <Plus className="h-4 w-4" />
+            <Plus strokeWidth={2.1} className="h-4 w-4" />
             Nouveau fil
           </Button>
           <ChatSearchDialog />
@@ -107,7 +121,8 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
             ))}
             {threads.length === 0 && (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                Aucun fil{persona ? ` pour ${persona.name}` : ''} pour l’instant.
+                Aucun fil{persona ? ` pour ${persona.name}` : ''} pour
+                l’instant.
               </p>
             )}
           </div>
@@ -123,7 +138,10 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
             <span className="text-amber-300">Clé API manquante</span>
           ) : (
             <span>
-              Crédit SpicyAPI : <span className="font-medium text-foreground">{balance ? formatUsd(balance.available) : '…'}</span>
+              Crédit SpicyAPI :{' '}
+              <span className="font-medium text-foreground">
+                {balance ? formatUsd(balance.available) : '…'}
+              </span>
             </span>
           )}
         </Link>

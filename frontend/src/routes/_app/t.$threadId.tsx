@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react'
 
 import { personasQuery, threadQuery } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
 import { Composer } from '@/components/composer/Composer'
@@ -48,27 +49,35 @@ function ThreadPage() {
             <PersonaAvatar persona={persona} size={24} className="rounded-md" />
           </Link>
         )}
-        {/* Clic sur le titre : renommer le fil. */}
-        {editingTitle && data ? (
-          <InlineEdit
-            value={data.thread.title}
-            onSubmit={(title) => {
-              setEditingTitle(false)
-              rename.mutate({ id: threadId, title })
-            }}
-            onCancel={() => setEditingTitle(false)}
-            className="h-8 max-w-xl font-medium"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditingTitle(true)}
-            title="Renommer le fil"
-            className="min-w-0 truncate rounded-md px-1.5 py-0.5 text-left text-sm font-medium transition-colors hover:bg-accent"
-          >
-            {data?.thread.title ?? ''}
-          </button>
-        )}
+        {/* Clic sur le titre : renommer le fil. Le conteneur porte padding, police et hauteur de ligne,
+            pour que le texte ne bouge pas d'un pixel entre l'affichage et l'édition. */}
+        <div
+          className={cn(
+            'min-w-0 rounded-md px-1.5 py-0.5 text-sm leading-5 font-medium transition-colors',
+            editingTitle ? 'w-full max-w-xl bg-accent' : 'hover:bg-accent',
+          )}
+        >
+          {editingTitle && data ? (
+            <InlineEdit
+              value={data.thread.title}
+              onSubmit={(title) => {
+                setEditingTitle(false)
+                rename.mutate({ id: threadId, title })
+              }}
+              onCancel={() => setEditingTitle(false)}
+              className="block h-5 leading-5 font-medium"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingTitle(true)}
+              title="Renommer le fil"
+              className="block w-full truncate text-left"
+            >
+              {data?.thread.title ?? ''}
+            </button>
+          )}
+        </div>
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto">

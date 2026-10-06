@@ -1,46 +1,123 @@
 # AI Fluence
 
-Studio local de génération photo et vidéo pour du contenu d'influenceurs IA et de pages art, branché sur [SpicyAPI](https://spicyapi.ai).
+AI Fluence est un studio local pour créer du contenu d'**influenceurs IA** et de **pages art** (images et vidéos), dans une interface de type chat.
 
-## Démarrer
+Chaque personnage ou page art est un **persona** : une bulle dans la barre de gauche, avec sa LoRA, ses images de référence, sa personnalité et ses prompts automatiques. Tu écris une idée, tu ajoutes des références si besoin, tu choisis un modèle, et le résultat arrive dans le fil, avec son coût.
+
+Toutes les générations passent par [SpicyAPI](https://spicyapi.ai), qui donne accès à une centaine de modèles photo et vidéo avec une seule clé.
+
+> ⚠️ **Une clé API SpicyAPI est obligatoire pour générer.** Sans clé, l'app s'ouvre mais aucun modèle n'est disponible. Voir [Clé API SpicyAPI](#clé-api-spicyapi).
+
+## Fonctionnalités
+
+- **Fil de génération** : chaque demande (prompt, références, modèle, paramètres) et son résultat restent dans un fil, renommable et épinglable, avec une recherche (⌘K).
+- **16 modèles choisis** pour l'usage, classés par badge :
+  - `LORA` : accepte une LoRA de personnage (Qwen Image 2512, Z-Image Turbo, FLUX.1 Dev, MiniMax H3, Wan 2.2, LTX 2.3) ;
+  - `REF` : garde la cohérence grâce à des images de référence (Seedream 5.0 Pro, Seedance 2.5, Wan 3.0, HappyHorse…) ;
+  - `PERF` : qualité de rendu, pour l'art et le fun (Seedream, Qwen Image 3.0 Pro, GPT Image 2.5, Kling 3.0…).
+- **Tâche choisie automatiquement** selon les pièces jointes : texte → image, image → image, image → vidéo, références → vidéo.
+- **Paramètres générés depuis le schéma live** de chaque modèle (format, résolution, durée, seed…).
+- **Prix affiché avant de générer** (devis exact et gratuit), puis coût réel, total par fil et crédit restant.
+- **Personas** : LoRA avec mot déclencheur, suffixe de prompt, bibliothèque de références, personnalité utilisée par le bouton « Améliorer » (réécriture du prompt par un modèle texte), modèles par défaut.
+- **Actions sur un résultat** : Varier, Éditer, Animer, Ajouter aux références, Relancer avec un autre modèle, Télécharger.
+- **Galerie** de tous les résultats, filtrable par persona et par type.
+- **Plusieurs comptes** en local (mot de passe hashé en bcrypt), chacun avec sa propre clé API.
+- **Fichiers en local** : chaque image et vidéo est téléchargée sur ton disque, rangée par persona puis par jour.
+
+## Stack technique
+
+| Partie | Technos |
+| --- | --- |
+| Front (`frontend/`) | TanStack Start, TanStack Router, TanStack Query, React 19, shadcn/ui (Radix), Tailwind CSS 4, Vite 8 |
+| Back (`backend/`) | Hono sur Node.js, Drizzle ORM, PostgreSQL, SDK officiel `@spicyapi/sdk`, bcrypt |
+| Partagé (`shared/`) | Registre des modèles, choix de la tâche, construction de la requête SpicyAPI, types d'API |
+
+Monorepo npm workspaces. Le front est un fork de [rs-4/tanstack-ai-demo](https://github.com/rs-4/tanstack-ai-demo) (licence MIT). Le code du fork qui n'est pas utilisé est gardé dans `archives/` comme référence.
+
+## Prérequis
+
+- **Node.js 22.13 ou plus récent**
+- **PostgreSQL** en local, avec une base vide nommée `ai-fluence`
+- **Un compte SpicyAPI** avec une clé API et un peu de crédit
+
+## Installation
 
 ```bash
 npm install
+cp backend/.env.example backend/.env
+```
+
+Puis remplir `backend/.env` :
+
+| Variable | Rôle |
+| --- | --- |
+| `DATABASE_URL` | Connexion Postgres, par exemple `postgresql://<user>@localhost:5432/ai-fluence` |
+| `APP_SECRET` | 64 caractères hex, pour chiffrer les clés API en base (`openssl rand -hex 32`) |
+| `API_PORT` | Port de l'API Hono (3470 par défaut) |
+| `CLIENT_URL` | URL du front (http://localhost:3070 par défaut) |
+| `DATA_DIR` | Dossier des fichiers générés (`~/Documents/ai-influence-app` par défaut) |
+| `spicyApiKey` | Facultatif, utilisé seulement par le serveur MCP SpicyAPI de `.mcp.json` |
+
+## Lancer l'app
+
+```bash
 npm run dev
 ```
 
-Une seule commande : elle applique les migrations, lance l'API Hono (port 3470), attend qu'elle réponde, puis lance le front (port 3070). Ouvrir http://localhost:3070.
+Une seule commande. Elle applique les migrations, lance l'API Hono (port 3470), attend qu'elle réponde, puis lance le front (port 3070).
 
-Prérequis : Node 22.13+, un Postgres local avec une base `ai-fluence`, et `backend/.env` rempli (voir `backend/.env.example`).
+Ouvre ensuite http://localhost:3070, crée un compte, puis ajoute ta clé API.
 
-## Stack
+## Clé API SpicyAPI
 
-- `frontend/` : TanStack Start + Router, TanStack Query, shadcn/ui, Tailwind 4. Base forkée de [rs-4/tanstack-ai-demo](https://github.com/rs-4/tanstack-ai-demo), le code non utilisé est rangé dans `archives/`.
-- `backend/` : Hono sur Node, Drizzle + Postgres, SDK officiel `@spicyapi/sdk`.
-- `shared/` : registre des modèles, logique de choix de tâche et de construction de l'`input`, types d'API.
+L'app ne génère rien sans clé. Pour l'obtenir :
 
-## Comment ça marche
+1. Crée un compte sur [spicyapi.ai](https://spicyapi.ai/register) et vérifie ton adresse e-mail (sans vérification, SpicyAPI refuse les générations).
+2. Crée une clé sur la [page des clés](https://spicyapi.ai/console/keys). Elle commence par `sk-spicy-` et n'est affichée qu'une fois.
+3. Ajoute du crédit dans [Billing](https://spicyapi.ai/console/billing). Une image coûte entre 0,002 $ et 0,10 $ environ, une vidéo de 5 s entre 0,10 $ et 1 $ selon le modèle.
+4. Dans l'app : avatar en bas à gauche → **Paramétrage** → onglet **Clé API**, colle la clé et enregistre.
 
-1. Le composer envoie prompt, modèle, paramètres et références au backend.
-2. Le backend choisit la tâche selon les pièces jointes (texte → image, image → image, image → vidéo, références → vidéo), ajoute la LoRA, le mot déclencheur et le suffixe du persona, uploade les références chez SpicyAPI, puis demande un devis gratuit (affiché avant le clic).
-3. Au clic, la tâche est créée avec ce devis. Le backend la suit jusqu'au bout, télécharge le résultat dans le dossier local et enregistre le coût réel.
+La clé est vérifiée auprès de SpicyAPI, puis stockée **chiffrée** en base (AES-256-GCM). Elle n'est jamais renvoyée au navigateur, seuls ses 4 derniers caractères sont affichés.
 
-Les fichiers sont rangés dans `~/Documents/ai-influence-app/media/<utilisateur>/<persona>/<jour>/` (modifiable dans Paramétrage → Stockage). Supprimer un fil ne supprime jamais les fichiers.
+## Où sont les fichiers
+
+```
+~/Documents/ai-influence-app/media/<compte>/
+├── <persona>/<jour>/        résultats générés
+├── sans-persona/<jour>/
+└── references/<persona>/    images importées (références, avatars)
+```
+
+Le dossier se change dans Paramétrage → Stockage. Supprimer un fil ou un persona **ne supprime jamais les fichiers**.
+
+## LoRA
+
+- SpicyAPI n'entraîne pas de LoRA, il les utilise. Entraîne ta LoRA ailleurs (fal, Muapi, ai-toolkit en local), puis colle son lien dans le persona.
+- Le lien doit être **public** et **direct** vers le fichier `.safetensors` (Hugging Face, Civitai). SpicyAPI le vérifie dès le devis.
+- Une LoRA ne fonctionne que sur le modèle pour lequel elle a été entraînée : indique ce modèle dans le persona.
 
 ## Ajouter un modèle
 
-Ajouter une ligne dans `shared/src/models.ts` (l'id est le préfixe des model IDs SpicyAPI, par exemple `bytedance/seedream-5.0-pro`) avec ses badges `LORA`, `REF` ou `PERF`. Les champs du formulaire viennent du schéma live du modèle, il n'y a rien d'autre à coder.
+Ajoute une ligne dans `shared/src/models.ts` avec l'identifiant de la famille SpicyAPI (par exemple `bytedance/seedream-5.0-pro`) et ses badges. Le formulaire de paramètres se construit tout seul à partir du schéma live du modèle.
 
 ## Base de données
 
 ```bash
 npm run db:generate   # après une modification de backend/src/db/schema.ts
 npm run db:migrate    # aussi lancé automatiquement par npm run dev
+npm run typecheck     # shared + backend + frontend
 ```
 
-## Notes
+## Structure
 
-- La clé API SpicyAPI se saisit par compte dans Paramétrage → Clé API. Elle est vérifiée, puis chiffrée en base (AES-256-GCM, clé `APP_SECRET`).
-- Les LoRA doivent être un lien `https` public et direct vers le `.safetensors`. SpicyAPI le vérifie dès le devis.
-- Pas de build de production pour l'instant (nitro retiré, conflit de peer avec vite 8). À remettre le jour d'un déploiement.
-- Déploiement futur : front sur Vercel, back sur Railway, pas de Docker.
+```
+ai-fluence/
+├── frontend/   TanStack Start (routes, composer, fil, paramétrage, personas, galerie)
+├── backend/    Hono (auth, SpicyAPI, suivi des tâches, médias, personas, fils)
+├── shared/     modèles, logique d'input, types d'API
+└── archives/   code du fork non utilisé, gardé comme référence
+```
+
+## Déploiement
+
+Pour l'instant, c'est un outil local. Si l'app passe un jour en web : front sur Vercel, back sur Railway, pas de Docker. Il faudra alors remettre nitro pour le build du front (retiré à cause d'un conflit de version avec Vite 8) et remplacer le stockage disque par un stockage objet (S3 ou R2). Tout le stockage passe par `backend/src/services/storage.service.ts`, c'est le seul fichier à adapter.
