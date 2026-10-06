@@ -1,0 +1,455 @@
+/**
+ * Cœur de l'app : prépare l'input SpicyAPI (tâche, références, LoRA du persona),
+ * demande le devis, crée la tâche, puis suit la tâche jusqu'au résultat et
+ * télécharge les fichiers dans le dossier local de l'utilisateur.
+ */
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import type { SpicyClient, TaskRecord } from '@spicyapi/sdk';
+import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { HTTPException } from 'hono/http-exception';
+import {
+  buildInput,
+  getFamily,
+  resolveTask,
+  type CreateGenerationResponse,
+  type Generation,
+  type GenerationRequest,
+  type LoraEntry,
+  type QuoteResponse,
+  type TaskKind,
+} from '@ai-fluence/shared';
+import { db } from '../db/index.js';
+import { assets, generations, personas, threads, users } from '../db/schema.js';
+import type { SessionUser } from '../types.js';
+import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
+import { callSpicy, clientForUser, getCatalog, toHttpError } from './spicy.service.js';
+import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
+import { toAsset, toGeneration, toThread } from './serialize.js';
+
+type AssetRow = typeof assets.$inferSelect;
+type PersonaRow = typeof personas.$inferSelect;
+
+/** Marge avant expiration d'un upload SpicyAPI (valable 24 h). */
+const UPLOAD_SAFETY_MS = 60 * 60 * 1000;
+
+async function ensureSpicyUri(client: SpicyClient, asset: AssetRow): Promise<string> {
+  if (asset.spicyUri && asset.spicyUriExpiresAt && asset.spicyUriExpiresAt.getTime() - Date.now() > UPLOAD_SAFETY_MS) {
+    return asset.spicyUri;
+  }
+  const uploaded = await callSpicy(() => client.uploadFile(asset.filePath));
+  await db
+    .update(assets)
+    .set({ spicyUri: uploaded.uri, spicyUriExpiresAt: new Date(uploaded.expiresAt) })
+    .where(eq(assets.id, asset.id));
+  return uploaded.uri;
+}
+
+interface Prepared {
+  client: SpicyClient;
+  task: TaskKind;
+  modelId: string;
+  input: Record<string, unknown>;
+  finalPrompt: string;
+  persona: PersonaRow | null;
+  references: AssetRow[];
+  dropped: number;
+  lorasApplied: number;
+}
+
+async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepared> {
+  const def = getFamily(req.family);
+  if (!def) throw new HTTPException(400, { message: 'Modèle inconnu.' });
+
+  const catalog = await getCatalog(user.id);
+  const family = catalog.families.find(f => f.id === req.family);
+  if (!family?.available) throw new HTTPException(400, { message: `${def.label} n'est pas disponible avec cette clé.` });
+
+  let persona: PersonaRow | null = null;
+  if (req.personaId) {
+    [persona] = await db
+      .select()
+      .from(personas)
+      .where(and(eq(personas.id, req.personaId), eq(personas.userId, user.id)))
+      .limit(1);
+    if (!persona) throw new HTTPException(404, { message: 'Persona introuvable.' });
+  }
+
+  let references: AssetRow[] = [];
+  if (req.referenceAssetIds.length) {
+    const rows = await db
+      .select()
+      .from(assets)
+      .where(and(eq(assets.userId, user.id), inArray(assets.id, req.referenceAssetIds)));
+    const byId = new Map(rows.map(r => [r.id, r]));
+    references = req.referenceAssetIds.map(id => byId.get(id)).filter((r): r is AssetRow => Boolean(r));
+  }
+
+  const images = references.filter(r => r.mediaType === 'image');
+  const videos = references.filter(r => r.mediaType === 'video');
+  const resolution = resolveTask(
+    def.media,
+    Object.keys(family.tasks) as TaskKind[],
+    { images: images.length, videos: videos.length },
+    req.refMode,
+  );
+  if (!resolution.ok) throw new HTTPException(400, { message: resolution.reason });
+  const endpoint = family.tasks[resolution.task]!;
+
+  const loras: LoraEntry[] = (persona?.loras ?? [])
+    .filter(l => l.family === req.family && l.path)
+    .map(l => ({ path: l.path, scale: l.scale, noise: l.noise }));
+
+  const client = await clientForUser(user.id);
+  const [imageUris, videoUris] = await Promise.all([
+    Promise.all(images.map(a => ensureSpicyUri(client, a))),
+    Promise.all(videos.map(a => ensureSpicyUri(client, a))),
+  ]);
+
+  // Le mot déclencheur n'a de sens que si une LoRA du persona est appliquée.
+  const willApplyLoras = loras.length > 0;
+  const parts = [
+    willApplyLoras && persona?.triggerWord ? persona.triggerWord.trim() : '',
+    req.prompt.trim(),
+  ].filter(Boolean);
+  let finalPrompt = parts.join(' ');
+  if (persona?.promptSuffix.trim()) finalPrompt = `${finalPrompt}${finalPrompt ? ', ' : ''}${persona.promptSuffix.trim()}`;
+
+  const built = buildInput({
+    schema: endpoint.schema,
+    task: resolution.task,
+    prompt: finalPrompt,
+    params: req.params ?? {},
+    images: imageUris,
+    videos: videoUris,
+    loras,
+  });
+
+  const required = endpoint.schema.required ?? [];
+  if (required.includes('prompt') && !built.input.prompt) {
+    throw new HTTPException(400, { message: 'Ce modèle a besoin d’un prompt.' });
+  }
+
+  return {
+    client,
+    task: resolution.task,
+    modelId: endpoint.modelId,
+    input: built.input,
+    finalPrompt,
+    persona,
+    references,
+    dropped: built.dropped,
+    lorasApplied: built.lorasApplied,
+  };
+}
+
+export async function quoteGeneration(user: SessionUser, req: GenerationRequest): Promise<QuoteResponse> {
+  const p = await prepare(user, req);
+  const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
+  return {
+    task: p.task,
+    modelId: p.modelId,
+    estimatedCost: quote.estimatedCost,
+    maxCharge: quote.maxCharge,
+    quantity: quote.quantity,
+    unit: quote.unit,
+    expiresAt: quote.expiresAt,
+    dropped: p.dropped,
+    lorasApplied: p.lorasApplied,
+  };
+}
+
+export class PriceChangedError extends Error {
+  constructor(public quote: QuoteResponse) {
+    super('price_changed');
+  }
+}
+
+export async function createGeneration(
+  user: SessionUser,
+  req: GenerationRequest,
+): Promise<CreateGenerationResponse> {
+  const p = await prepare(user, req);
+  const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
+
+  // Le devis affiché au clic vaut confirmation ; s'il a augmenté entre-temps, on redemande.
+  if (req.expectedCost !== undefined && Number(quote.estimatedCost) > Number(req.expectedCost) + 1e-9) {
+    throw new PriceChangedError({
+      task: p.task,
+      modelId: p.modelId,
+      estimatedCost: quote.estimatedCost,
+      maxCharge: quote.maxCharge,
+      quantity: quote.quantity,
+      unit: quote.unit,
+      expiresAt: quote.expiresAt,
+      dropped: p.dropped,
+      lorasApplied: p.lorasApplied,
+    });
+  }
+
+  // Fil : existant (vérifié) ou créé à partir du prompt.
+  let thread: typeof threads.$inferSelect | undefined;
+  if (req.threadId) {
+    [thread] = await db
+      .select()
+      .from(threads)
+      .where(and(eq(threads.id, req.threadId), eq(threads.userId, user.id)))
+      .limit(1);
+    if (!thread) throw new HTTPException(404, { message: 'Fil introuvable.' });
+  } else {
+    const title = req.prompt.trim().slice(0, 60) || getFamily(req.family)!.label;
+    [thread] = await db
+      .insert(threads)
+      .values({ userId: user.id, personaId: p.persona?.id ?? null, title })
+      .returning();
+  }
+
+  const idempotencyKey = randomUUID();
+  const [row] = await db
+    .insert(generations)
+    .values({
+      threadId: thread.id,
+      userId: user.id,
+      personaId: p.persona?.id ?? thread.personaId,
+      prompt: req.prompt,
+      finalPrompt: p.finalPrompt,
+      family: req.family,
+      modelId: p.modelId,
+      task: p.task,
+      refMode: req.refMode ?? 'start-frame',
+      params: req.params ?? {},
+      input: p.input,
+      referenceAssetIds: p.references.map(r => r.id),
+      lorasApplied: p.lorasApplied,
+      idempotencyKey,
+      estimatedCost: quote.estimatedCost,
+    })
+    .returning();
+
+  try {
+    const accepted = await p.client.createTask(
+      { model: p.modelId, input: p.input, quoteId: quote.quoteId, expectedCost: quote.estimatedCost },
+      { idempotencyKey },
+    );
+    await db
+      .update(generations)
+      .set({ spicyTaskId: accepted.taskId, estimatedCost: accepted.estimatedCost })
+      .where(eq(generations.id, row.id));
+  } catch (err) {
+    const httpErr = toHttpError(err);
+    await db
+      .update(generations)
+      .set({ status: 'failed', errorCode: 'create_failed', errorMessage: httpErr.message, completedAt: new Date() })
+      .where(eq(generations.id, row.id));
+  }
+
+  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, thread.id));
+  void watchGeneration(row.id);
+
+  const [generation] = await loadGenerations(user.id, { ids: [row.id] });
+  return { generation, thread: toThread(thread) };
+}
+
+// ── Lecture ───────────────────────────────────────────────────
+
+export async function loadGenerations(
+  userId: string,
+  filter: { threadId?: string; ids?: string[] },
+): Promise<Generation[]> {
+  const where = [eq(generations.userId, userId)];
+  if (filter.threadId) where.push(eq(generations.threadId, filter.threadId));
+  if (filter.ids) where.push(inArray(generations.id, filter.ids));
+  const rows = await db
+    .select()
+    .from(generations)
+    .where(and(...where))
+    .orderBy(asc(generations.createdAt));
+  if (!rows.length) return [];
+
+  const refIds = [...new Set(rows.flatMap(r => r.referenceAssetIds))];
+  const [refRows, outputRows] = await Promise.all([
+    refIds.length ? db.select().from(assets).where(inArray(assets.id, refIds)) : Promise.resolve([]),
+    db
+      .select()
+      .from(assets)
+      .where(inArray(assets.generationId, rows.map(r => r.id)))
+      .orderBy(asc(assets.createdAt)),
+  ]);
+  const refsById = new Map(refRows.map(a => [a.id, toAsset(a)]));
+  return rows.map(r =>
+    toGeneration(
+      r,
+      r.referenceAssetIds.map(id => refsById.get(id)).filter(Boolean) as ReturnType<typeof toAsset>[],
+      outputRows.filter(a => a.generationId === r.id && a.kind === 'output').map(toAsset),
+    ),
+  );
+}
+
+// ── Suivi des tâches ──────────────────────────────────────────
+
+const watching = new Set<string>();
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const MAX_WATCH_MS = 3 * 60 * 60 * 1000;
+
+export async function watchGeneration(generationId: string): Promise<void> {
+  if (watching.has(generationId)) return;
+  watching.add(generationId);
+  try {
+    const [row] = await db.select().from(generations).where(eq(generations.id, generationId)).limit(1);
+    if (!row?.spicyTaskId || row.status === 'succeeded' || row.status === 'failed') return;
+    const client = await clientForUser(row.userId);
+    const interval = row.task.includes('video') ? 5000 : 2500;
+    const started = Date.now();
+    let failures = 0;
+
+    while (Date.now() - started < MAX_WATCH_MS) {
+      let record: TaskRecord;
+      try {
+        record = await client.getTask(row.spicyTaskId);
+        failures = 0;
+      } catch (err) {
+        if (++failures > 20) throw err;
+        await sleep(Math.min(30000, interval * failures));
+        continue;
+      }
+
+      if (record.state === 'running' || record.state === 'queued') {
+        await db
+          .update(generations)
+          .set({ status: record.state, estimatedCost: record.cost })
+          .where(and(eq(generations.id, row.id), inArray(generations.status, ['queued', 'running'])));
+        await sleep(interval);
+        continue;
+      }
+
+      if (record.state === 'succeeded') {
+        const pending = record.output?.assets?.some(a => a.pending);
+        if (pending) {
+          await sleep(interval);
+          continue;
+        }
+        await handleSuccess(row, record);
+      } else {
+        await db
+          .update(generations)
+          .set({
+            status: 'failed',
+            errorCode: record.errorCode ?? record.state,
+            errorMessage:
+              record.errorMessage ?? (record.state === 'expired' ? 'La tâche a expiré.' : 'La génération a échoué.'),
+            cost: record.cost,
+            settled: record.settled,
+            completedAt: new Date(),
+          })
+          .where(eq(generations.id, row.id));
+      }
+      if (!record.settled) void settleLater(row.id, row.userId, row.spicyTaskId);
+      return;
+    }
+    await db
+      .update(generations)
+      .set({ status: 'failed', errorCode: 'timeout', errorMessage: 'Suivi interrompu : la tâche est trop longue.', completedAt: new Date() })
+      .where(eq(generations.id, row.id));
+  } catch (err) {
+    console.error(`[watch] ${generationId}:`, (err as Error).message);
+    await db
+      .update(generations)
+      .set({ status: 'failed', errorCode: 'watch_failed', errorMessage: (err as Error).message, completedAt: new Date() })
+      .where(and(eq(generations.id, generationId), inArray(generations.status, ['queued', 'running'])));
+  } finally {
+    watching.delete(generationId);
+  }
+}
+
+async function handleSuccess(row: typeof generations.$inferSelect, record: TaskRecord) {
+  const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, row.userId)).limit(1);
+  const settings = await getSettingsRow(row.userId);
+  const baseDir = mediaDirOf(user, settings);
+  let personaFolder = 'sans-persona';
+  if (row.personaId) {
+    const [p] = await db.select({ name: personas.name }).from(personas).where(eq(personas.id, row.personaId)).limit(1);
+    if (p) personaFolder = slug(p.name);
+  }
+  const dir = join(baseDir, personaFolder, dayFolder());
+
+  const outputs = (record.output?.assets ?? []).filter(a => a.url && !a.unavailable);
+  if (!outputs.length) throw new Error('La tâche a réussi mais aucun fichier n’est disponible.');
+
+  let index = 0;
+  for (const out of outputs) {
+    const mime = out.mime ?? 'application/octet-stream';
+    let data: Uint8Array | null = null;
+    for (let attempt = 0; attempt < 3 && !data; attempt++) {
+      // Jamais de clé API sur les URL signées.
+      const res = await fetch(out.url!).catch(() => null);
+      if (res?.ok) data = new Uint8Array(await res.arrayBuffer());
+      else await sleep(2000);
+    }
+    if (!data) throw new Error('Téléchargement du résultat impossible.');
+    const filePath = join(dir, `${row.id.slice(0, 8)}-${index++}.${extFor(mime)}`);
+    const saved = await saveFile(filePath, data);
+    await db.insert(assets).values({
+      userId: row.userId,
+      personaId: row.personaId,
+      generationId: row.id,
+      kind: 'output',
+      mediaType: mediaTypeOf(mime),
+      mime,
+      filePath: saved.path,
+      bytes: saved.bytes,
+      width: out.width ?? null,
+      height: out.height ?? null,
+      durationSeconds: out.durationSeconds ?? null,
+    });
+  }
+
+  const seed = typeof record.input?.seed === 'number' ? (record.input.seed as number) : null;
+  await db
+    .update(generations)
+    .set({
+      status: 'succeeded',
+      cost: record.cost,
+      settled: record.settled,
+      seed,
+      completedAt: record.completedAt ? new Date(record.completedAt) : new Date(),
+    })
+    .where(eq(generations.id, row.id));
+  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
+}
+
+/** Le coût final peut arriver après la fin de la tâche : on le relit quelques fois. */
+async function settleLater(generationId: string, userId: string, taskId: string) {
+  const client = await clientForUser(userId).catch(() => null);
+  if (!client) return;
+  for (let i = 0; i < 10; i++) {
+    await sleep(20000);
+    const record = await client.getTask(taskId).catch(() => null);
+    if (record?.settled) {
+      await db.update(generations).set({ cost: record.cost, settled: true }).where(eq(generations.id, generationId));
+      return;
+    }
+  }
+}
+
+/** Au démarrage : reprend le suivi des tâches en cours, termine celles jamais acceptées. */
+export async function resumeWatchers(): Promise<void> {
+  const pending = await db
+    .select({ id: generations.id, spicyTaskId: generations.spicyTaskId, createdAt: generations.createdAt })
+    .from(generations)
+    .where(inArray(generations.status, ['queued', 'running']));
+  for (const g of pending) {
+    if (g.spicyTaskId) void watchGeneration(g.id);
+    else if (Date.now() - g.createdAt.getTime() > 5 * 60 * 1000) {
+      await db
+        .update(generations)
+        .set({ status: 'failed', errorCode: 'interrupted', errorMessage: 'Création interrompue (serveur redémarré).', completedAt: new Date() })
+        .where(eq(generations.id, g.id));
+    }
+  }
+  const unsettled = await db
+    .select({ id: generations.id, userId: generations.userId, spicyTaskId: generations.spicyTaskId })
+    .from(generations)
+    .where(and(eq(generations.settled, false), isNotNull(generations.spicyTaskId), inArray(generations.status, ['succeeded', 'failed'])));
+  for (const g of unsettled) void settleLater(g.id, g.userId, g.spicyTaskId!);
+  if (pending.length) console.log(`↻ Reprise du suivi de ${pending.length} génération(s)`);
+}

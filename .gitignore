@@ -1,3 +1,14 @@
 .env
+.env.*
+!.env.example
 backend/collection
 secrets
+node_modules
+dist
+.output
+.vinxi
+.tanstack
+.nitro
+*.log
+.DS_Store
+frontend/src/routeTree.gen.ts

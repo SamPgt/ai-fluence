@@ -1,0 +1,25 @@
+{
+  "name": "ai-fluence",
+  "private": true,
+  "packageManager": "npm@11.6.2",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "predev": "npm run db:migrate",
+    "dev": "concurrently -k -n hono,web -c green,blue \"npm --workspace=backend run dev\" \"wait-on -t 90000 http-get://localhost:3470/health && npm --workspace=frontend run dev\"",
+    "db:generate": "npm --workspace=backend run db:generate",
+    "db:migrate": "npm --workspace=backend run db:migrate",
+    "typecheck": "npm --workspace=shared run typecheck && npm --workspace=backend run typecheck && npm --workspace=frontend run typecheck"
+  },
+  "overrides": {
+    "vite": "^8.0.13"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^8.0.4",
+    "vite": "^8.0.13"
+  }
+}

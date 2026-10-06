@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "spicyapi": {
+      "source": "spicyapi-ai/spicy-skill",
+      "sourceType": "github",
+      "skillPath": "skills/spicyapi/SKILL.md",
+      "computedHash": "9c4e418102352ead60324fd94d8b8eb1172c0db9760ffed598e4f7c5425c1f74"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "avatar_asset_id" uuid;

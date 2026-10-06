@@ -1,0 +1,8 @@
+interface:
+  display_name: "SpicyAPI"
+  short_description: "Operate SpicyAPI safely through SDK, CLI, or MCP"
+  default_prompt:
+    "Use $spicyapi to inspect the live model catalog and run this SpicyAPI workflow safely."
+
+policy:
+  allow_implicit_invocation: true

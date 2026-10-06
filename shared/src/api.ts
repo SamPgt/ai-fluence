@@ -1,0 +1,264 @@
+/**
+ * Contrats Request/Response entre le backend Hono et le frontend.
+ * Les montants sont des chaînes décimales USD (comme SpicyAPI).
+ */
+import type { InputSchema, VideoRefMode } from './input';
+import type { MediaKind, ModelBadge, TaskKind } from './models';
+
+// ── Auth ──────────────────────────────────────────────────────
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  createdAt: string;
+}
+
+export interface AuthResponse {
+  user: User;
+}
+
+export interface SignupRequest {
+  email: string;
+  name: string;
+  password: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+// ── Paramètres ────────────────────────────────────────────────
+
+export interface Settings {
+  hasApiKey: boolean;
+  /** Ex. `sk-spicy-••••1a2b`. Jamais la clé en clair. */
+  apiKeyHint: string | null;
+  mediaDir: string;
+  defaultMediaDir: string;
+  defaultImageFamily: string | null;
+  defaultVideoFamily: string | null;
+  enhanceModel: string;
+}
+
+export interface UpdateSettingsRequest {
+  mediaDir?: string | null;
+  defaultImageFamily?: string | null;
+  defaultVideoFamily?: string | null;
+  enhanceModel?: string;
+}
+
+export interface SetApiKeyRequest {
+  apiKey: string;
+}
+
+export interface Balance {
+  available: string;
+  held: string;
+  total: string;
+}
+
+export interface CreditsResponse {
+  balance: Balance | null;
+  /** Total dépensé via l'app (somme des coûts des générations). */
+  spentInApp: string;
+  generationCount: number;
+  usage: { from: string; to: string; totalSpend: string; tasks: number } | null;
+}
+
+// ── Catalogue ─────────────────────────────────────────────────
+
+export interface CatalogTask {
+  modelId: string;
+  schema: InputSchema;
+  startingPrice: { price: string; unit: string; variant: string } | null;
+  policyTier: string | null;
+}
+
+export interface CatalogFamily {
+  id: string;
+  label: string;
+  media: MediaKind;
+  badges: ModelBadge[];
+  hint: string;
+  available: boolean;
+  tasks: Partial<Record<TaskKind, CatalogTask>>;
+}
+
+export interface CatalogResponse {
+  families: CatalogFamily[];
+  textModels: string[];
+}
+
+// ── Médias ────────────────────────────────────────────────────
+
+export interface Asset {
+  id: string;
+  kind: 'upload' | 'output';
+  mediaType: MediaKind;
+  mime: string;
+  /** URL servie par le backend (via le proxy `/api`). */
+  url: string;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+  personaId: string | null;
+  isReference: boolean;
+  generationId: string | null;
+  createdAt: string;
+}
+
+// ── Personas ──────────────────────────────────────────────────
+
+export interface PersonaLora {
+  id: string;
+  label: string;
+  /** Lien direct public vers le `.safetensors`. */
+  path: string;
+  scale: number;
+  /** Famille de modèle pour laquelle la LoRA a été entraînée. */
+  family: string;
+  noise?: 'high' | 'low' | 'both';
+}
+
+export interface Persona {
+  id: string;
+  name: string;
+  kind: 'influencer' | 'art';
+  color: string;
+  avatarAssetId: string | null;
+  avatarUrl: string | null;
+  description: string;
+  /** Personnalité, façon de parler, comportement : utilisé par l'amélioration de prompt. */
+  personality: string;
+  /** Ajouté à chaque prompt (DA, apparence…). */
+  promptSuffix: string;
+  triggerWord: string;
+  loras: PersonaLora[];
+  defaultImageFamily: string | null;
+  defaultVideoFamily: string | null;
+  referenceCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PersonaInput = Omit<
+  Persona,
+  'id' | 'avatarUrl' | 'referenceCount' | 'createdAt' | 'updatedAt'
+>;
+
+// ── Fils et générations ───────────────────────────────────────
+
+export interface Thread {
+  id: string;
+  title: string;
+  personaId: string | null;
+  isPinned: boolean;
+  totalCost: string;
+  generationCount: number;
+  coverUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type GenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export interface Generation {
+  id: string;
+  threadId: string;
+  personaId: string | null;
+  prompt: string;
+  /** Prompt réellement envoyé (avec mot déclencheur et suffixe persona). */
+  finalPrompt: string;
+  family: string;
+  modelId: string;
+  task: TaskKind;
+  params: Record<string, unknown>;
+  refMode: VideoRefMode;
+  references: Asset[];
+  lorasApplied: number;
+  status: GenerationStatus;
+  errorCode: string | null;
+  errorMessage: string | null;
+  estimatedCost: string | null;
+  cost: string | null;
+  settled: boolean;
+  seed: number | null;
+  outputs: Asset[];
+  spicyTaskId: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface GenerationRequest {
+  threadId?: string | null;
+  personaId?: string | null;
+  family: string;
+  refMode?: VideoRefMode;
+  prompt: string;
+  params: Record<string, unknown>;
+  referenceAssetIds: string[];
+  /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
+  expectedCost?: string;
+}
+
+export interface QuoteResponse {
+  task: TaskKind;
+  modelId: string;
+  estimatedCost: string;
+  maxCharge: string;
+  quantity: string;
+  unit: string;
+  expiresAt: string;
+  dropped: number;
+  lorasApplied: number;
+}
+
+export interface CreateGenerationResponse {
+  generation: Generation;
+  thread: Thread;
+}
+
+/** 409 renvoyé quand le prix a augmenté depuis l'affichage. */
+export interface PriceChangedResponse {
+  error: 'price_changed';
+  quote: QuoteResponse;
+}
+
+export interface ThreadDetailResponse {
+  thread: Thread;
+  generations: Generation[];
+}
+
+export interface SearchResult {
+  threadId: string;
+  threadTitle: string;
+  matchedPrompt: string | null;
+}
+
+// ── Préréglages de prompts ────────────────────────────────────
+
+export interface PromptPreset {
+  id: string;
+  label: string;
+  text: string;
+  media: MediaKind | 'all';
+  position: number;
+}
+
+export interface EnhancePromptRequest {
+  prompt: string;
+  personaId?: string | null;
+  media: MediaKind;
+}
+
+export interface EnhancePromptResponse {
+  prompt: string;
+}
+
+export interface ApiError {
+  error: string;
+  code?: string;
+}

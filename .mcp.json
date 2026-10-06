@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "spicyapi": {
+      "type": "stdio",
+      "command": "sh",
+      "args": [
+        "-c",
+        "SPICY_API_KEY=$(sed -n 's/^spicyApiKey=//p' backend/.env | tr -d '\"\\r') exec npx --yes --package=@spicyapi/mcp spicyapi-mcp"
+      ]
+    }
+  }
+}
