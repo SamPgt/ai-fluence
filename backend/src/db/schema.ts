@@ -9,7 +9,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { PersonaLora, TaskKind } from '@ai-fluence/shared';
+import type { GenerationContext, PersonaLora, TaskKind } from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -118,6 +118,8 @@ export const generations = pgTable(
     input: jsonb('input').$type<Record<string, unknown>>().notNull().default({}),
     referenceAssetIds: jsonb('reference_asset_ids').$type<string[]>().notNull().default([]),
     lorasApplied: integer('loras_applied').notNull().default(0),
+    /** Contextes activés à l'envoi (instantané : reste lisible si le contexte est modifié ou supprimé). */
+    contexts: jsonb('contexts').$type<GenerationContext[]>().notNull().default([]),
     status: text('status').$type<'queued' | 'running' | 'succeeded' | 'failed'>().notNull().default('queued'),
     spicyTaskId: text('spicy_task_id'),
     idempotencyKey: text('idempotency_key').notNull(),
@@ -178,7 +180,7 @@ export const promptPresets = pgTable(
     label: text('label').notNull(),
     text: text('text').notNull(),
     media: text('media').$type<'image' | 'video' | 'all'>().notNull().default('all'),
-    /** Raccourci masqué du composer sans être supprimé. */
+    /** Contexte masqué du composer sans être supprimé. */
     enabled: boolean('enabled').notNull().default(true),
     position: integer('position').notNull().default(0),
     createdAt: createdAt(),

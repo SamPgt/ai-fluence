@@ -13,6 +13,7 @@ import {
   getFamily,
   resolveTask,
   type CreateGenerationResponse,
+  type GenerationContext,
   type Generation,
   type GenerationRequest,
   type LoraEntry,
@@ -23,7 +24,7 @@ import {
   type TaskKind,
 } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { assets, generations, personas, threads, users } from '../db/schema.js';
+import { assets, generations, personas, promptPresets, threads, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
@@ -50,6 +51,7 @@ async function ensureSpicyUri(client: SpicyClient, asset: AssetRow): Promise<str
 
 interface Prepared {
   client: SpicyClient;
+  contexts: GenerationContext[];
   task: TaskKind;
   modelId: string;
   input: Record<string, unknown>;
@@ -118,6 +120,21 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   let finalPrompt = parts.join(' ');
   if (persona?.promptSuffix.trim()) finalPrompt = `${finalPrompt}${finalPrompt ? ', ' : ''}${persona.promptSuffix.trim()}`;
 
+  // Contextes activés : ajoutés à la fin, séparés du texte de l'utilisateur.
+  let contexts: GenerationContext[] = [];
+  if (req.contextIds?.length) {
+    const rows = await db
+      .select({ id: promptPresets.id, label: promptPresets.label, text: promptPresets.text })
+      .from(promptPresets)
+      .where(and(eq(promptPresets.userId, user.id), inArray(promptPresets.id, req.contextIds)));
+    const byId = new Map(rows.map(r => [r.id, r]));
+    contexts = req.contextIds.map(id => byId.get(id)).filter((c): c is GenerationContext => Boolean(c));
+  }
+  if (contexts.length) {
+    const details = `Additional details: ${contexts.map(c => c.text.trim()).join(', ')}`;
+    finalPrompt = finalPrompt ? `${finalPrompt}\n\n${details}` : details;
+  }
+
   const built = buildInput({
     schema: endpoint.schema,
     task: resolution.task,
@@ -135,6 +152,7 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
 
   return {
     client,
+    contexts,
     task: resolution.task,
     modelId: endpoint.modelId,
     input: built.input,
@@ -263,6 +281,7 @@ async function launch(
       params: meta.params,
       input: p.input,
       referenceAssetIds: p.references.map(r => r.id),
+      contexts: p.contexts,
       lorasApplied: p.lorasApplied,
       idempotencyKey,
       estimatedCost: quote.estimatedCost,
@@ -338,6 +357,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
   return {
     p: {
       client,
+      contexts: [],
       task: 'upscale',
       modelId: tool.modelId,
       input,

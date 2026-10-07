@@ -29,6 +29,13 @@
       "when": 1791397032024,
       "tag": "0003_shortcut_enabled",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791404266922,
+      "tag": "0004_generation_contexts",
+      "breakpoints": true
     }
   ]
 }

@@ -19,7 +19,7 @@ import {
 
 import { ApiError, assetsApi, generationsApi, promptsApi } from '@/lib/api'
 import { composer, composerStore } from '@/lib/composer-store'
-import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
+import { catalogQuery, personasQuery, presetsQuery, qk, settingsQuery } from '@/lib/queries'
 import { formatUnit, formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -36,7 +36,7 @@ import {
   editableFields,
   labelOf,
 } from './ParamFields'
-import { PresetChips } from './PresetChips'
+import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -73,6 +73,7 @@ export function Composer({
     catalogQuery(Boolean(settings?.hasApiKey)),
   )
   const { data: personas = [] } = useQuery(personasQuery())
+  const { data: contexts = [] } = useQuery(presetsQuery())
   const persona = personas.find((p) => p.id === personaId) ?? null
   const families = catalog?.families ?? []
 
@@ -124,6 +125,11 @@ export function Composer({
     family.tasks['image-to-video'] &&
     family.tasks['reference-to-video']
 
+  // Contextes envoyés : ceux qui sont actifs ET proposés pour ce type de média.
+  const activeContextIds = contexts
+    .filter((c) => c.enabled && state.contextIds.includes(c.id) && (c.media === 'all' || c.media === (family?.media ?? 'image')))
+    .map((c) => c.id)
+
   const request: GenerationRequest | null = family
     ? {
         threadId: threadId ?? null,
@@ -133,6 +139,7 @@ export function Composer({
         prompt: state.prompt,
         params,
         referenceAssetIds: state.attachments.map((a) => a.id),
+        contextIds: activeContextIds,
       }
     : null
 
@@ -240,11 +247,6 @@ export function Composer({
     }
   }
 
-  const appendPreset = (text: string) => {
-    const p = state.prompt.trim()
-    composer.setPrompt(p ? `${p}, ${text}` : text)
-    textareaRef.current?.focus()
-  }
 
   // Ordre fixe (ratio, résolution, durée), quel que soit l'ordre du schéma du modèle.
   const quickFields = editableFields(schema)
@@ -279,7 +281,7 @@ export function Composer({
           onFiles(e.dataTransfer.files)
         }}
       >
-        <PresetChips media={family?.media ?? 'image'} onPick={appendPreset} />
+        <ContextChips media={family?.media ?? 'image'} activeIds={state.contextIds} onToggle={composer.toggleContext} />
 
         <div
           className={cn(

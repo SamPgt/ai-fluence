@@ -163,6 +163,13 @@ export interface Thread {
   updatedAt: string;
 }
 
+/** Contexte tel qu'il a été utilisé par une génération. */
+export interface GenerationContext {
+  id: string;
+  label: string;
+  text: string;
+}
+
 export type GenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 export interface Generation {
@@ -178,6 +185,8 @@ export interface Generation {
   params: Record<string, unknown>;
   refMode: VideoRefMode;
   references: Asset[];
+  /** Contextes utilisés (instantané au moment de la génération). */
+  contexts: GenerationContext[];
   lorasApplied: number;
   status: GenerationStatus;
   errorCode: string | null;
@@ -200,6 +209,8 @@ export interface GenerationRequest {
   prompt: string;
   params: Record<string, unknown>;
   referenceAssetIds: string[];
+  /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
+  contextIds?: string[];
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
   expectedCost?: string;
 }
@@ -245,9 +256,9 @@ export interface SearchResult {
   matchedPrompt: string | null;
 }
 
-// ── Raccourcis de prompts ─────────────────────────────────────
+// ── Contextes (textes ajoutés à la fin du prompt) ─────────────
 
-/** Raccourci de prompt : un clic insère son texte dans le composer. */
+/** Contexte : texte ajouté à la fin du prompt quand il est activé dans le composer. */
 export interface PromptPreset {
   id: string;
   label: string;

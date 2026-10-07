@@ -33,8 +33,9 @@ export function ChatListItem({ thread, isActive, onDelete, onTogglePin }: ChatLi
           setEditing(true)
         }}
         className={cn(
-          // Pas d'overflow-hidden ; focus clavier doux, comme les champs texte des modales.
-          'relative flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-[color,background-color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+          // Focus clavier doux, comme les champs texte des modales, tracé à l'intérieur :
+          // la zone de défilement (overflow obligatoire pour scroller) ne peut plus le couper.
+          'relative flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-[color,background-color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
           isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
         )}
       >

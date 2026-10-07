@@ -13,6 +13,8 @@ export interface ComposerState {
   prompt: string
   attachments: Asset[]
   refMode: VideoRefMode
+  /** Contextes activés (restent actifs après l'envoi). */
+  contextIds: string[]
   /** Incrémenté pour demander le focus du champ texte. */
   focusTick: number
 }
@@ -23,6 +25,7 @@ export const composerStore = new Store<ComposerState>({
   prompt: '',
   attachments: [],
   refMode: 'start-frame',
+  contextIds: [],
   focusTick: 0,
 })
 
@@ -44,9 +47,14 @@ export const composer = {
   removeAttachment: (id: string) =>
     composerStore.setState((s) => ({ ...s, attachments: s.attachments.filter((a) => a.id !== id) })),
   setRefMode: (refMode: VideoRefMode) => composerStore.setState((s) => ({ ...s, refMode })),
+  toggleContext: (id: string) =>
+    composerStore.setState((s) => ({
+      ...s,
+      contextIds: s.contextIds.includes(id) ? s.contextIds.filter((x) => x !== id) : [...s.contextIds, id],
+    })),
   clearAfterSend: () => composerStore.setState((s) => ({ ...s, prompt: '', attachments: [] })),
   /** Pré-remplit le composer (Relancer, Éditer, Animer). */
-  load: (patch: Partial<Pick<ComposerState, 'family' | 'prompt' | 'attachments' | 'refMode'>> & {
+  load: (patch: Partial<Pick<ComposerState, 'family' | 'prompt' | 'attachments' | 'refMode' | 'contextIds'>> & {
     params?: Record<string, unknown>
   }) =>
     composerStore.setState((s) => ({
@@ -55,6 +63,7 @@ export const composer = {
       ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
       ...(patch.attachments ? { attachments: patch.attachments } : {}),
       ...(patch.refMode ? { refMode: patch.refMode } : {}),
+      ...(patch.contextIds ? { contextIds: patch.contextIds } : {}),
       ...(patch.params && (patch.family ?? s.family)
         ? { paramsByFamily: { ...s.paramsByFamily, [(patch.family ?? s.family)!]: patch.params } }
         : {}),

@@ -75,6 +75,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       prompt: g.prompt,
       params,
       referenceAssetIds: g.references.map((r) => r.id),
+      contextIds: g.contexts.map((c) => c.id),
     }
   }
   const { data: catalog } = useQuery(catalogQuery())
@@ -109,7 +110,14 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
   const rerun = (family = g.family, keepSeed = false) => {
     const params = { ...g.params }
     if (!keepSeed) delete params.seed
-    composer.load({ family, prompt: g.prompt, attachments: g.references, refMode: g.refMode, params })
+    composer.load({
+      family,
+      prompt: g.prompt.trim(),
+      attachments: g.references,
+      refMode: g.refMode,
+      contextIds: g.contexts.map((c) => c.id),
+      params,
+    })
   }
   const edit = (asset: Asset) => composer.load({ family: pickFamily('image', 'image-to-image'), prompt: '', attachments: [asset] })
   const animate = (asset: Asset) =>
@@ -182,8 +190,13 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
           ) : (
             <span />
           )}
-          {/* Modèle et paramètres */}
+          {/* Contextes, modèle et paramètres */}
           <div className="flex flex-wrap items-center justify-end gap-1.5 pr-1">
+            {g.contexts.map((c) => (
+              <span key={c.id} title={c.text} className="rounded-full border border-brand/30 px-2 py-0.5 text-brand/90">
+                {c.label}
+              </span>
+            ))}
             <span className="font-medium text-foreground/80">{def?.label ?? g.family}</span>
             {def?.badges.map((b) => <ModelBadge key={b} badge={b} />)}
             {g.lorasApplied > 0 && <span className="text-violet-300">· LoRA ×{g.lorasApplied}</span>}

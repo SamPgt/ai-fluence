@@ -1,0 +1,1 @@
+ALTER TABLE "generations" ADD COLUMN "contexts" jsonb DEFAULT '[]'::jsonb NOT NULL;

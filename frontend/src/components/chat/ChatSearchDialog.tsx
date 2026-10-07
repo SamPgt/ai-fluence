@@ -60,9 +60,10 @@ export function ChatSearchDialog() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-2 rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        // Même gabarit que « Nouveau fil » : 32px de haut, rayon 5px, texte 13px.
+        className="flex h-8 w-full items-center gap-2 rounded-[5px] border border-border/40 bg-muted/50 px-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <Search className="h-4 w-4" />
+        <Search className="h-3.5 w-3.5" />
         <span>Rechercher…</span>
         <kbd className="pointer-events-none ml-auto inline-flex h-5 items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground select-none">
           <span className="text-xs">⌘</span>K

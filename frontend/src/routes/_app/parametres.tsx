@@ -17,10 +17,10 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ModelBadge } from '@/components/ui/model-badge'
-import { ShortcutsTab } from '@/components/settings/ShortcutsTab'
+import { ContextsTab } from '@/components/settings/ShortcutsTab'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
-const TABS = ['account', 'models', 'shortcuts', 'credits', 'storage', 'api-key'] as const
+const TABS = ['account', 'models', 'contexts', 'credits', 'storage', 'api-key'] as const
 type Tab = (typeof TABS)[number]
 
 export const Route = createFileRoute('/_app/parametres')({
@@ -57,7 +57,7 @@ function SettingsPage() {
             <TabsList className="w-full justify-start overflow-x-auto">
               <TabsTrigger value="account">Compte</TabsTrigger>
               <TabsTrigger value="models">Modèles</TabsTrigger>
-              <TabsTrigger value="shortcuts">Raccourcis</TabsTrigger>
+              <TabsTrigger value="contexts">Contextes</TabsTrigger>
               <TabsTrigger value="credits">Crédits</TabsTrigger>
               <TabsTrigger value="storage">Stockage</TabsTrigger>
               <TabsTrigger value="api-key">Clé API</TabsTrigger>
@@ -74,8 +74,8 @@ function SettingsPage() {
             <TabsContent value="credits">
               <CreditsTab />
             </TabsContent>
-            <TabsContent value="shortcuts">
-              <ShortcutsTab />
+            <TabsContent value="contexts">
+              <ContextsTab />
             </TabsContent>
             <TabsContent value="account">
               <AccountTab />
