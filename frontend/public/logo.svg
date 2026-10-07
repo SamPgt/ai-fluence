@@ -1,11 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
-  <defs>
-    <path id="petale" d="M50 47.2 C63 36.2 63 15.2 50 4.2 C37 15.2 37 36.2 50 47.2 Z" />
-  </defs>
-  <g fill="#FFFFFF">
-    <use href="#petale" transform="rotate(45 50 50)" />
-    <use href="#petale" transform="rotate(135 50 50)" />
-    <use href="#petale" transform="rotate(225 50 50)" />
-    <use href="#petale" transform="rotate(315 50 50)" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- Logo « Horizon » : soleil levant et lignes d'horizon -->
+  <g fill="#A6EFFF">
+    <path d="M4 24A20 20 0 0 1 44 24Z" />
+    <rect x="5" y="27.5" width="38" height="4.5" rx="2.25" />
+    <rect x="10" y="35" width="28" height="4" rx="2" />
+    <rect x="17" y="42" width="14" height="3" rx="1.5" />
   </g>
 </svg>

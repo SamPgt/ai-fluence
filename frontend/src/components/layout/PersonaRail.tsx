@@ -18,6 +18,7 @@ import { SESSION_QUERY_KEY } from '@/server/auth'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { NewPersonaDialog } from '@/components/personas/NewPersonaDialog'
 import { PersonaAvatar, initials } from '@/components/personas/PersonaAvatar'
+import { LogoMark } from '@/components/ui/logo-mark'
 import {
   Tooltip,
   TooltipContent,
@@ -61,7 +62,7 @@ function Bubble({
             aria-label={label}
             className={cn(
               'overflow-hidden transition-all duration-200',
-              active ? 'rounded-xl' : 'rounded-2xl hover:rounded-xl',
+              active ? 'rounded-lg' : 'rounded-lg',
             )}
           >
             {children}
@@ -127,20 +128,27 @@ export function PersonaRail({ user }: { user: User }) {
   return (
     <nav className="flex w-[62px] shrink-0 flex-col items-center gap-2 border-r border-border/40 bg-sidebar py-3">
       {/* Marque de l'app : simple logo, non cliquable. */}
-      <img
-        src="/logo.svg"
-        alt="AI Fluence"
-        className="pointer-events-none mb-1 h-8 w-8 select-none"
-        draggable={false}
-      />
+      <div
+        className="pointer-events-none mb-1 grid h-[30px] place-items-center text-brand select-none"
+        aria-label="AI Fluence"
+      >
+        <LogoMark className="h-[22px] w-[22px]" />
+      </div>
 
       <Bubble
         active={personaId === ''}
         label="Tous les fils"
         onClick={() => select('')}
       >
-        <span className="flex h-11 w-11 items-center justify-center brand-gradient text-brand-foreground">
-          <LayoutGrid className="h-5 w-5" />
+        <span
+          className={cn(
+            'grid h-[38px] w-[38px] place-items-center rounded-[7px] transition-colors hover:bg-[#141413] hover:text-foreground',
+            personaId === ''
+              ? 'bg-[#141413] text-foreground'
+              : 'text-[#a8a8a3]',
+          )}
+        >
+          <LayoutGrid className="h-[17px] w-[17px]" strokeWidth={1.5} />
         </span>
       </Bubble>
 
@@ -160,8 +168,9 @@ export function PersonaRail({ user }: { user: User }) {
           label="Nouveau persona"
           onClick={() => setCreating(true)}
         >
-          <span className="flex h-11 w-11 items-center justify-center bg-muted text-emerald-400 transition-colors hover:bg-emerald-500 hover:text-white">
-            <Plus className="h-5 w-5" />
+          {/* Même taille que les bulles de personas (44px), fond clair. */}
+          <span className="grid h-11 w-11 place-items-center bg-muted/50 text-muted-foreground transition hover:brightness-125 hover:text-foreground">
+            <Plus className="h-4 w-4" strokeWidth={1.6} />
           </span>
         </Bubble>
       </div>

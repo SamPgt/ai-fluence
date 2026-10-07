@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { createFileRoute, Link, Outlet, redirect, useRouterState } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, redirect, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { KeyRound } from 'lucide-react'
 
@@ -7,6 +7,7 @@ import { sessionQueryOptions } from '@/server/auth'
 import type { User } from '@ai-fluence/shared'
 import { uiPrefsQueryOptions } from '@/server/ui-prefs'
 import { settingsQuery } from '@/lib/queries'
+import { isMac, isTypingTarget } from '@/lib/platform'
 import { UiPrefsProvider, useUiPref } from '@/components/providers/ui-prefs'
 import { PersonaRail } from '@/components/layout/PersonaRail'
 import { ThreadPanel } from '@/components/layout/ThreadPanel'
@@ -41,6 +42,7 @@ function AppShell({ user: initialUser }: { user: User }) {
   const [collapsed, setCollapsed] = useUiPref('sidebarCollapsed')
   const { data: settings } = useQuery(settingsQuery())
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const navigate = useNavigate()
 
   // ⌘B / Ctrl+B : replier le panneau des fils.
   useEffect(() => {
@@ -49,10 +51,19 @@ function AppShell({ user: initialUser }: { user: User }) {
         e.preventDefault()
         setCollapsed(!collapsed)
       }
+      // Nouveau fil : ⌘L sur Mac (prend le pas sur la barre d'adresse),
+      // Maj+L ailleurs, sauf pendant la saisie (sinon taper un « L » majuscule ouvrirait un fil).
+      const newThread = isMac()
+        ? e.metaKey && !e.shiftKey && !e.altKey && e.code === 'KeyL'
+        : e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.code === 'KeyL' && !isTypingTarget(e.target)
+      if (newThread) {
+        e.preventDefault()
+        navigate({ to: '/' })
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [collapsed, setCollapsed])
+  }, [collapsed, setCollapsed, navigate])
 
   return (
     <div className="flex h-full w-full overflow-hidden">

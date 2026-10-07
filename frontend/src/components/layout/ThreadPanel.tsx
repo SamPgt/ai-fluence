@@ -12,10 +12,10 @@ import {
 } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useIsMac } from '@/lib/platform'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { ChatListItem } from '@/components/chat/ChatListItem'
 import { ChatSearchDialog } from '@/components/chat/ChatSearchDialog'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -31,6 +31,7 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
   const queryClient = useQueryClient()
   const params = useParams({ strict: false }) as { threadId?: string }
   const [personaId] = useUiPref('personaId')
+  const mac = useIsMac()
   const { data: personas = [] } = useQuery(personasQuery())
   const persona = personas.find((p) => p.id === personaId)
   const { data: threads = [] } = useQuery(threadsQuery(personaId || null))
@@ -79,14 +80,18 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
               </Link>
             )}
           </div>
-          <Button
+          <button
+            type="button"
             onClick={() => navigate({ to: '/' })}
-            className="w-full gap-1.5 font-medium brand-gradient brand-shadow transition-all duration-150 hover:opacity-90 active:scale-[0.99]"
-            size="sm"
+            className="flex h-8 w-full items-center gap-2 rounded-[4px] border border-brand/40 bg-brand/[0.06] px-3 text-[13px] font-medium text-brand transition-colors hover:bg-brand/[0.12]"
           >
-            <Plus strokeWidth={2} className="-ml-1 h-4 w-4" />
-            Nouveau fil
-          </Button>
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
+            <span className="flex-1 text-left">Nouveau fil</span>
+            {/* Même badge que ⌘K de la recherche, aligné au même endroit (px-3). */}
+            <kbd className="pointer-events-none ml-auto inline-flex h-5 items-center gap-1 rounded border border-brand/30 px-1.5 font-mono text-[10px] font-medium text-brand/80 select-none">
+              <span className="text-xs">{mac ? '⌘' : '⇧'}</span>L
+            </kbd>
+          </button>
           <ChatSearchDialog />
         </div>
 

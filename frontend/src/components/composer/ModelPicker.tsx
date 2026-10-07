@@ -58,7 +58,8 @@ export function ModelPicker({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" side="top" className="w-[360px] p-1.5">
-        <div className="max-h-[60vh] overflow-y-auto">
+        {/* Marge à droite : la barre de défilement ne passe plus sur les badges. */}
+        <div className="max-h-[60vh] overflow-y-auto pr-2.5">
           {SECTIONS.map((section) => (
             <div key={section.media} className="pb-1">
               {/* Titre de section : gras, petit, blanc-gris */}
