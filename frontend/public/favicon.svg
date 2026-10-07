@@ -1,34 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
   <defs>
-    <!-- Dégradé noir et blanc le long de chaque pétale : blanc au centre, gris à la pointe -->
-    <linearGradient id="grad" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0" stop-color="#FFFFFF" />
-      <stop offset="0.5" stop-color="#E4E4E4" />
-      <stop offset="1" stop-color="#8E8E8E" />
-    </linearGradient>
-    <!-- Grain léger, limité aux pétales -->
-    <filter id="grain" x="0" y="0" width="100%" height="100%">
-      <feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="2" seed="7" result="noise" />
-      <feColorMatrix in="noise" type="saturate" values="0" result="mono" />
-      <feComponentTransfer in="mono" result="soft">
-        <feFuncR type="linear" slope="0.3" intercept="0.74" />
-        <feFuncG type="linear" slope="0.3" intercept="0.74" />
-        <feFuncB type="linear" slope="0.3" intercept="0.74" />
-      </feComponentTransfer>
-      <feBlend in="SourceGraphic" in2="soft" mode="multiply" result="textured" />
-      <feComposite in="textured" in2="SourceGraphic" operator="in" />
-    </filter>
-    <!-- Pétale symétrique, épaisseur intermédiaire -->
-    <path id="petale" d="M50 47 C59 37 61 20 50 4 C39 20 41 37 50 47 Z" />
+    <path id="petale" d="M50 47.2 C63 36.2 63 15.2 50 4.2 C37 15.2 37 36.2 50 47.2 Z" />
   </defs>
   <!-- Fond noir : le logo reste visible sur un onglet clair comme sombre -->
-  <rect width="100" height="100" rx="22" fill="#0A0A0A" />
-  <g transform="translate(50 50) scale(0.82) translate(-50 -50)">
-    <g fill="url(#grad)" filter="url(#grain)">
+  <rect width="100" height="100" rx="22" fill="#0A0A0B" />
+  <g fill="#FFFFFF" transform="translate(50 50) scale(0.82) translate(-50 -50)">
     <use href="#petale" transform="rotate(45 50 50)" />
     <use href="#petale" transform="rotate(135 50 50)" />
     <use href="#petale" transform="rotate(225 50 50)" />
     <use href="#petale" transform="rotate(315 50 50)" />
-    </g>
   </g>
 </svg>

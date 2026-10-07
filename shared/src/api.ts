@@ -204,6 +204,13 @@ export interface GenerationRequest {
   expectedCost?: string;
 }
 
+export interface UpscaleRequest {
+  assetId: string;
+  /** Palier de sortie (ex. `4k` pour une image, `1080p` pour une vidéo). */
+  resolution?: string;
+  expectedCost?: string;
+}
+
 export interface QuoteResponse {
   task: TaskKind;
   modelId: string;
@@ -238,13 +245,16 @@ export interface SearchResult {
   matchedPrompt: string | null;
 }
 
-// ── Préréglages de prompts ────────────────────────────────────
+// ── Raccourcis de prompts ─────────────────────────────────────
 
+/** Raccourci de prompt : un clic insère son texte dans le composer. */
 export interface PromptPreset {
   id: string;
   label: string;
   text: string;
   media: MediaKind | 'all';
+  /** Affiché dans le composer. */
+  enabled: boolean;
   position: number;
 }
 

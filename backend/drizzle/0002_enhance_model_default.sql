@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ALTER COLUMN "enhance_model" SET DEFAULT 'deepseek/v4.1-flash/chat';

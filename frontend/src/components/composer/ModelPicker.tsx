@@ -25,10 +25,13 @@ export function ModelPicker({
   families,
   value,
   onChange,
+  lora,
 }: {
   families: CatalogFamily[]
   value: string | null
   onChange: (id: string) => void
+  /** LoRA du persona appliquée sur ce modèle (affichée sur le bouton). */
+  lora?: { personaName: string; triggerWord: string } | null
 }) {
   const [open, setOpen] = useState(false)
   const current = families.find((f) => f.id === value)
@@ -42,6 +45,15 @@ export function ModelPicker({
         >
           {current?.media === 'video' ? <Film className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
           <span className="max-w-[140px] truncate">{current?.label ?? 'Choisir un modèle'}</span>
+          {lora && (
+            <span
+              title={`LoRA de ${lora.personaName} appliquée${lora.triggerWord ? ` (« ${lora.triggerWord} »)` : ''}`}
+              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-px text-[10px] font-semibold text-violet-300"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
+              LoRA
+            </span>
+          )}
           <ChevronDown className="h-3.5 w-3.5 opacity-60" />
         </button>
       </PopoverTrigger>

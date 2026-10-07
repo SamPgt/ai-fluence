@@ -23,6 +23,7 @@ import type {
   Thread,
   ThreadDetailResponse,
   UpdateSettingsRequest,
+  UpscaleRequest,
   Balance,
   User,
 } from '@ai-fluence/shared'
@@ -64,7 +65,10 @@ async function apiFetch<T>(
       (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' && data.error) ||
       (data && typeof data === 'object' && 'success' in data && 'error' in data
         ? 'Données invalides.'
-        : `Erreur ${res.status}`)
+        : // Réponse sans JSON du backend : il redémarre ou ne répond pas (proxy Vite).
+          res.status >= 502 && res.status <= 504
+          ? 'Le serveur ne répond pas pour le moment, réessaie dans quelques secondes.'
+          : `Erreur ${res.status}`)
     if (res.status === 401 && typeof window !== 'undefined' && !path.startsWith('/auth/')) {
       window.location.href = '/connexion'
     }
@@ -138,13 +142,17 @@ export const generationsApi = {
   create: (body: GenerationRequest) =>
     apiFetch<CreateGenerationResponse>('/generations', { method: 'POST', body }),
   get: (id: string) => apiFetch<{ generation: Generation }>(`/generations/${id}`),
+  upscaleQuote: (body: UpscaleRequest) =>
+    apiFetch<{ quote: QuoteResponse }>('/generations/upscale/quote', { method: 'POST', body }),
+  upscale: (body: UpscaleRequest) =>
+    apiFetch<CreateGenerationResponse>('/generations/upscale', { method: 'POST', body }),
 }
 
 export const presetsApi = {
   list: () => apiFetch<{ presets: PromptPreset[] }>('/presets'),
-  create: (body: Omit<PromptPreset, 'id' | 'position'>) =>
+  create: (body: Pick<PromptPreset, 'label' | 'text' | 'media'> & { enabled?: boolean }) =>
     apiFetch<{ preset: PromptPreset }>('/presets', { method: 'POST', body }),
-  update: (id: string, body: Partial<Omit<PromptPreset, 'id' | 'position'>>) =>
+  update: (id: string, body: Partial<Pick<PromptPreset, 'label' | 'text' | 'media' | 'enabled'>>) =>
     apiFetch<{ preset: PromptPreset }>(`/presets/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/presets/${id}`, { method: 'DELETE' }),
 }

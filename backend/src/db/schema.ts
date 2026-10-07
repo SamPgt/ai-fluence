@@ -50,7 +50,8 @@ export const userSettings = pgTable('user_settings', {
   mediaDir: text('media_dir'),
   defaultImageFamily: text('default_image_family'),
   defaultVideoFamily: text('default_video_family'),
-  enhanceModel: text('enhance_model').notNull().default('xai/grok-4.7/chat'),
+  // Modèle rapide (~5 s) : Grok 4.7 réfléchit longtemps (~30 s) pour une simple reformulation.
+  enhanceModel: text('enhance_model').notNull().default('deepseek/v4.1-flash/chat'),
   updatedAt: updatedAt(),
 });
 
@@ -177,6 +178,8 @@ export const promptPresets = pgTable(
     label: text('label').notNull(),
     text: text('text').notNull(),
     media: text('media').$type<'image' | 'video' | 'all'>().notNull().default('all'),
+    /** Raccourci masqué du composer sans être supprimé. */
+    enabled: boolean('enabled').notNull().default(true),
     position: integer('position').notNull().default(0),
     createdAt: createdAt(),
   },

@@ -60,7 +60,7 @@ export function ReferencePicker({
           title={`Références de ${persona.name}`}
         >
           <Library className="h-3.5 w-3.5" />
-          Réf. {persona.name}
+          Réf.
           {persona.referenceCount > 0 && <span className="text-muted-foreground">({persona.referenceCount})</span>}
         </button>
       </PopoverTrigger>
@@ -85,13 +85,13 @@ export function ReferencePicker({
                 onClick={() => onToggle(a)}
                 className={cn(
                   'relative aspect-square overflow-hidden rounded-md ring-2 transition',
-                  selected ? 'ring-violet-400' : 'ring-transparent hover:ring-border',
+                  selected ? 'ring-brand' : 'ring-transparent hover:ring-border',
                 )}
               >
                 <AssetThumb asset={a} className="h-full w-full" />
                 {selected && (
-                  <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-violet-500">
-                    <Check className="h-3 w-3 text-white" />
+                  <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand">
+                    <Check className="h-3 w-3 text-brand-foreground" />
                   </span>
                 )}
               </button>

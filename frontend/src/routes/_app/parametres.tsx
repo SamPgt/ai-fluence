@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, ExternalLink, FolderOpen, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Camera, ExternalLink, FolderOpen, KeyRound, Loader2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { MediaKind, PromptPreset } from '@ai-fluence/shared'
+import type { MediaKind } from '@ai-fluence/shared'
 
-import { assetsApi, authApi, presetsApi, settingsApi } from '@/lib/api'
-import { catalogQuery, presetsQuery, qk, settingsQuery } from '@/lib/queries'
+import { assetsApi, authApi, settingsApi } from '@/lib/api'
+import { catalogQuery, qk, settingsQuery } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { SESSION_QUERY_KEY, sessionQueryOptions } from '@/server/auth'
 import { initials } from '@/components/personas/PersonaAvatar'
@@ -17,14 +17,15 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ModelBadge } from '@/components/ui/model-badge'
+import { ShortcutsTab } from '@/components/settings/ShortcutsTab'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
-const TABS = ['api-key', 'storage', 'models', 'credits', 'presets', 'account'] as const
+const TABS = ['account', 'models', 'shortcuts', 'credits', 'storage', 'api-key'] as const
 type Tab = (typeof TABS)[number]
 
 export const Route = createFileRoute('/_app/parametres')({
   validateSearch: (search: Record<string, unknown>): { tab: Tab } => ({
-    tab: TABS.includes(search.tab as Tab) ? (search.tab as Tab) : 'api-key',
+    tab: TABS.includes(search.tab as Tab) ? (search.tab as Tab) : 'account',
   }),
   component: SettingsPage,
 })
@@ -54,12 +55,12 @@ function SettingsPage() {
         <div className="mx-auto max-w-3xl px-6 py-6">
           <Tabs value={tab} onValueChange={(v) => navigate({ search: { tab: v as Tab } })} className="gap-6">
             <TabsList className="w-full justify-start overflow-x-auto">
-              <TabsTrigger value="api-key">Clé API</TabsTrigger>
-              <TabsTrigger value="storage">Stockage</TabsTrigger>
-              <TabsTrigger value="models">Modèles</TabsTrigger>
-              <TabsTrigger value="credits">Crédits</TabsTrigger>
-              <TabsTrigger value="presets">Préréglages</TabsTrigger>
               <TabsTrigger value="account">Compte</TabsTrigger>
+              <TabsTrigger value="models">Modèles</TabsTrigger>
+              <TabsTrigger value="shortcuts">Raccourcis</TabsTrigger>
+              <TabsTrigger value="credits">Crédits</TabsTrigger>
+              <TabsTrigger value="storage">Stockage</TabsTrigger>
+              <TabsTrigger value="api-key">Clé API</TabsTrigger>
             </TabsList>
             <TabsContent value="api-key">
               <ApiKeyTab />
@@ -73,8 +74,8 @@ function SettingsPage() {
             <TabsContent value="credits">
               <CreditsTab />
             </TabsContent>
-            <TabsContent value="presets">
-              <PresetsTab />
+            <TabsContent value="shortcuts">
+              <ShortcutsTab />
             </TabsContent>
             <TabsContent value="account">
               <AccountTab />
@@ -264,7 +265,7 @@ function ModelsTab() {
           </div>
         </div>
       </Section>
-      <Section title="Amélioration de prompt" description="Modèle texte SpicyAPI utilisé par le bouton « Améliorer ».">
+      <Section title="Reformulation du prompt" description="Modèle texte SpicyAPI utilisé par le bouton « Reformuler ».">
         <Select value={settings.enhanceModel} onValueChange={(v) => save.mutate({ enhanceModel: v })}>
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -299,24 +300,24 @@ function CreditsTab() {
   if (!data) return null
   return (
     <Section title="Crédits et consommation">
-      {data.balance ? (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Stat label="Disponible" value={formatUsd(data.balance.available)} />
-          <Stat label="Réservé (tâches en cours)" value={formatUsd(data.balance.held)} />
-          <Stat label="Total" value={formatUsd(data.balance.total)} />
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">Ajoute une clé API pour voir ton solde.</p>
-      )}
+      {!data.balance && <p className="text-sm text-muted-foreground">Ajoute une clé API pour voir ton solde.</p>}
       <div className="grid gap-3 sm:grid-cols-2">
+        {data.balance && (
+          <Stat label="En cours" value={formatUsd(data.balance.held)} hint="Réservé par les générations en cours" />
+        )}
+        {data.balance && <Stat label="Disponible" value={formatUsd(data.balance.available)} />}
+        {data.usage && (
+          <Stat
+            label="Dépensé les 30 derniers jours"
+            value={formatUsd(data.usage.totalSpend)}
+            hint={`${data.usage.tasks} appel(s) avec cette clé`}
+          />
+        )}
         <Stat
-          label="Dépensé via l’app"
+          label="Dépense totale"
           value={formatUsd(data.spentInApp)}
           hint={`${data.generationCount} génération${data.generationCount > 1 ? 's' : ''} réussie${data.generationCount > 1 ? 's' : ''}`}
         />
-        {data.usage && (
-          <Stat label="Dépensé avec cette clé (30 jours)" value={formatUsd(data.usage.totalSpend)} hint={`${data.usage.tasks} appel(s)`} />
-        )}
       </div>
       <a
         href="https://spicyapi.ai/console/billing"
@@ -326,79 +327,6 @@ function CreditsTab() {
       >
         Recharger dans la console SpicyAPI <ExternalLink className="h-3 w-3" />
       </a>
-    </Section>
-  )
-}
-
-function PresetRow({ preset }: { preset: PromptPreset }) {
-  const queryClient = useQueryClient()
-  const remove = useMutation({
-    mutationFn: () => presetsApi.remove(preset.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: qk.presets }),
-  })
-  return (
-    <div className="flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium">
-          {preset.label}{' '}
-          <span className="text-xs font-normal text-muted-foreground">
-            · {preset.media === 'all' ? 'photo et vidéo' : preset.media === 'image' ? 'photo' : 'vidéo'}
-          </span>
-        </div>
-        <div className="truncate text-xs text-muted-foreground">{preset.text}</div>
-      </div>
-      <Button variant="ghost" size="icon" onClick={() => remove.mutate()} aria-label="Supprimer">
-        <Trash2 className="h-4 w-4" />
-      </Button>
-    </div>
-  )
-}
-
-function PresetsTab() {
-  const queryClient = useQueryClient()
-  const { data: presets = [] } = useQuery(presetsQuery())
-  const [label, setLabel] = useState('')
-  const [text, setText] = useState('')
-  const [media, setMedia] = useState<'all' | MediaKind>('all')
-  const create = useMutation({
-    mutationFn: () => presetsApi.create({ label, text, media }),
-    onSuccess: () => {
-      setLabel('')
-      setText('')
-      queryClient.invalidateQueries({ queryKey: qk.presets })
-    },
-    onError: (e) => toast.error((e as Error).message),
-  })
-  return (
-    <Section title="Préréglages de prompts" description="Affichés au-dessus du composer : un clic ajoute le texte au prompt.">
-      <div className="space-y-2">
-        {presets.map((p) => (
-          <PresetRow key={p.id} preset={p} />
-        ))}
-      </div>
-      <form
-        className="grid gap-2 sm:grid-cols-[140px_1fr_130px_auto]"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (label.trim() && text.trim()) create.mutate()
-        }}
-      >
-        <Input placeholder="Nom" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={40} />
-        <Input placeholder="Texte ajouté au prompt" value={text} onChange={(e) => setText(e.target.value)} />
-        <Select value={media} onValueChange={(v) => setMedia(v as typeof media)}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Photo et vidéo</SelectItem>
-            <SelectItem value="image">Photo</SelectItem>
-            <SelectItem value="video">Vidéo</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button type="submit" disabled={!label.trim() || !text.trim()}>
-          <Plus className="h-4 w-4" />
-        </Button>
-      </form>
     </Section>
   )
 }

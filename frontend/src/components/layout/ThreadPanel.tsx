@@ -59,7 +59,7 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
   return (
     <aside
       className={cn(
-        'shrink-0 overflow-hidden border-r border-border/40 bg-sidebar/60 transition-[width] duration-200 ease-out',
+        'shrink-0 overflow-hidden border-r border-border/40 bg-panel transition-[width] duration-200 ease-out',
         collapsed ? 'w-0 border-r-0' : 'w-72',
       )}
     >
@@ -81,10 +81,10 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
           </div>
           <Button
             onClick={() => navigate({ to: '/' })}
-            className="w-full gap-2 border border-violet-400/30 font-medium text-white brand-gradient brand-shadow transition-all duration-150 hover:opacity-90 active:scale-[0.99]"
+            className="w-full gap-1.5 font-medium brand-gradient brand-shadow transition-all duration-150 hover:opacity-90 active:scale-[0.99]"
             size="sm"
           >
-            <Plus strokeWidth={2.1} className="h-4 w-4" />
+            <Plus strokeWidth={2} className="-ml-1 h-4 w-4" />
             Nouveau fil
           </Button>
           <ChatSearchDialog />
@@ -121,8 +121,9 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
             ))}
             {threads.length === 0 && (
               <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                Aucun fil{persona ? ` pour ${persona.name}` : ''} pour
-                l’instant.
+                {/* Aucun fil{persona ? ` pour ${persona.name}` : ''} pour
+                l’instant. */}
+                Aucun fil pour l’instant.
               </p>
             )}
           </div>
@@ -138,7 +139,8 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
             <span className="text-amber-300">Clé API manquante</span>
           ) : (
             <span>
-              Crédit SpicyAPI :{' '}
+              {/* Crédit SpicyAPI :{' '} */}
+              Crédit :{' '}
               <span className="font-medium text-foreground">
                 {balance ? formatUsd(balance.available) : '…'}
               </span>

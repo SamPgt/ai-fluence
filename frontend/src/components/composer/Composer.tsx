@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Film, ImagePlus, Info, Loader2, Sparkles, Wand2, X } from 'lucide-react'
+import { ArrowUp, Film, ImagePlus, Info, Loader2, Wand2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   TASK_LABEL,
@@ -23,8 +23,19 @@ import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
 import { formatUnit, formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { ModelPicker } from './ModelPicker'
-import { ParamField, ParamsPopover, QUICK_FIELDS, editableFields, labelOf } from './ParamFields'
+import {
+  ParamField,
+  ParamsPopover,
+  QUICK_FIELDS,
+  editableFields,
+  labelOf,
+} from './ParamFields'
 import { PresetChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 
@@ -44,7 +55,11 @@ interface ComposerProps {
   suggestedFamily?: string | null
 }
 
-export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps) {
+export function Composer({
+  threadId,
+  personaId,
+  suggestedFamily,
+}: ComposerProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -54,19 +69,28 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
 
   const state = useSelector(composerStore, (s) => s)
   const { data: settings } = useQuery(settingsQuery())
-  const { data: catalog, error: catalogError } = useQuery(catalogQuery(Boolean(settings?.hasApiKey)))
+  const { data: catalog, error: catalogError } = useQuery(
+    catalogQuery(Boolean(settings?.hasApiKey)),
+  )
   const { data: personas = [] } = useQuery(personasQuery())
   const persona = personas.find((p) => p.id === personaId) ?? null
   const families = catalog?.families ?? []
 
   // Modèle par défaut : dernier du fil > persona > paramètres > premier modèle photo dispo.
   useEffect(() => {
-    if (!catalog || (state.family && families.some((f) => f.id === state.family))) return
-    const preferred = [suggestedFamily, persona?.defaultImageFamily, settings?.defaultImageFamily].find(
-      (id) => id && families.some((f) => f.id === id && f.available),
+    if (
+      !catalog ||
+      (state.family && families.some((f) => f.id === state.family))
     )
+      return
+    const preferred = [
+      suggestedFamily,
+      persona?.defaultImageFamily,
+      settings?.defaultImageFamily,
+    ].find((id) => id && families.some((f) => f.id === id && f.available))
     const fallback = families.find((f) => f.media === 'image' && f.available)
-    if (preferred || fallback) composer.setFamily((preferred ?? fallback!.id) as string)
+    if (preferred || fallback)
+      composer.setFamily((preferred ?? fallback!.id) as string)
   }, [catalog, persona?.id, suggestedFamily]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -80,15 +104,25 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
     videos: state.attachments.filter((a) => a.mediaType === 'video').length,
   }
   const resolution = family
-    ? resolveTask(family.media, Object.keys(family.tasks) as TaskKind[], counts, state.refMode)
+    ? resolveTask(
+        family.media,
+        Object.keys(family.tasks) as TaskKind[],
+        counts,
+        state.refMode,
+      )
     : null
   const task = resolution?.ok ? resolution.task : null
   const schema = task ? family?.tasks[task]?.schema : undefined
   const requiresPrompt = schema?.required?.includes('prompt') ?? true
   const supportsLoras = schemaSupportsLoras(schema)
-  const personaLoras = persona?.loras.filter((l) => l.family === state.family) ?? []
+  const personaLoras =
+    persona?.loras.filter((l) => l.family === state.family) ?? []
   const showRefToggle =
-    family?.media === 'video' && counts.images > 0 && counts.videos === 0 && family.tasks['image-to-video'] && family.tasks['reference-to-video']
+    family?.media === 'video' &&
+    counts.images > 0 &&
+    counts.videos === 0 &&
+    family.tasks['image-to-video'] &&
+    family.tasks['reference-to-video']
 
   const request: GenerationRequest | null = family
     ? {
@@ -103,10 +137,17 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
     : null
 
   const canQuote = Boolean(
-    settings?.hasApiKey && family?.available && resolution?.ok && (!requiresPrompt || state.prompt.trim()) && !uploading,
+    settings?.hasApiKey &&
+    family?.available &&
+    resolution?.ok &&
+    (!requiresPrompt || state.prompt.trim()) &&
+    !uploading,
   )
   const debounced = useDebounced(canQuote ? request : null, 600)
-  const quoteKey = useMemo(() => (debounced ? JSON.stringify({ ...debounced, threadId: null }) : null), [debounced])
+  const quoteKey = useMemo(
+    () => (debounced ? JSON.stringify({ ...debounced, threadId: null }) : null),
+    [debounced],
+  )
   const quote = useQuery({
     queryKey: ['quote', quoteKey],
     queryFn: () => generationsApi.quote(debounced!).then((r) => r.quote),
@@ -114,7 +155,10 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
     staleTime: 4 * 60_000,
     retry: false,
   })
-  const quoteIsCurrent = canQuote && quoteKey !== null && JSON.stringify({ ...request, threadId: null }) === quoteKey
+  const quoteIsCurrent =
+    canQuote &&
+    quoteKey !== null &&
+    JSON.stringify({ ...request, threadId: null }) === quoteKey
 
   const create = useMutation({
     mutationFn: (body: GenerationRequest) => generationsApi.create(body),
@@ -123,13 +167,16 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
       queryClient.invalidateQueries({ queryKey: qk.threadsAll })
       queryClient.invalidateQueries({ queryKey: qk.thread(thread.id) })
       queryClient.invalidateQueries({ queryKey: qk.balance })
-      if (!threadId) navigate({ to: '/t/$threadId', params: { threadId: thread.id } })
+      if (!threadId)
+        navigate({ to: '/t/$threadId', params: { threadId: thread.id } })
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409) {
         const body = err.body as PriceChangedResponse
         queryClient.setQueryData(['quote', quoteKey], body.quote)
-        toast.warning(`Le prix a changé : ${formatUsd(body.quote.estimatedCost)}. Reclique pour confirmer.`)
+        toast.warning(
+          `Le prix a changé : ${formatUsd(body.quote.estimatedCost)}. Reclique pour confirmer.`,
+        )
         return
       }
       toast.error((err as Error).message)
@@ -138,17 +185,30 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
 
   const enhance = useMutation({
     mutationFn: () =>
-      promptsApi.enhance({ prompt: state.prompt, personaId, media: family?.media ?? 'image' }).then((r) => r.prompt),
+      promptsApi
+        .enhance({
+          prompt: state.prompt,
+          personaId,
+          media: family?.media ?? 'image',
+        })
+        .then((r) => r.prompt),
     onSuccess: (next) => {
       const previous = state.prompt
       composer.setPrompt(next)
-      toast.success('Prompt amélioré', { action: { label: 'Annuler', onClick: () => composer.setPrompt(previous) } })
+      toast.success('Prompt reformulé', {
+        action: {
+          label: 'Annuler',
+          onClick: () => composer.setPrompt(previous),
+        },
+      })
     },
     onError: (e) => toast.error((e as Error).message),
   })
 
   const onFiles = async (files: FileList | File[] | null) => {
-    const list = Array.from(files ?? []).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
+    const list = Array.from(files ?? []).filter(
+      (f) => f.type.startsWith('image/') || f.type.startsWith('video/'),
+    )
     if (!list.length) return
     setUploading((n) => n + list.length)
     for (const f of list) {
@@ -186,8 +246,23 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
     textareaRef.current?.focus()
   }
 
-  const quickFields = editableFields(schema).filter(([k]) => QUICK_FIELDS.includes(k))
+  // Ordre fixe (ratio, résolution, durée), quel que soit l'ordre du schéma du modèle.
+  const quickFields = editableFields(schema)
+    .filter(([k]) => QUICK_FIELDS.includes(k))
+    .sort(([a], [b]) => QUICK_FIELDS.indexOf(a) - QUICK_FIELDS.indexOf(b))
   const quoteError = quote.error ? (quote.error as Error).message : null
+  const notices: { text: string; tone: 'error' | 'warn' }[] = []
+  if (catalogError)
+    notices.push({ text: (catalogError as Error).message, tone: 'error' })
+  if (resolution && !resolution.ok)
+    notices.push({ text: resolution.reason, tone: 'warn' })
+  if (quoteIsCurrent && quote.data && quote.data.dropped > 0) {
+    notices.push({
+      text: `${quote.data.dropped} fichier(s) ignoré(s) : trop de références pour ce modèle`,
+      tone: 'warn',
+    })
+  }
+  if (quoteError) notices.push({ text: quoteError, tone: 'error' })
 
   return (
     <div className="shrink-0 px-4 pt-2 pb-5">
@@ -209,21 +284,30 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
         <div
           className={cn(
             'relative flex flex-col rounded-3xl border bg-muted/50 shadow-[0_2px_8px_rgba(0,0,0,0.2)] backdrop-blur-sm transition-colors',
-            dragging ? 'border-violet-400/70 bg-violet-500/5' : 'border-border/60',
+            dragging
+              ? 'border-brand/70 bg-brand/5'
+              : 'border-border/60',
           )}
         >
           {/* Pièces jointes */}
           {(state.attachments.length > 0 || uploading > 0) && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
               {state.attachments.map((a, i) => (
-                <div key={a.id} className="group relative overflow-hidden rounded-xl border border-border/30">
+                <div
+                  key={a.id}
+                  className="group relative overflow-hidden rounded-xl border border-border/30"
+                >
                   <AssetThumb asset={a} className="h-20 w-20" />
-                  {family?.media === 'video' && task === 'image-to-video' && i < 2 && (
-                    <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
-                      {i === 0 ? 'Début' : 'Fin'}
-                    </span>
+                  {family?.media === 'video' &&
+                    task === 'image-to-video' &&
+                    i < 2 && (
+                      <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
+                        {i === 0 ? 'Début' : 'Fin'}
+                      </span>
+                    )}
+                  {a.mediaType === 'video' && (
+                    <Film className="absolute top-1 left-1 h-3.5 w-3.5 text-white drop-shadow" />
                   )}
-                  {a.mediaType === 'video' && <Film className="absolute top-1 left-1 h-3.5 w-3.5 text-white drop-shadow" />}
                   <button
                     type="button"
                     onClick={() => composer.removeAttachment(a.id)}
@@ -235,7 +319,10 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
                 </div>
               ))}
               {Array.from({ length: uploading }).map((_, i) => (
-                <div key={`up-${i}`} className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-border">
+                <div
+                  key={`up-${i}`}
+                  className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-border"
+                >
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </div>
               ))}
@@ -264,126 +351,187 @@ export function Composer({ threadId, personaId, suggestedFamily }: ComposerProps
           />
 
           {/* Barre d'outils */}
-          <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm"
-              multiple
-              className="hidden"
-              onChange={(e) => onFiles(e.target.files)}
-            />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background/40 transition-colors hover:bg-accent"
-              title="Ajouter une image ou une vidéo"
-              aria-label="Ajouter un fichier"
-            >
-              <ImagePlus className="h-3.5 w-3.5" />
-            </button>
-            {persona && (
-              <ReferencePicker
-                persona={persona}
-                selectedIds={state.attachments.map((a) => a.id)}
-                onToggle={(a) =>
-                  state.attachments.some((x) => x.id === a.id) ? composer.removeAttachment(a.id) : composer.addAttachments([a])
+          <div className="flex items-center gap-2 px-2.5 pb-2.5">
+            {/* Outils sur une seule ligne (défilement horizontal si ça déborde) */}
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm"
+                multiple
+                className="hidden"
+                onChange={(e) => onFiles(e.target.files)}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background/40 transition-colors hover:bg-accent"
+                title="Ajouter une image ou une vidéo"
+                aria-label="Ajouter un fichier"
+              >
+                <ImagePlus className="h-3.5 w-3.5" />
+              </button>
+              {persona && (
+                <ReferencePicker
+                  persona={persona}
+                  selectedIds={state.attachments.map((a) => a.id)}
+                  onToggle={(a) =>
+                    state.attachments.some((x) => x.id === a.id)
+                      ? composer.removeAttachment(a.id)
+                      : composer.addAttachments([a])
+                  }
+                />
+              )}
+              <ModelPicker
+                families={families}
+                value={state.family}
+                onChange={composer.setFamily}
+                lora={
+                  persona && supportsLoras && personaLoras.length
+                    ? {
+                        personaName: persona.name,
+                        triggerWord: persona.triggerWord,
+                      }
+                    : null
                 }
               />
-            )}
-            <ModelPicker families={families} value={state.family} onChange={composer.setFamily} />
-            {quickFields.map(([key, prop]) => (
-              <div key={key} title={labelOf(key)}>
-                <ParamField
-                  name={key}
-                  prop={prop}
-                  value={params[key]}
-                  compact
-                  onChange={(v) => state.family && composer.setParam(state.family, key, v)}
-                />
-              </div>
-            ))}
-            <ParamsPopover
-              schema={schema}
-              values={params}
-              onChange={(k, v) => state.family && composer.setParam(state.family, k, v)}
-              onReset={() => state.family && composer.resetParams(state.family)}
-            />
-            {showRefToggle && (
-              <div className="flex h-8 items-center rounded-full border border-border/60 bg-background/40 p-0.5 text-[11px]">
-                {(['start-frame', 'reference'] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => composer.setRefMode(m)}
-                    className={cn(
-                      'h-full rounded-full px-2.5 transition-colors',
-                      state.refMode === m ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {m === 'start-frame' ? 'Image de départ' : 'Références'}
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => enhance.mutate()}
-              disabled={!state.prompt.trim() || enhance.isPending || !settings?.hasApiKey}
-              className="flex h-8 items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 text-xs transition-colors hover:bg-accent disabled:opacity-30"
-              title={persona ? `Améliorer avec la personnalité de ${persona.name}` : 'Améliorer le prompt'}
-            >
-              {enhance.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-              Améliorer
-            </button>
-
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {quote.isFetching || (canQuote && !quoteIsCurrent) ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : quoteIsCurrent && quote.data ? (
-                  <span title={`Maximum facturé : ${formatUsd(quote.data.maxCharge)} · ${formatUnit(quote.data.unit, quote.data.quantity)}`}>
-                    ≈ {formatUsd(quote.data.estimatedCost)}
-                  </span>
-                ) : null}
-              </span>
-              <Button
+              {quickFields.map(([key, prop]) => (
+                <div key={key} title={labelOf(key)}>
+                  <ParamField
+                    name={key}
+                    prop={prop}
+                    value={params[key]}
+                    compact
+                    onChange={(v) =>
+                      state.family && composer.setParam(state.family, key, v)
+                    }
+                  />
+                </div>
+              ))}
+              <ParamsPopover
+                schema={schema}
+                values={params}
+                onChange={(k, v) =>
+                  state.family && composer.setParam(state.family, k, v)
+                }
+                onReset={() =>
+                  state.family && composer.resetParams(state.family)
+                }
+              />
+              {showRefToggle && (
+                <div className="flex h-8 items-center rounded-full border border-border/60 bg-background/40 p-0.5 text-[11px]">
+                  {(['start-frame', 'reference'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => composer.setRefMode(m)}
+                      className={cn(
+                        'h-full rounded-full px-2.5 transition-colors',
+                        state.refMode === m
+                          ? 'bg-accent text-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {m === 'start-frame' ? 'Image de départ' : 'Références'}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
                 type="button"
-                size="icon"
-                onClick={send}
-                disabled={!canQuote || create.isPending || !quoteIsCurrent || !quote.data}
-                className="h-9 w-9 rounded-full text-white brand-gradient brand-shadow hover:opacity-90"
-                aria-label="Générer"
+                onClick={() => enhance.mutate()}
+                disabled={
+                  !state.prompt.trim() ||
+                  enhance.isPending ||
+                  !settings?.hasApiKey
+                }
+                className="flex h-8 items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 text-xs transition-colors hover:bg-accent disabled:opacity-30"
+                title={
+                  persona
+                    ? `Reformuler avec la personnalité de ${persona.name}`
+                    : 'Reformuler le prompt'
+                }
               >
-                {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-              </Button>
+                {enhance.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="h-3.5 w-3.5" />
+                )}
+                Reformuler
+              </button>
             </div>
+
+            {/* Générer : prix à gauche du bouton, détail au survol. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-xs text-foreground/80 tabular-nums">
+                    {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
+                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                    ) : quoteIsCurrent && quote.data ? (
+                      <>≈ {formatUsd(quote.data.estimatedCost)}</>
+                    ) : null}
+                  </span>
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={send}
+                    disabled={
+                      !canQuote ||
+                      create.isPending ||
+                      !quoteIsCurrent ||
+                      !quote.data
+                    }
+                    className="h-9 w-9 rounded-full brand-gradient brand-shadow hover:opacity-90"
+                    aria-label={
+                      quoteIsCurrent && quote.data
+                        ? `Générer pour ${formatUsd(quote.data.estimatedCost)}`
+                        : 'Générer'
+                    }
+                  >
+                    {create.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ArrowUp className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </TooltipTrigger>
+              {task && family && (
+                <TooltipContent side="top" align="end" className="text-xs">
+                  <div>
+                    {TASK_LABEL[task]} · {family.label}
+                  </div>
+                  {quoteIsCurrent && quote.data && (
+                    <div className="opacity-70">
+                      Maximum facturé {formatUsd(quote.data.maxCharge)} ·{' '}
+                      {formatUnit(quote.data.unit, quote.data.quantity)}
+                    </div>
+                  )}
+                </TooltipContent>
+              )}
+            </Tooltip>
           </div>
         </div>
 
-        {/* Ligne d'état */}
-        <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-3 gap-y-1 px-3 text-[11px] text-muted-foreground">
-          {catalogError && <span className="text-destructive-foreground">{(catalogError as Error).message}</span>}
-          {resolution && !resolution.ok && <span className="text-amber-300">{resolution.reason}</span>}
-          {task && (
-            <span className="flex items-center gap-1">
-              <Sparkles className="h-3 w-3" /> {TASK_LABEL[task]}
-            </span>
-          )}
-          {persona && supportsLoras && (
-            <span className={personaLoras.length ? 'text-violet-300' : 'text-muted-foreground'}>
-              {personaLoras.length
-                ? `LoRA de ${persona.name} appliquée${persona.triggerWord ? ` (« ${persona.triggerWord} »)` : ''}`
-                : `Aucune LoRA de ${persona.name} pour ce modèle`}
-            </span>
-          )}
-          {quoteIsCurrent && quote.data && quote.data.dropped > 0 && (
-            <span className="flex items-center gap-1 text-amber-300">
-              <Info className="h-3 w-3" /> {quote.data.dropped} fichier(s) ignoré(s) : trop de références pour ce modèle
-            </span>
-          )}
-          {quoteError && <span className="text-destructive-foreground">{quoteError}</span>}
-        </div>
+        {/* Messages : affichés seulement quand il y a quelque chose à lire. */}
+        {notices.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-3 text-[11px]">
+            {notices.map((n) => (
+              <span
+                key={n.text}
+                className={cn(
+                  'flex items-center gap-1',
+                  n.tone === 'error'
+                    ? 'text-destructive-foreground'
+                    : 'text-amber-300',
+                )}
+              >
+                <Info className="h-3 w-3 shrink-0" /> {n.text}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

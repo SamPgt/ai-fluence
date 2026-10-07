@@ -17,13 +17,16 @@ import {
   type GenerationRequest,
   type LoraEntry,
   type QuoteResponse,
+  type UpscaleRequest,
+  type InputSchema,
+  UPSCALERS,
   type TaskKind,
 } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { assets, generations, personas, threads, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
-import { callSpicy, clientForUser, getCatalog, toHttpError } from './spicy.service.js';
+import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -187,20 +190,60 @@ export async function createGeneration(
     });
   }
 
+  return launch(user, p, quote, {
+    threadId: req.threadId ?? null,
+    personaId: p.persona?.id ?? null,
+    family: req.family,
+    prompt: req.prompt,
+    refMode: req.refMode ?? 'start-frame',
+    params: req.params ?? {},
+  });
+}
+
+type Quote = Awaited<ReturnType<SpicyClient['quoteTask']>>;
+
+function toQuoteResponse(p: Prepared, quote: Quote): QuoteResponse {
+  return {
+    task: p.task,
+    modelId: p.modelId,
+    estimatedCost: quote.estimatedCost,
+    maxCharge: quote.maxCharge,
+    quantity: quote.quantity,
+    unit: quote.unit,
+    expiresAt: quote.expiresAt,
+    dropped: p.dropped,
+    lorasApplied: p.lorasApplied,
+  };
+}
+
+/** Crée (ou reprend) le fil, enregistre la génération, lance la tâche et démarre son suivi. */
+async function launch(
+  user: SessionUser,
+  p: Prepared,
+  quote: Quote,
+  meta: {
+    threadId: string | null;
+    personaId: string | null;
+    family: string;
+    prompt: string;
+    refMode: 'start-frame' | 'reference';
+    params: Record<string, unknown>;
+  },
+): Promise<CreateGenerationResponse> {
   // Fil : existant (vérifié) ou créé à partir du prompt.
   let thread: typeof threads.$inferSelect | undefined;
-  if (req.threadId) {
+  if (meta.threadId) {
     [thread] = await db
       .select()
       .from(threads)
-      .where(and(eq(threads.id, req.threadId), eq(threads.userId, user.id)))
+      .where(and(eq(threads.id, meta.threadId), eq(threads.userId, user.id)))
       .limit(1);
     if (!thread) throw new HTTPException(404, { message: 'Fil introuvable.' });
   } else {
-    const title = req.prompt.trim().slice(0, 60) || getFamily(req.family)!.label;
+    const title = meta.prompt.trim().slice(0, 60) || getFamily(meta.family)!.label;
     [thread] = await db
       .insert(threads)
-      .values({ userId: user.id, personaId: p.persona?.id ?? null, title })
+      .values({ userId: user.id, personaId: meta.personaId, title })
       .returning();
   }
 
@@ -210,14 +253,14 @@ export async function createGeneration(
     .values({
       threadId: thread.id,
       userId: user.id,
-      personaId: p.persona?.id ?? thread.personaId,
-      prompt: req.prompt,
+      personaId: meta.personaId ?? thread.personaId,
+      prompt: meta.prompt,
       finalPrompt: p.finalPrompt,
-      family: req.family,
+      family: meta.family,
       modelId: p.modelId,
       task: p.task,
-      refMode: req.refMode ?? 'start-frame',
-      params: req.params ?? {},
+      refMode: meta.refMode,
+      params: meta.params,
       input: p.input,
       referenceAssetIds: p.references.map(r => r.id),
       lorasApplied: p.lorasApplied,
@@ -248,6 +291,89 @@ export async function createGeneration(
 
   const [generation] = await loadGenerations(user.id, { ids: [row.id] });
   return { generation, thread: toThread(thread) };
+}
+
+// ── Upscale ───────────────────────────────────────────────────
+
+interface PreparedUpscale {
+  p: Prepared;
+  threadId: string;
+  personaId: string | null;
+  family: string;
+  resolution: string;
+}
+
+/** Upscale d'un résultat : même fil que l'original, sans prompt. */
+async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<PreparedUpscale> {
+  const [asset] = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.id, req.assetId), eq(assets.userId, user.id)))
+    .limit(1);
+  if (!asset) throw new HTTPException(404, { message: 'Média introuvable.' });
+  if (!asset.generationId) throw new HTTPException(400, { message: 'Seuls les résultats générés peuvent être upscalés.' });
+  const [source] = await db
+    .select({ threadId: generations.threadId, personaId: generations.personaId })
+    .from(generations)
+    .where(eq(generations.id, asset.generationId))
+    .limit(1);
+  if (!source) throw new HTTPException(404, { message: 'Génération d’origine introuvable.' });
+
+  const tool = UPSCALERS[asset.mediaType];
+  const model = (await getModels(user.id)).find(m => m.model === tool.modelId);
+  if (!model?.enabled) throw new HTTPException(400, { message: `${tool.label} n'est pas disponible avec cette clé.` });
+
+  const schema = (model.inputSchema ?? {}) as InputSchema;
+  const props = schema.properties ?? {};
+  const resolutions = (props.resolution?.enum as string[] | undefined) ?? [];
+  const resolution = req.resolution && resolutions.includes(req.resolution) ? req.resolution : tool.defaultResolution;
+
+  const client = await clientForUser(user.id);
+  const uri = await ensureSpicyUri(client, asset);
+  const input: Record<string, unknown> = {
+    [asset.mediaType === 'video' ? 'video_url' : 'image_url']: uri,
+    ...(props.resolution ? { resolution } : {}),
+  };
+
+  return {
+    p: {
+      client,
+      task: 'upscale',
+      modelId: tool.modelId,
+      input,
+      finalPrompt: '',
+      persona: null,
+      references: [asset],
+      dropped: 0,
+      lorasApplied: 0,
+    },
+    threadId: source.threadId,
+    personaId: source.personaId,
+    family: tool.family,
+    resolution,
+  };
+}
+
+export async function quoteUpscale(user: SessionUser, req: UpscaleRequest): Promise<QuoteResponse> {
+  const u = await prepareUpscale(user, req);
+  const quote = await callSpicy(() => u.p.client.quoteTask({ model: u.p.modelId, input: u.p.input }));
+  return toQuoteResponse(u.p, quote);
+}
+
+export async function createUpscale(user: SessionUser, req: UpscaleRequest): Promise<CreateGenerationResponse> {
+  const u = await prepareUpscale(user, req);
+  const quote = await callSpicy(() => u.p.client.quoteTask({ model: u.p.modelId, input: u.p.input }));
+  if (req.expectedCost !== undefined && Number(quote.estimatedCost) > Number(req.expectedCost) + 1e-9) {
+    throw new PriceChangedError(toQuoteResponse(u.p, quote));
+  }
+  return launch(user, u.p, quote, {
+    threadId: u.threadId,
+    personaId: u.personaId,
+    family: u.family,
+    prompt: '',
+    refMode: 'start-frame',
+    params: { resolution: u.resolution },
+  });
 }
 
 // ── Lecture ───────────────────────────────────────────────────

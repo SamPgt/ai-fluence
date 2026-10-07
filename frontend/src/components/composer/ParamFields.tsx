@@ -9,12 +9,12 @@ import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
 const LABELS: Record<string, string> = {
-  aspect_ratio: 'Format',
+  aspect_ratio: 'Proportions',
   resolution: 'Résolution',
   duration_seconds: 'Durée',
   num_outputs: "Nombre d'images",
@@ -34,13 +34,14 @@ const LABELS: Record<string, string> = {
   watermark: 'Filigrane',
   enable_web_search: 'Recherche web',
   return_last_frame: 'Renvoyer la dernière image',
-  preset: 'Préréglage',
+  preset: 'Variante du modèle',
   prompt_optimization_mode: 'Optimisation du prompt',
   output_quality: 'Compression',
+  official_fallback: 'Relance au prix officiel si échec',
 }
 
-/** Paramètres affichés directement dans la barre du composer. */
-export const QUICK_FIELDS = ['aspect_ratio', 'resolution', 'duration_seconds', 'num_outputs']
+/** Paramètres affichés directement dans la barre du composer (le reste est dans le popover). */
+export const QUICK_FIELDS = ['aspect_ratio', 'resolution', 'duration_seconds']
 
 export function labelOf(key: string): string {
   return LABELS[key] ?? key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
@@ -78,11 +79,15 @@ export function ParamField({ name, prop, value, onChange, compact }: FieldProps)
           <SelectValue placeholder={labelOf(name)} />
         </SelectTrigger>
         <SelectContent>
-          {prop.enum.map((o) => (
-            <SelectItem key={String(o)} value={String(o)}>
-              {formatOption(name, o)}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            {/* Dans la barre, le bouton n'affiche que la valeur : le titre dit de quoi il s'agit. */}
+            {compact && <SelectLabel>{labelOf(name)}</SelectLabel>}
+            {prop.enum.map((o) => (
+              <SelectItem key={String(o)} value={String(o)}>
+                {formatOption(name, o)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
     )
@@ -136,7 +141,8 @@ export function ParamsPopover({
   onReset: () => void
 }) {
   const fields = editableFields(schema).filter(([k]) => !QUICK_FIELDS.includes(k))
-  const changed = Object.keys(values).filter((k) => values[k] !== undefined).length
+  // Point « modifié » : seulement les réglages du popover qui diffèrent de leur valeur par défaut.
+  const changed = fields.filter(([k, prop]) => values[k] !== undefined && values[k] !== prop.default).length
 
   return (
     <Popover>
@@ -149,7 +155,12 @@ export function ParamsPopover({
           title="Paramètres du modèle"
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
-          {changed > 0 && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-violet-400" />}
+          {changed > 0 && (
+            <span
+              className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-brand"
+              title={`${changed} réglage(s) modifié(s)`}
+            />
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-80 space-y-3">

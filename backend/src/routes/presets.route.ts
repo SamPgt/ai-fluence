@@ -8,7 +8,7 @@ import { promptPresets } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
 
-const DEFAULT_PRESETS: Omit<PromptPreset, 'id' | 'position'>[] = [
+const DEFAULT_PRESETS: Omit<PromptPreset, 'id' | 'position' | 'enabled'>[] = [
   { label: 'Photo iPhone', text: 'candid iPhone photo, natural daylight, slight grain, realistic skin texture', media: 'image' },
   { label: 'Lumière dorée', text: 'golden hour lighting, warm tones, soft shadows', media: 'all' },
   { label: 'Studio', text: 'studio portrait, softbox lighting, clean background, sharp focus', media: 'image' },
@@ -24,13 +24,14 @@ export async function seedDefaultPresets(userId: string) {
 }
 
 function toPreset(r: typeof promptPresets.$inferSelect): PromptPreset {
-  return { id: r.id, label: r.label, text: r.text, media: r.media, position: r.position };
+  return { id: r.id, label: r.label, text: r.text, media: r.media, enabled: r.enabled, position: r.position };
 }
 
 const presetSchema = z.object({
   label: z.string().trim().min(1).max(40),
   text: z.string().trim().min(1).max(1000),
   media: z.enum(['image', 'video', 'all']).default('all'),
+  enabled: z.boolean().default(true),
 });
 
 const presetsRoutes = new Hono<AppEnv>()
@@ -52,13 +53,24 @@ const presetsRoutes = new Hono<AppEnv>()
       .returning();
     return c.json({ preset: toPreset(row) }, 201);
   })
-  .patch('/:id', zValidator('json', presetSchema.partial()), async c => {
+  .patch(
+    '/:id',
+    zValidator(
+      'json',
+      z.object({
+        label: z.string().trim().min(1).max(40).optional(),
+        text: z.string().trim().min(1).max(1000).optional(),
+        media: z.enum(['image', 'video', 'all']).optional(),
+        enabled: z.boolean().optional(),
+      }),
+    ),
+    async c => {
     const [row] = await db
       .update(promptPresets)
       .set(c.req.valid('json'))
       .where(and(eq(promptPresets.id, c.req.param('id')), eq(promptPresets.userId, c.get('user').id)))
       .returning();
-    if (!row) return c.json({ error: 'Préréglage introuvable.' }, 404);
+    if (!row) return c.json({ error: 'Raccourci introuvable.' }, 404);
     return c.json({ preset: toPreset(row) });
   })
   .delete('/:id', async c => {

@@ -15,6 +15,20 @@
       "when": 1791316162960,
       "tag": "0001_user_avatar",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791395441191,
+      "tag": "0002_enhance_model_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791397032024,
+      "tag": "0003_shortcut_enabled",
+      "breakpoints": true
     }
   ]
 }

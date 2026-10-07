@@ -109,7 +109,7 @@ function PersonaEditor({ persona }: { persona: Persona }) {
     <>
       <PageHeader
         right={
-          <Button size="sm" onClick={() => save.mutate()} disabled={!dirty || save.isPending || !draft.name.trim()} className="brand-gradient text-white">
+          <Button size="sm" onClick={() => save.mutate()} disabled={!dirty || save.isPending || !draft.name.trim()} className="brand-gradient">
             {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enregistrer'}
           </Button>
         }
@@ -177,7 +177,7 @@ function PersonaEditor({ persona }: { persona: Persona }) {
 
           <Card
             title="Personnalité et comportement"
-            description="Utilisé par le bouton « Améliorer » : façon de parler, attitude, habitudes. Le prompt est réécrit en cohérence."
+            description="Utilisé par le bouton « Reformuler » : façon de parler, attitude, habitudes. Le prompt est réécrit en cohérence."
           >
             <Textarea
               rows={4}
@@ -247,7 +247,7 @@ function PersonaEditor({ persona }: { persona: Persona }) {
                         step={0.05}
                         value={l.scale}
                         onChange={(e) => updateLora(l.id, { scale: Number(e.target.value) })}
-                        className="w-28 accent-violet-500"
+                        className="w-28 accent-brand"
                       />
                       <span className="w-8 tabular-nums">{l.scale.toFixed(2)}</span>
                     </label>

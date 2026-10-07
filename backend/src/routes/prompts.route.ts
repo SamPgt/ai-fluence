@@ -55,28 +55,42 @@ const promptsRoutes = new Hono<AppEnv>().use(auth).post(
         .limit(1);
     }
 
-    const res = await fetch(CHAT_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: settings.enhanceModel,
-        max_tokens: 400,
-        messages: [
-          { role: 'system', content: systemPrompt(body.media, persona) },
-          { role: 'user', content: body.prompt },
-        ],
-      }),
-      signal: AbortSignal.timeout(90_000),
-    }).catch(() => null);
+    const messages = [
+      { role: 'system', content: systemPrompt(body.media, persona) },
+      { role: 'user', content: body.prompt },
+    ];
+    // Réflexion limitée : une reformulation n'en a pas besoin, et un modèle qui réfléchit trop
+    // peut épuiser son budget sans écrire de réponse. On ne paie que les tokens réellement utilisés.
+    const call = (withReasoning: boolean) =>
+      fetch(CHAT_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: settings.enhanceModel,
+          max_tokens: 2000,
+          ...(withReasoning ? { reasoning_effort: 'low' } : {}),
+          messages,
+        }),
+        signal: AbortSignal.timeout(90_000),
+      }).catch(() => null);
 
-    if (!res) throw new HTTPException(502, { message: 'SpicyAPI ne répond pas.' });
-    const data = (await res.json().catch(() => null)) as {
+    type ChatResponse = {
       choices?: { message?: { content?: string } }[];
-      error?: { message?: string };
+      error?: { message?: string; code?: string };
       msg?: string;
     } | null;
+
+    let res = await call(true);
+    let data = res ? ((await res.json().catch(() => null)) as ChatResponse) : null;
+    // Modèle choisi dans les paramètres qui n'accepte pas `reasoning_effort` : on relance sans.
+    if (res?.status === 400 && data?.error?.code === 'unsupported_parameter') {
+      res = await call(false);
+      data = res ? ((await res.json().catch(() => null)) as ChatResponse) : null;
+    }
+
+    if (!res) throw new HTTPException(502, { message: 'SpicyAPI ne répond pas.' });
     if (!res.ok) {
-      throw new HTTPException(502, { message: data?.error?.message ?? data?.msg ?? 'Amélioration du prompt impossible.' });
+      throw new HTTPException(502, { message: data?.error?.message ?? data?.msg ?? 'Reformulation du prompt impossible.' });
     }
     const text = data?.choices?.[0]?.message?.content?.trim().replace(/^["“]|["”]$/g, '');
     if (!text) throw new HTTPException(502, { message: 'Le modèle n’a rien renvoyé.' });

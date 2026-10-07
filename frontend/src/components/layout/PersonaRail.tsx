@@ -139,8 +139,8 @@ export function PersonaRail({ user }: { user: User }) {
         label="Tous les fils"
         onClick={() => select('')}
       >
-        <span className="flex h-11 w-11 items-center justify-center bg-muted text-foreground brand-gradient">
-          <LayoutGrid className="h-5 w-5 text-white" />
+        <span className="flex h-11 w-11 items-center justify-center brand-gradient text-brand-foreground">
+          <LayoutGrid className="h-5 w-5" />
         </span>
       </Bubble>
 
@@ -207,12 +207,15 @@ export function PersonaRail({ user }: { user: User }) {
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link to="/parametres" search={{ tab: 'api-key' }}>
+            <Link to="/parametres" search={{ tab: 'account' }}>
               <Settings className="h-4 w-4" />
               Paramétrage
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={logout} variant="destructive">
+          <DropdownMenuItem
+            onClick={logout}
+            className="text-red-500 focus:bg-red-500/10 focus:text-red-400 [&_svg]:!text-red-500"
+          >
             <LogOut className="h-4 w-4 text-red-500" />
             Déconnexion
           </DropdownMenuItem>

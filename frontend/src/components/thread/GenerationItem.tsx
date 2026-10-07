@@ -6,13 +6,14 @@ import {
   Clapperboard,
   Download,
   Loader2,
-  MoreHorizontal,
   Pencil,
   RefreshCw,
   Shuffle,
+  ImageUpscale,
+  SquarePen,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { TASK_LABEL, getFamily, type Asset, type Generation } from '@ai-fluence/shared'
+import { getFamily, type Asset, type Generation, type GenerationRequest } from '@ai-fluence/shared'
 
 import { assetsApi } from '@/lib/api'
 import { composer } from '@/lib/composer-store'
@@ -26,13 +27,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { MediaViewer } from './MediaViewer'
+import { UpscaleDialog } from './UpscaleDialog'
+import { RelaunchDialog } from './RelaunchDialog'
 
 function Elapsed({ since }: { since: string }) {
   const [, tick] = useState(0)
@@ -61,6 +60,23 @@ function ActionButton({ onClick, title, children }: { onClick: () => void; title
 export function GenerationItem({ generation: g }: { generation: Generation }) {
   const queryClient = useQueryClient()
   const [viewing, setViewing] = useState<Asset | null>(null)
+  const [upscaling, setUpscaling] = useState<Asset | null>(null)
+  const isUpscale = g.task === 'upscale'
+  const [relaunch, setRelaunch] = useState<GenerationRequest | null>(null)
+  /** Même demande (nouveau seed), sur ce modèle ou un autre. */
+  const relaunchRequest = (family: string): GenerationRequest => {
+    const params = { ...g.params }
+    delete params.seed
+    return {
+      threadId: g.threadId,
+      personaId: g.personaId,
+      family,
+      refMode: g.refMode,
+      prompt: g.prompt,
+      params,
+      referenceAssetIds: g.references.map((r) => r.id),
+    }
+  }
   const { data: catalog } = useQuery(catalogQuery())
   const { data: settings } = useQuery(settingsQuery())
   const { data: personas = [] } = useQuery(personasQuery())
@@ -101,29 +117,81 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
 
   return (
     <div className="space-y-3">
-      {/* Demande (côté utilisateur) */}
-      <div className="flex justify-end">
-        <div className="max-w-[85%] space-y-2 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3">
-          {g.references.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-1.5">
-              {g.references.map((r) => (
-                <button key={r.id} onClick={() => setViewing(r)} className="overflow-hidden rounded-lg">
-                  <AssetThumb asset={r} className="h-14 w-14" />
-                </button>
-              ))}
+      {/* Demande (côté utilisateur) : la bulle ne contient que les références et le texte,
+          les actions et les infos du modèle sont en dessous, sur le fond. */}
+      <div className="ml-auto flex w-fit max-w-[85%] flex-col items-end gap-1.5">
+        {(g.references.length > 0 || g.prompt.trim()) && (
+          <div className="space-y-2 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3">
+            {g.references.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {g.references.map((r) => (
+                  <button key={r.id} onClick={() => setViewing(r)} className="overflow-hidden rounded-lg">
+                    <AssetThumb asset={r} className="h-14 w-14" />
+                  </button>
+                ))}
+              </div>
+            )}
+            {g.prompt.trim() && <p className="text-[15px] whitespace-pre-wrap">{g.prompt.trim()}</p>}
+          </div>
+        )}
+        <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          {/* Actions sur la demande */}
+          {!isUpscale ? (
+            <div className="-ml-0.5 flex items-center gap-0.5">
+              <button
+                onClick={() => rerun()}
+                className="rounded-md p-1.5 hover:bg-accent hover:text-foreground"
+                title="Modifier la demande : la remet dans le composer"
+                aria-label="Modifier la demande"
+              >
+                <SquarePen className="size-[14.4px]" />
+              </button>
+              <button
+                onClick={() => setRelaunch(relaunchRequest(g.family))}
+                className="flex items-center gap-1 rounded-md px-1.5 py-1.5 hover:bg-accent hover:text-foreground"
+                title="Relancer la même demande avec un nouveau seed"
+              >
+                <RefreshCw className="size-[14.4px]" /> Relancer
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1.5 hover:bg-accent hover:text-foreground"
+                    title="Relancer la même demande avec un autre modèle"
+                  >
+                    <Shuffle className="size-[14.4px]" /> Relancer avec…
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64">
+                  <DropdownMenuLabel className="text-[11px] font-bold text-zinc-300 uppercase">
+                    {def?.media === 'video' ? 'Modèles vidéo' : 'Modèles photo'}
+                  </DropdownMenuLabel>
+                  {families
+                    .filter((f) => f.media === def?.media && f.id !== g.family)
+                    .map((f) => (
+                      <DropdownMenuItem key={f.id} onClick={() => setRelaunch(relaunchRequest(f.id))} className="justify-between">
+                        {f.label}
+                        <span className="flex gap-1">
+                          {f.badges.map((b) => <ModelBadge key={b} badge={b} />)}
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
+          ) : (
+            <span />
           )}
-          {g.prompt && <p className="text-[15px] whitespace-pre-wrap">{g.prompt}</p>}
-          <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+          {/* Modèle et paramètres */}
+          <div className="flex flex-wrap items-center justify-end gap-1.5 pr-1">
             <span className="font-medium text-foreground/80">{def?.label ?? g.family}</span>
             {def?.badges.map((b) => <ModelBadge key={b} badge={b} />)}
-            <span>· {TASK_LABEL[g.task]}</span>
             {g.lorasApplied > 0 && <span className="text-violet-300">· LoRA ×{g.lorasApplied}</span>}
             {Object.entries(g.params)
               .filter(([k, v]) => v !== undefined && k !== 'seed')
               .slice(0, 4)
               .map(([k, v]) => (
-                <span key={k} className="rounded bg-background/50 px-1.5 py-0.5">
+                <span key={k} className="rounded bg-secondary/60 px-1.5 py-0.5">
                   {String(v)}
                 </span>
               ))}
@@ -136,7 +204,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
         <div className="w-full max-w-[85%] space-y-2">
           {pending && (
             <div className="flex aspect-[4/3] max-w-md flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-muted/30">
-              <Loader2 className="h-6 w-6 animate-spin text-violet-300" />
+              <Loader2 className="h-6 w-6 animate-spin text-brand" />
               <div className="text-center text-xs text-muted-foreground">
                 <div>{g.status === 'queued' ? 'En file d’attente…' : 'Génération en cours…'}</div>
                 <div className="tabular-nums">
@@ -153,7 +221,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
               <div className="space-y-2">
                 <p>{g.errorMessage ?? 'La génération a échoué.'}</p>
                 <button onClick={() => rerun()} className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-                  Recharger dans le composer
+                  Modifier la demande
                 </button>
               </div>
             </div>
@@ -181,6 +249,11 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                         </ActionButton>
                       </>
                     )}
+                    {!isUpscale && (
+                      <ActionButton onClick={() => setUpscaling(asset)} title="Upscale">
+                        <ImageUpscale className="h-3.5 w-3.5" />
+                      </ActionButton>
+                    )}
                     {persona && (
                       <ActionButton onClick={() => toReference.mutate(asset)} title={`Ajouter aux références de ${persona.name}`}>
                         <BookmarkPlus className="h-3.5 w-3.5" />
@@ -199,60 +272,32 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             </div>
           )}
 
-          {/* Pied : coût, temps, actions */}
+          {/* Pied : date et actions à gauche, coût à droite (comme le prix du composer et le total du fil) */}
           {!pending && (
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span className="tabular-nums">
+            <div className={cn('flex items-center gap-2 text-[11px] text-muted-foreground', g.outputs.length <= 1 && 'max-w-xl')}>
+              <span>{timeAgo(g.createdAt)}</span>
+              {g.seed !== null && <span>· seed {g.seed}</span>}
+              {!isUpscale && g.status === 'succeeded' && g.outputs.length === 1 && (
+                <button
+                  onClick={() => setUpscaling(g.outputs[0])}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+                  title="Agrandir et affiner le résultat"
+                >
+                  <ImageUpscale className="h-3 w-3" /> Upscale
+                </button>
+              )}
+              <span className="ml-auto pr-1 tabular-nums">
                 {g.cost ? formatUsd(g.cost) : '—'}
                 {g.cost && !g.settled && ' (provisoire)'}
               </span>
-              <span>· {timeAgo(g.createdAt)}</span>
-              {g.seed !== null && <span>· seed {g.seed}</span>}
-              <button onClick={() => rerun()} className="ml-1 flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground" title="Varier : même demande, nouveau seed">
-                <Shuffle className="h-3 w-3" /> Varier
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="rounded p-1 hover:bg-accent hover:text-foreground" aria-label="Plus d’actions">
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-60">
-                  <DropdownMenuItem onClick={() => rerun(g.family, true)}>
-                    <RefreshCw className="h-4 w-4" /> Relancer à l’identique (même seed)
-                  </DropdownMenuItem>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Shuffle className="mr-2 h-4 w-4 text-muted-foreground" /> Relancer avec…
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-64">
-                      <DropdownMenuLabel className="text-[11px] font-bold text-zinc-300 uppercase">
-                        {def?.media === 'video' ? 'Modèles vidéo' : 'Modèles photo'}
-                      </DropdownMenuLabel>
-                      {families
-                        .filter((f) => f.media === def?.media && f.id !== g.family)
-                        .map((f) => (
-                          <DropdownMenuItem key={f.id} onClick={() => rerun(f.id)} className="justify-between">
-                            {f.label}
-                            <span className="flex gap-1">
-                              {f.badges.map((b) => <ModelBadge key={b} badge={b} />)}
-                            </span>
-                          </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[11px] font-normal break-words whitespace-pre-wrap text-muted-foreground">
-                    Prompt envoyé : {g.finalPrompt || '—'}
-                  </DropdownMenuLabel>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
           )}
         </div>
       </div>
 
       <MediaViewer asset={viewing} onClose={() => setViewing(null)} />
+      <UpscaleDialog asset={upscaling} threadId={g.threadId} onClose={() => setUpscaling(null)} />
+      <RelaunchDialog request={relaunch} onClose={() => setRelaunch(null)} />
     </div>
   )
 }

@@ -5,10 +5,10 @@ import type { MediaKind } from '@ai-fluence/shared'
 
 import { presetsQuery } from '@/lib/queries'
 
-/** Préréglages de prompts : un clic ajoute le texte au prompt. */
+/** Raccourcis de prompt : un clic ajoute leur texte au prompt. */
 export function PresetChips({ media, onPick }: { media: MediaKind; onPick: (text: string) => void }) {
   const { data: presets = [] } = useQuery(presetsQuery())
-  const visible = presets.filter((p) => p.media === 'all' || p.media === media)
+  const visible = presets.filter((p) => p.enabled && (p.media === 'all' || p.media === media))
   if (!visible.length) return null
 
   return (
@@ -26,9 +26,9 @@ export function PresetChips({ media, onPick }: { media: MediaKind; onPick: (text
       ))}
       <Link
         to="/parametres"
-        search={{ tab: 'presets' }}
+        search={{ tab: 'shortcuts' }}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
-        title="Gérer les préréglages"
+        title="Gérer les raccourcis"
       >
         <Plus className="h-3 w-3" />
       </Link>

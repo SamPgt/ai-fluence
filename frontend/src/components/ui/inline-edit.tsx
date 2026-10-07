@@ -54,7 +54,7 @@ export function InlineEdit({
       }}
       className={cn(
         // Sans fond ni bordure : le texte reste à sa place, seul le curseur et la sélection signalent l'édition.
-        'w-full min-w-0 border-0 bg-transparent p-0 text-sm text-foreground outline-none selection:bg-violet-500/40',
+        'w-full min-w-0 border-0 bg-transparent p-0 text-sm text-foreground outline-none selection:bg-brand/40',
         className,
       )}
     />

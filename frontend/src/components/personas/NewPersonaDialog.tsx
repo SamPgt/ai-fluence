@@ -85,7 +85,7 @@ export function NewPersonaDialog({ open, onOpenChange }: { open: boolean; onOpen
               />
             ))}
           </div>
-          <Button type="submit" disabled={!name.trim() || create.isPending} className="w-full brand-gradient text-white">
+          <Button type="submit" disabled={!name.trim() || create.isPending} className="w-full brand-gradient">
             Créer et configurer
           </Button>
         </form>

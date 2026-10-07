@@ -21,7 +21,8 @@ export type TaskKind =
   | 'image-to-image'
   | 'text-to-video'
   | 'image-to-video'
-  | 'reference-to-video';
+  | 'reference-to-video'
+  | 'upscale';
 
 export interface ModelFamilyDef {
   /** Préfixe des model IDs SpicyAPI, ex. `bytedance/seedream-5.0-pro`. */
@@ -151,6 +152,30 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
   },
 ];
 
+/**
+ * Outils lancés depuis un résultat (pas dans le dropdown des modèles).
+ * Upscale : agrandit et affine une image ou une vidéo, sans prompt.
+ */
+export const UPSCALERS: Record<MediaKind, { family: string; modelId: string; label: string; defaultResolution: string }> = {
+  image: {
+    family: 'spicyapi/image-upscaler-v1',
+    modelId: 'spicyapi/image-upscaler-v1/upscale',
+    label: 'Upscaler image',
+    defaultResolution: '4k',
+  },
+  video: {
+    family: 'spicyapi/video-upscaler-v1',
+    modelId: 'spicyapi/video-upscaler-v1/upscale',
+    label: 'Upscaler vidéo',
+    defaultResolution: '1080p',
+  },
+};
+
+export const TOOL_FAMILIES: ModelFamilyDef[] = [
+  { id: UPSCALERS.image.family, label: UPSCALERS.image.label, media: 'image', badges: [], hint: 'Agrandit et affine une image' },
+  { id: UPSCALERS.video.family, label: UPSCALERS.video.label, media: 'video', badges: [], hint: 'Passe une vidéo en haute résolution' },
+];
+
 export const BADGE_INFO: Record<ModelBadge, { label: string; description: string }> = {
   LORA: { label: 'LORA', description: 'Accepte une LoRA (personnage entraîné)' },
   REF: { label: 'REF', description: 'Cohérence par images de référence' },
@@ -164,6 +189,7 @@ export const ENDPOINT_SUFFIX_TO_TASK: Record<string, TaskKind> = {
   'text-to-video': 'text-to-video',
   'image-to-video': 'image-to-video',
   'reference-to-video': 'reference-to-video',
+  upscale: 'upscale',
 };
 
 export const TASK_LABEL: Record<TaskKind, string> = {
@@ -172,10 +198,11 @@ export const TASK_LABEL: Record<TaskKind, string> = {
   'text-to-video': 'Texte → vidéo',
   'image-to-video': 'Image → vidéo',
   'reference-to-video': 'Références → vidéo',
+  upscale: 'Upscale',
 };
 
 export function getFamily(id: string): ModelFamilyDef | undefined {
-  return MODEL_FAMILIES.find(f => f.id === id);
+  return MODEL_FAMILIES.find(f => f.id === id) ?? TOOL_FAMILIES.find(f => f.id === id);
 }
 
 /** Famille d'un model ID SpicyAPI (`publisher/model/task` → `publisher/model`). */

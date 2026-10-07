@@ -83,7 +83,7 @@ export function AuthCard({ mode }: { mode: 'login' | 'signup' }) {
 
         {error && <p className="text-sm text-destructive-foreground">{error}</p>}
 
-        <Button type="submit" disabled={pending} className="w-full brand-gradient brand-shadow text-white hover:opacity-90">
+        <Button type="submit" disabled={pending} className="w-full brand-gradient brand-shadow hover:opacity-90">
           {pending ? '…' : mode === 'login' ? 'Se connecter' : 'Créer le compte'}
         </Button>
 
