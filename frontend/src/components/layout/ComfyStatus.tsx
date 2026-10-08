@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Cpu, Loader2, Power } from 'lucide-react'
 import { toast } from 'sonner'
@@ -31,6 +32,12 @@ const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} Go`
 export function ComfyStatus() {
   const queryClient = useQueryClient()
   const { data: status } = useQuery(comfyStatusQuery())
+
+  // Modèles locaux disponibles seulement quand ComfyUI tourne : le catalogue suit son état.
+  const running = status?.state === 'running'
+  useEffect(() => {
+    if (status?.enabled) queryClient.invalidateQueries({ queryKey: qk.catalog })
+  }, [running]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onDone = (next: { status: Status }) => queryClient.setQueryData(qk.comfy, next.status)
   const onError = (err: Error) => toast.error(err.message)

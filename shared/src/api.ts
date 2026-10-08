@@ -3,7 +3,7 @@
  * Les montants sont des chaînes décimales USD (comme SpicyAPI).
  */
 import type { InputSchema, VideoRefMode } from './input';
-import type { MediaKind, ModelBadge, TaskKind } from './models';
+import type { MediaKind, ModelBadge, ModelProvider, TaskKind } from './models';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -101,7 +101,10 @@ export interface CatalogFamily {
   media: MediaKind;
   badges: ModelBadge[];
   hint: string;
+  provider: ModelProvider;
   available: boolean;
+  /** Pourquoi le modèle n'est pas utilisable (clé manquante, ComfyUI arrêté…). */
+  unavailableReason: string | null;
   tasks: Partial<Record<TaskKind, CatalogTask>>;
 }
 
@@ -214,6 +217,7 @@ export interface Generation {
   settled: boolean;
   seed: number | null;
   outputs: Asset[];
+  provider: ModelProvider;
   spicyTaskId: string | null;
   createdAt: string;
   completedAt: string | null;

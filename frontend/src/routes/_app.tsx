@@ -6,7 +6,7 @@ import { KeyRound } from 'lucide-react'
 import { sessionQueryOptions } from '@/server/auth'
 import type { User } from '@ai-fluence/shared'
 import { uiPrefsQueryOptions } from '@/server/ui-prefs'
-import { settingsQuery } from '@/lib/queries'
+import { comfyStatusQuery, settingsQuery } from '@/lib/queries'
 import { isMac, isTypingTarget } from '@/lib/platform'
 import { UiPrefsProvider, useUiPref } from '@/components/providers/ui-prefs'
 import { PersonaRail } from '@/components/layout/PersonaRail'
@@ -41,6 +41,8 @@ function AppShell({ user: initialUser }: { user: User }) {
   const user = data ?? initialUser
   const [collapsed, setCollapsed] = useUiPref('sidebarCollapsed')
   const { data: settings } = useQuery(settingsQuery())
+  const { data: comfy } = useQuery(comfyStatusQuery())
+  const comfyEnabled = Boolean(comfy?.enabled)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const navigate = useNavigate()
 
@@ -77,7 +79,9 @@ function AppShell({ user: initialUser }: { user: User }) {
             className="flex items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-200 hover:bg-amber-500/15"
           >
             <KeyRound className="h-4 w-4" />
-            Ajoute ta clé API SpicyAPI pour commencer à générer →
+            {comfyEnabled
+              ? 'Ajoute ta clé API SpicyAPI pour utiliser aussi les modèles cloud →'
+              : 'Ajoute ta clé API SpicyAPI pour commencer à générer →'}
           </Link>
         )}
         <Outlet />

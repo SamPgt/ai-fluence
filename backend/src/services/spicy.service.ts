@@ -8,7 +8,8 @@ import {
   type InputSchema,
 } from '@ai-fluence/shared';
 import { env } from '../env.js';
-import { requireApiKey } from './settings.service.js';
+import { getLocalFamilies } from './comfy-workflows.js';
+import { getSettingsRow, requireApiKey } from './settings.service.js';
 
 export function clientFor(apiKey: string): SpicyClient {
   return new SpicyClient({ apiKey, apiBaseUrl: env.SPICY_API_BASE_URL });
@@ -37,7 +38,9 @@ export async function getModels(userId: string): Promise<ApiModel[]> {
 }
 
 export async function getCatalog(userId: string): Promise<CatalogResponse> {
-  const models = await getModels(userId);
+  // Sans clé, les modèles SpicyAPI restent listés mais indisponibles : les modèles locaux suffisent à générer.
+  const hasKey = Boolean((await getSettingsRow(userId)).spicyApiKeyEnc);
+  const models = hasKey ? await getModels(userId) : [];
   const families: CatalogFamily[] = MODEL_FAMILIES.map(def => {
     const tasks: CatalogFamily['tasks'] = {};
     for (const m of models) {
@@ -54,10 +57,17 @@ export async function getCatalog(userId: string): Promise<CatalogResponse> {
         policyTier: m.policyTier ?? null,
       };
     }
-    return { ...def, tasks, available: Object.keys(tasks).length > 0 };
+    const available = Object.keys(tasks).length > 0;
+    return {
+      ...def,
+      provider: 'spicy',
+      tasks,
+      available,
+      unavailableReason: available ? null : hasKey ? 'Indisponible avec cette clé' : 'Clé API SpicyAPI manquante',
+    };
   });
   const textModels = models.filter(m => m.modality === 'text' && m.enabled).map(m => m.model);
-  return { families, textModels };
+  return { families: [...families, ...(await getLocalFamilies())], textModels };
 }
 
 // ── Erreurs ───────────────────────────────────────────────────

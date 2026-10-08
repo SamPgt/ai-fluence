@@ -70,7 +70,7 @@ export function Composer({
   const state = useSelector(composerStore, (s) => s)
   const { data: settings } = useQuery(settingsQuery())
   const { data: catalog, error: catalogError } = useQuery(
-    catalogQuery(Boolean(settings?.hasApiKey)),
+    catalogQuery(Boolean(settings)),
   )
   const { data: personas = [] } = useQuery(personasQuery())
   const { data: contexts = [] } = useQuery(presetsQuery())
@@ -99,6 +99,7 @@ export function Composer({
   }, [state.focusTick])
 
   const family = families.find((f) => f.id === state.family)
+  const isLocal = family?.provider === 'comfy'
   const params = (state.family && state.paramsByFamily[state.family]) || {}
   const counts = {
     images: state.attachments.filter((a) => a.mediaType === 'image').length,
@@ -144,7 +145,7 @@ export function Composer({
     : null
 
   const canQuote = Boolean(
-    settings?.hasApiKey &&
+    (settings?.hasApiKey || isLocal) &&
     family?.available &&
     resolution?.ok &&
     (!requiresPrompt || state.prompt.trim()) &&
@@ -471,7 +472,7 @@ export function Composer({
                     {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
                       <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                     ) : quoteIsCurrent && quote.data ? (
-                      <>≈ {formatUsd(quote.data.estimatedCost)}</>
+                      isLocal ? 'Local' : <>≈ {formatUsd(quote.data.estimatedCost)}</>
                     ) : null}
                   </span>
                   <Button
@@ -486,7 +487,7 @@ export function Composer({
                     }
                     className="h-9 w-9 rounded-full brand-gradient brand-shadow hover:opacity-90"
                     aria-label={
-                      quoteIsCurrent && quote.data
+                      quoteIsCurrent && quote.data && !isLocal
                         ? `Générer pour ${formatUsd(quote.data.estimatedCost)}`
                         : 'Générer'
                     }
@@ -504,7 +505,8 @@ export function Composer({
                   <div>
                     {TASK_LABEL[task]} · {family.label}
                   </div>
-                  {quoteIsCurrent && quote.data && (
+                  {isLocal && <div className="opacity-70">Sur ton GPU via ComfyUI, gratuit</div>}
+                  {quoteIsCurrent && quote.data && !isLocal && (
                     <div className="opacity-70">
                       Maximum facturé {formatUsd(quote.data.maxCharge)} ·{' '}
                       {formatUnit(quote.data.unit, quote.data.quantity)}

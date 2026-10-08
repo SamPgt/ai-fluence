@@ -6,6 +6,7 @@ const CLASS: Record<Badge, string> = {
   LORA: 'badge-lora',
   REF: 'badge-ref',
   PERF: 'badge-perf',
+  LOCAL: 'badge-local',
 }
 
 /** Tag coloré qui dit pourquoi on propose le modèle (LORA / REF / PERF). */

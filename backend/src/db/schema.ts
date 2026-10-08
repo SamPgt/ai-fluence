@@ -9,7 +9,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, PersonaLora, TaskKind } from '@ai-fluence/shared';
+import type { GenerationContext, ModelProvider, PersonaLora, TaskKind } from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -122,6 +122,10 @@ export const generations = pgTable(
     contexts: jsonb('contexts').$type<GenerationContext[]>().notNull().default([]),
     status: text('status').$type<'queued' | 'running' | 'succeeded' | 'failed'>().notNull().default('queued'),
     spicyTaskId: text('spicy_task_id'),
+    /** `spicy` (cloud) ou `comfy` (ComfyUI local). */
+    provider: text('provider').$type<ModelProvider>().notNull().default('spicy'),
+    /** `prompt_id` de la file ComfyUI (génération locale). */
+    comfyPromptId: text('comfy_prompt_id'),
     idempotencyKey: text('idempotency_key').notNull(),
     estimatedCost: text('estimated_cost'),
     cost: text('cost'),

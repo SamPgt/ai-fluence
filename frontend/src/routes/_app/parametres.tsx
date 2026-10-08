@@ -245,7 +245,7 @@ function FamilySelect({ media, value, onChange }: { media: MediaKind; value: str
 
 function ModelsTab() {
   const { data: settings } = useQuery(settingsQuery())
-  const { data: catalog } = useQuery(catalogQuery(Boolean(settings?.hasApiKey)))
+  const { data: catalog } = useQuery(catalogQuery(Boolean(settings)))
   const save = useSettingsMutation(
     (patch: Parameters<typeof settingsApi.update>[0]) => settingsApi.update(patch),
     'Enregistré',

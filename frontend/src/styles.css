@@ -215,6 +215,9 @@ code {
   .badge-perf {
     @apply bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30;
   }
+  .badge-local {
+    @apply bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30;
+  }
 
   .scrollbar-none {
     scrollbar-width: none;

@@ -89,7 +89,7 @@ export function ModelPicker({
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm">{f.label}</span>
                         <span className="block truncate text-[11px] text-muted-foreground">
-                          {f.available ? f.hint : 'Indisponible avec cette clé'}
+                          {f.available ? f.hint : (f.unavailableReason ?? 'Indisponible')}
                           {price && f.available ? ` · ${price}` : ''}
                         </span>
                       </span>

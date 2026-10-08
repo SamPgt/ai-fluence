@@ -91,6 +91,19 @@ L'app peut se connecter à un ComfyUI qui tourne sur la même machine. Sans `COM
 
 Avec `COMFYUI_LAUNCH` et `COMFYUI_STOP`, un bouton permet de démarrer et d'arrêter ComfyUI depuis l'app. La commande de démarrage doit rendre la main (`--background`) : ComfyUI tourne ainsi dans son propre processus et survit aux redémarrages du backend.
 
+### Modèles locaux
+
+Quand ComfyUI tourne, les modèles locaux (badge `LOCAL`) apparaissent dans le sélecteur de modèles, même sans clé SpicyAPI. Une génération locale suit le même chemin qu'une génération SpicyAPI (fil, galerie, dossier des médias), sans coût.
+
+| Modèle | Tâches | Fichiers attendus dans ComfyUI |
+| --- | --- | --- |
+| Z-Image Turbo (local) | texte → image, image → image | `zImageTurbo_turbo.safetensors` (diffusion_models), `qwen_3_4b_fp8_mixed.safetensors` (text_encoders), `flux1AE_v10.safetensors` (vae) |
+
+Ajouter un workflow :
+1. Dans ComfyUI, exporte-le au format API (menu Workflow → Export (API)) dans `backend/comfy-workflows/<modèle>/<tâche>.json`.
+2. Déclare-le dans `backend/src/services/comfy-workflows.ts` : ses paramètres (même format que les schémas SpicyAPI, le formulaire se construit tout seul) et les nœuds où écrire le prompt, le seed, l'image…
+3. Ajoute la famille dans `LOCAL_FAMILIES` (`shared/src/models.ts`).
+
 > Windows : `comfy launch --background` relance la commande `comfy`, qui doit être dans le PATH. Si `comfy` n'est pas reconnu dans un terminal, ajoute le dossier `Scripts` de Python au PATH, ou préfixe la commande : `set "PATH=%APPDATA%\Python\Python314\Scripts;%PATH%" && python -m comfy_cli launch --background`.
 
 ## Où sont les fichiers

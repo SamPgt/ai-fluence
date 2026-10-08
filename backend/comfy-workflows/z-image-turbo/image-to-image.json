@@ -1,0 +1,138 @@
+{
+  "9": {
+    "inputs": {
+      "filename_prefix": "ai-fluence/z-image-turbo",
+      "images": [
+        "65",
+        0
+      ]
+    },
+    "class_type": "SaveImage"
+  },
+  "62": {
+    "inputs": {
+      "clip_name": "qwen_3_4b_fp8_mixed.safetensors",
+      "type": "lumina2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader"
+  },
+  "63": {
+    "inputs": {
+      "vae_name": "flux1AE_v10.safetensors"
+    },
+    "class_type": "VAELoader"
+  },
+  "65": {
+    "inputs": {
+      "samples": [
+        "70",
+        0
+      ],
+      "vae": [
+        "63",
+        0
+      ]
+    },
+    "class_type": "VAEDecode"
+  },
+  "66": {
+    "inputs": {
+      "unet_name": "zImageTurbo_turbo.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader"
+  },
+  "67": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "62",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "69": {
+    "inputs": {
+      "shift": 3.0,
+      "sampling": "flow",
+      "model": [
+        "66",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow"
+  },
+  "70": {
+    "inputs": {
+      "seed": 82,
+      "steps": 8,
+      "cfg": 1.0,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 0.45,
+      "model": [
+        "69",
+        0
+      ],
+      "positive": [
+        "67",
+        0
+      ],
+      "negative": [
+        "71",
+        0
+      ],
+      "latent_image": [
+        "81",
+        0
+      ]
+    },
+    "class_type": "KSampler"
+  },
+  "71": {
+    "inputs": {
+      "text": "low quality, bad anatomy, extra digits, missing digits, extra limbs, missing limbs",
+      "clip": [
+        "62",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "73": {
+    "inputs": {
+      "image": ""
+    },
+    "class_type": "LoadImage",
+    "is_changed": [
+      "50e5ea989ff50fb194dd17062d4a21ce34d3b047a6343efe9bccd11dd929bffd"
+    ]
+  },
+  "81": {
+    "inputs": {
+      "pixels": [
+        "82",
+        0
+      ],
+      "vae": [
+        "63",
+        0
+      ]
+    },
+    "class_type": "VAEEncode"
+  },
+  "82": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1.33,
+      "resolution_steps": 16,
+      "image": [
+        "73",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels"
+  }
+}

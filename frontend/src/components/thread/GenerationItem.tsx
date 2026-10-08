@@ -222,7 +222,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                 <div>{g.status === 'queued' ? 'En file d’attente…' : 'Génération en cours…'}</div>
                 <div className="tabular-nums">
                   <Elapsed since={g.createdAt} />
-                  {g.estimatedCost && ` · ≈ ${formatUsd(g.estimatedCost)}`}
+                  {g.provider === 'comfy' ? ' · local' : g.estimatedCost && ` · ≈ ${formatUsd(g.estimatedCost)}`}
                 </div>
               </div>
             </div>
@@ -262,7 +262,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                         </ActionButton>
                       </>
                     )}
-                    {!isUpscale && (
+                    {!isUpscale && settings?.hasApiKey && (
                       <ActionButton onClick={() => setUpscaling(asset)} title="Upscale">
                         <ImageUpscale className="h-3.5 w-3.5" />
                       </ActionButton>
@@ -290,7 +290,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             <div className={cn('flex items-center gap-2 text-[11px] text-muted-foreground', g.outputs.length <= 1 && 'max-w-xl')}>
               <span>{timeAgo(g.createdAt)}</span>
               {g.seed !== null && <span>· seed {g.seed}</span>}
-              {!isUpscale && g.status === 'succeeded' && g.outputs.length === 1 && (
+              {!isUpscale && settings?.hasApiKey && g.status === 'succeeded' && g.outputs.length === 1 && (
                 <button
                   onClick={() => setUpscaling(g.outputs[0])}
                   className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
@@ -300,8 +300,8 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                 </button>
               )}
               <span className="ml-auto pr-1 tabular-nums">
-                {g.cost ? formatUsd(g.cost) : '—'}
-                {g.cost && !g.settled && ' (provisoire)'}
+                {g.provider === 'comfy' ? 'Local' : g.cost ? formatUsd(g.cost) : '—'}
+                {g.provider !== 'comfy' && g.cost && !g.settled && ' (provisoire)'}
               </span>
             </div>
           )}

@@ -88,6 +88,7 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
     settled: row.settled,
     seed: row.seed,
     outputs,
+    provider: row.provider,
     spicyTaskId: row.spicyTaskId,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,

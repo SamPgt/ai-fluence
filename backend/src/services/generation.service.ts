@@ -2,8 +2,12 @@
  * Cœur de l'app : prépare l'input SpicyAPI (tâche, références, LoRA du persona),
  * demande le devis, crée la tâche, puis suit la tâche jusqu'au résultat et
  * télécharge les fichiers dans le dossier local de l'utilisateur.
+ *
+ * Les modèles locaux (`provider: 'comfy'`) suivent le même chemin : même input, devis gratuit,
+ * puis le workflow ComfyUI correspondant est mis en file et suivi à la place de la tâche SpicyAPI.
  */
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SpicyClient, TaskRecord } from '@spicyapi/sdk';
 import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm';
@@ -22,12 +26,15 @@ import {
   type InputSchema,
   UPSCALERS,
   type TaskKind,
+  type ModelProvider,
 } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { assets, generations, personas, promptPresets, threads, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
+import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
+import { downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -50,7 +57,9 @@ async function ensureSpicyUri(client: SpicyClient, asset: AssetRow): Promise<str
 }
 
 interface Prepared {
-  client: SpicyClient;
+  provider: ModelProvider;
+  /** Null pour un modèle local (ComfyUI). */
+  client: SpicyClient | null;
   contexts: GenerationContext[];
   task: TaskKind;
   modelId: string;
@@ -68,7 +77,10 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
 
   const catalog = await getCatalog(user.id);
   const family = catalog.families.find(f => f.id === req.family);
-  if (!family?.available) throw new HTTPException(400, { message: `${def.label} n'est pas disponible avec cette clé.` });
+  if (!family?.available) {
+    throw new HTTPException(400, { message: `${def.label} : ${family?.unavailableReason ?? 'indisponible'}.` });
+  }
+  const local = family.provider === 'comfy';
 
   let persona: PersonaRow | null = null;
   if (req.personaId) {
@@ -105,11 +117,14 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     .filter(l => l.family === req.family && l.path)
     .map(l => ({ path: l.path, scale: l.scale, noise: l.noise }));
 
-  const client = await clientForUser(user.id);
-  const [imageUris, videoUris] = await Promise.all([
-    Promise.all(images.map(a => ensureSpicyUri(client, a))),
-    Promise.all(videos.map(a => ensureSpicyUri(client, a))),
-  ]);
+  // En local, les fichiers ne sont envoyés à ComfyUI qu'au lancement : l'input garde une référence à l'asset.
+  const client = local ? null : await clientForUser(user.id);
+  const [imageUris, videoUris] = client
+    ? await Promise.all([
+        Promise.all(images.map(a => ensureSpicyUri(client, a))),
+        Promise.all(videos.map(a => ensureSpicyUri(client, a))),
+      ])
+    : [images.map(localAssetRef), videos.map(localAssetRef)];
 
   // Le mot déclencheur n'a de sens que si une LoRA du persona est appliquée.
   const willApplyLoras = loras.length > 0;
@@ -139,7 +154,8 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     schema: endpoint.schema,
     task: resolution.task,
     prompt: finalPrompt,
-    params: req.params ?? {},
+    // ComfyUI exige un seed : on le tire ici pour qu'il soit enregistré avec la génération.
+    params: local && req.params?.seed == null ? { ...req.params, seed: randomInt(MAX_SEED) } : (req.params ?? {}),
     images: imageUris,
     videos: videoUris,
     loras,
@@ -151,6 +167,7 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   }
 
   return {
+    provider: family.provider,
     client,
     contexts,
     task: resolution.task,
@@ -164,9 +181,30 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   };
 }
 
+/** Référence à un asset local dans l'`input` d'une génération ComfyUI (résolue au lancement). */
+function localAssetRef(asset: AssetRow): string {
+  return `asset:${asset.id}`;
+}
+
+/** Devis : SpicyAPI pour le cloud, gratuit pour une génération locale. */
+async function quoteFor(p: Prepared): Promise<QuoteLike> {
+  if (!p.client) {
+    return {
+      quoteId: 'local',
+      estimatedCost: '0',
+      maxCharge: '0',
+      quantity: '1',
+      unit: 'per_image',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    };
+  }
+  const client = p.client;
+  return callSpicy(() => client.quoteTask({ model: p.modelId, input: p.input }));
+}
+
 export async function quoteGeneration(user: SessionUser, req: GenerationRequest): Promise<QuoteResponse> {
   const p = await prepare(user, req);
-  const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
+  const quote = await quoteFor(p);
   return {
     task: p.task,
     modelId: p.modelId,
@@ -191,7 +229,7 @@ export async function createGeneration(
   req: GenerationRequest,
 ): Promise<CreateGenerationResponse> {
   const p = await prepare(user, req);
-  const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
+  const quote = await quoteFor(p);
 
   // Le devis affiché au clic vaut confirmation ; s'il a augmenté entre-temps, on redemande.
   if (req.expectedCost !== undefined && Number(quote.estimatedCost) > Number(req.expectedCost) + 1e-9) {
@@ -219,8 +257,9 @@ export async function createGeneration(
 }
 
 type Quote = Awaited<ReturnType<SpicyClient['quoteTask']>>;
+type QuoteLike = Pick<Quote, 'quoteId' | 'estimatedCost' | 'maxCharge' | 'quantity' | 'unit' | 'expiresAt'>;
 
-function toQuoteResponse(p: Prepared, quote: Quote): QuoteResponse {
+function toQuoteResponse(p: Prepared, quote: QuoteLike): QuoteResponse {
   return {
     task: p.task,
     modelId: p.modelId,
@@ -238,7 +277,7 @@ function toQuoteResponse(p: Prepared, quote: Quote): QuoteResponse {
 async function launch(
   user: SessionUser,
   p: Prepared,
-  quote: Quote,
+  quote: QuoteLike,
   meta: {
     threadId: string | null;
     personaId: string | null;
@@ -275,6 +314,7 @@ async function launch(
       prompt: meta.prompt,
       finalPrompt: p.finalPrompt,
       family: meta.family,
+      provider: p.provider,
       modelId: p.modelId,
       task: p.task,
       refMode: meta.refMode,
@@ -289,14 +329,19 @@ async function launch(
     .returning();
 
   try {
-    const accepted = await p.client.createTask(
-      { model: p.modelId, input: p.input, quoteId: quote.quoteId, expectedCost: quote.estimatedCost },
-      { idempotencyKey },
-    );
-    await db
-      .update(generations)
-      .set({ spicyTaskId: accepted.taskId, estimatedCost: accepted.estimatedCost })
-      .where(eq(generations.id, row.id));
+    if (p.client) {
+      const accepted = await p.client.createTask(
+        { model: p.modelId, input: p.input, quoteId: quote.quoteId, expectedCost: quote.estimatedCost },
+        { idempotencyKey },
+      );
+      await db
+        .update(generations)
+        .set({ spicyTaskId: accepted.taskId, estimatedCost: accepted.estimatedCost })
+        .where(eq(generations.id, row.id));
+    } else {
+      const comfyPromptId = await submitToComfy(p);
+      await db.update(generations).set({ comfyPromptId }).where(eq(generations.id, row.id));
+    }
   } catch (err) {
     const httpErr = toHttpError(err);
     await db
@@ -310,6 +355,91 @@ async function launch(
 
   const [generation] = await loadGenerations(user.id, { ids: [row.id] });
   return { generation, thread: toThread(thread) };
+}
+
+// ── ComfyUI (local) ───────────────────────────────────────────
+
+/** Envoie les images d'entrée à ComfyUI, remplit le workflow et le met en file. Renvoie le `prompt_id`. */
+async function submitToComfy(p: Prepared): Promise<string> {
+  const endpoint = localEndpoint(p.modelId);
+  if (!endpoint) throw new Error(`Workflow local introuvable pour ${p.modelId}.`);
+
+  let image: string | undefined;
+  const ref = typeof p.input.image_url === 'string' ? p.input.image_url : null;
+  if (endpoint.slots.image && ref) {
+    const asset = p.references.find(a => localAssetRef(a) === ref);
+    if (!asset) throw new Error('Image de départ introuvable.');
+    const data = await readFile(asset.filePath);
+    image = await uploadImage(data, `ai-fluence-${asset.id}.${extFor(asset.mime)}`, asset.mime);
+  }
+  return queuePrompt(buildGraph(endpoint, p.input, image));
+}
+
+/** Largeur et hauteur lues dans l'en-tête PNG (ComfyUI enregistre en PNG). */
+function pngSize(data: Uint8Array): { width: number; height: number } | null {
+  if (data.length < 24 || data[0] !== 0x89 || data[1] !== 0x50) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+async function watchComfy(row: GenerationRow, promptId: string): Promise<void> {
+  const endpoint = localEndpoint(row.modelId);
+  if (!endpoint) throw new Error(`Workflow local introuvable pour ${row.modelId}.`);
+  const started = Date.now();
+  let failures = 0;
+
+  while (Date.now() - started < MAX_WATCH_MS) {
+    let state: Awaited<ReturnType<typeof getPromptState>>;
+    try {
+      state = await getPromptState(promptId, endpoint.outputNode);
+      failures = 0;
+    } catch (err) {
+      if (++failures > 20) throw err;
+      await sleep(Math.min(30000, 1500 * failures));
+      continue;
+    }
+
+    if (state.state === 'queued' || state.state === 'running') {
+      await db
+        .update(generations)
+        .set({ status: state.state })
+        .where(and(eq(generations.id, row.id), inArray(generations.status, ['queued', 'running'])));
+      await sleep(1500);
+      continue;
+    }
+
+    if (state.state === 'succeeded') {
+      const dir = await outputDirOf(row);
+      let index = 0;
+      for (const file of state.files) {
+        const { data, mime } = await downloadFile(file);
+        await storeOutput(row, dir, index++, data, mime, pngSize(data) ?? {});
+      }
+      const seed = typeof row.input.seed === 'number' ? row.input.seed : null;
+      await db
+        .update(generations)
+        .set({ status: 'succeeded', cost: '0', settled: true, seed, completedAt: new Date() })
+        .where(eq(generations.id, row.id));
+      await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
+    } else {
+      await db
+        .update(generations)
+        .set({
+          status: 'failed',
+          errorCode: state.state === 'lost' ? 'comfy_lost' : 'comfy_failed',
+          errorMessage: 'message' in state ? state.message : 'ComfyUI a redémarré avant la fin de la génération.',
+          cost: '0',
+          settled: true,
+          completedAt: new Date(),
+        })
+        .where(eq(generations.id, row.id));
+    }
+    return;
+  }
+  await db
+    .update(generations)
+    .set({ status: 'failed', errorCode: 'timeout', errorMessage: 'Suivi interrompu : la génération locale est trop longue.', completedAt: new Date() })
+    .where(eq(generations.id, row.id));
 }
 
 // ── Upscale ───────────────────────────────────────────────────
@@ -356,6 +486,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
 
   return {
     p: {
+      provider: 'spicy',
       client,
       contexts: [],
       task: 'upscale',
@@ -376,13 +507,12 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
 
 export async function quoteUpscale(user: SessionUser, req: UpscaleRequest): Promise<QuoteResponse> {
   const u = await prepareUpscale(user, req);
-  const quote = await callSpicy(() => u.p.client.quoteTask({ model: u.p.modelId, input: u.p.input }));
-  return toQuoteResponse(u.p, quote);
+  return toQuoteResponse(u.p, await quoteFor(u.p));
 }
 
 export async function createUpscale(user: SessionUser, req: UpscaleRequest): Promise<CreateGenerationResponse> {
   const u = await prepareUpscale(user, req);
-  const quote = await callSpicy(() => u.p.client.quoteTask({ model: u.p.modelId, input: u.p.input }));
+  const quote = await quoteFor(u.p);
   if (req.expectedCost !== undefined && Number(quote.estimatedCost) > Number(req.expectedCost) + 1e-9) {
     throw new PriceChangedError(toQuoteResponse(u.p, quote));
   }
@@ -442,7 +572,12 @@ export async function watchGeneration(generationId: string): Promise<void> {
   watching.add(generationId);
   try {
     const [row] = await db.select().from(generations).where(eq(generations.id, generationId)).limit(1);
-    if (!row?.spicyTaskId || row.status === 'succeeded' || row.status === 'failed') return;
+    if (!row || row.status === 'succeeded' || row.status === 'failed') return;
+    if (row.provider === 'comfy') {
+      if (row.comfyPromptId) await watchComfy(row, row.comfyPromptId);
+      return;
+    }
+    if (!row.spicyTaskId) return;
     const client = await clientForUser(row.userId);
     const interval = row.task.includes('video') ? 5000 : 2500;
     const started = Date.now();
@@ -451,7 +586,7 @@ export async function watchGeneration(generationId: string): Promise<void> {
     while (Date.now() - started < MAX_WATCH_MS) {
       let record: TaskRecord;
       try {
-        record = await client.getTask(row.spicyTaskId);
+        record = await client.getTask(row.spicyTaskId!);
         failures = 0;
       } catch (err) {
         if (++failures > 20) throw err;
@@ -489,7 +624,7 @@ export async function watchGeneration(generationId: string): Promise<void> {
           })
           .where(eq(generations.id, row.id));
       }
-      if (!record.settled) void settleLater(row.id, row.userId, row.spicyTaskId);
+      if (!record.settled) void settleLater(row.id, row.userId, row.spicyTaskId!);
       return;
     }
     await db
@@ -507,7 +642,10 @@ export async function watchGeneration(generationId: string): Promise<void> {
   }
 }
 
-async function handleSuccess(row: typeof generations.$inferSelect, record: TaskRecord) {
+type GenerationRow = typeof generations.$inferSelect;
+
+/** Dossier des résultats : `<médias>/<persona>/<jour>/`. */
+async function outputDirOf(row: GenerationRow): Promise<string> {
   const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, row.userId)).limit(1);
   const settings = await getSettingsRow(row.userId);
   const baseDir = mediaDirOf(user, settings);
@@ -516,7 +654,37 @@ async function handleSuccess(row: typeof generations.$inferSelect, record: TaskR
     const [p] = await db.select({ name: personas.name }).from(personas).where(eq(personas.id, row.personaId)).limit(1);
     if (p) personaFolder = slug(p.name);
   }
-  const dir = join(baseDir, personaFolder, dayFolder());
+  return join(baseDir, personaFolder, dayFolder());
+}
+
+/** Écrit un résultat sur le disque et l'enregistre comme asset de la génération. */
+async function storeOutput(
+  row: GenerationRow,
+  dir: string,
+  index: number,
+  data: Uint8Array,
+  mime: string,
+  meta: { width?: number | null; height?: number | null; durationSeconds?: number | null } = {},
+) {
+  const filePath = join(dir, `${row.id.slice(0, 8)}-${index}.${extFor(mime)}`);
+  const saved = await saveFile(filePath, data);
+  await db.insert(assets).values({
+    userId: row.userId,
+    personaId: row.personaId,
+    generationId: row.id,
+    kind: 'output',
+    mediaType: mediaTypeOf(mime),
+    mime,
+    filePath: saved.path,
+    bytes: saved.bytes,
+    width: meta.width ?? null,
+    height: meta.height ?? null,
+    durationSeconds: meta.durationSeconds ?? null,
+  });
+}
+
+async function handleSuccess(row: GenerationRow, record: TaskRecord) {
+  const dir = await outputDirOf(row);
 
   const outputs = (record.output?.assets ?? []).filter(a => a.url && !a.unavailable);
   if (!outputs.length) throw new Error('La tâche a réussi mais aucun fichier n’est disponible.');
@@ -532,21 +700,7 @@ async function handleSuccess(row: typeof generations.$inferSelect, record: TaskR
       else await sleep(2000);
     }
     if (!data) throw new Error('Téléchargement du résultat impossible.');
-    const filePath = join(dir, `${row.id.slice(0, 8)}-${index++}.${extFor(mime)}`);
-    const saved = await saveFile(filePath, data);
-    await db.insert(assets).values({
-      userId: row.userId,
-      personaId: row.personaId,
-      generationId: row.id,
-      kind: 'output',
-      mediaType: mediaTypeOf(mime),
-      mime,
-      filePath: saved.path,
-      bytes: saved.bytes,
-      width: out.width ?? null,
-      height: out.height ?? null,
-      durationSeconds: out.durationSeconds ?? null,
-    });
+    await storeOutput(row, dir, index++, data, mime, out);
   }
 
   const seed = typeof record.input?.seed === 'number' ? (record.input.seed as number) : null;
@@ -580,11 +734,16 @@ async function settleLater(generationId: string, userId: string, taskId: string)
 /** Au démarrage : reprend le suivi des tâches en cours, termine celles jamais acceptées. */
 export async function resumeWatchers(): Promise<void> {
   const pending = await db
-    .select({ id: generations.id, spicyTaskId: generations.spicyTaskId, createdAt: generations.createdAt })
+    .select({
+      id: generations.id,
+      spicyTaskId: generations.spicyTaskId,
+      comfyPromptId: generations.comfyPromptId,
+      createdAt: generations.createdAt,
+    })
     .from(generations)
     .where(inArray(generations.status, ['queued', 'running']));
   for (const g of pending) {
-    if (g.spicyTaskId) void watchGeneration(g.id);
+    if (g.spicyTaskId || g.comfyPromptId) void watchGeneration(g.id);
     else if (Date.now() - g.createdAt.getTime() > 5 * 60 * 1000) {
       await db
         .update(generations)

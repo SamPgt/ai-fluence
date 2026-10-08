@@ -14,7 +14,10 @@
 export type MediaKind = 'image' | 'video';
 
 /** Pourquoi on propose ce modèle (badge coloré dans le dropdown). */
-export type ModelBadge = 'LORA' | 'REF' | 'PERF';
+export type ModelBadge = 'LORA' | 'REF' | 'PERF' | 'LOCAL';
+
+/** Où tourne la génération : SpicyAPI (cloud) ou le ComfyUI local. */
+export type ModelProvider = 'spicy' | 'comfy';
 
 export type TaskKind =
   | 'text-to-image'
@@ -32,6 +35,8 @@ export interface ModelFamilyDef {
   badges: ModelBadge[];
   /** Une phrase courte affichée sous le nom dans le dropdown. */
   hint: string;
+  /** Par défaut `spicy`. */
+  provider?: ModelProvider;
 }
 
 export const MODEL_FAMILIES: ModelFamilyDef[] = [
@@ -176,10 +181,26 @@ export const TOOL_FAMILIES: ModelFamilyDef[] = [
   { id: UPSCALERS.video.family, label: UPSCALERS.video.label, media: 'video', badges: [], hint: 'Passe une vidéo en haute résolution' },
 ];
 
+/**
+ * Modèles locaux, exécutés par ComfyUI sur le GPU de l'utilisateur (visibles seulement si
+ * le backend a un `COMFYUI_URL`). Les workflows et leurs paramètres sont décrits côté backend.
+ */
+export const LOCAL_FAMILIES: ModelFamilyDef[] = [
+  {
+    id: 'local/z-image-turbo',
+    label: 'Z-Image Turbo (local)',
+    media: 'image',
+    badges: ['LOCAL'],
+    hint: 'Sur ton GPU via ComfyUI, gratuit',
+    provider: 'comfy',
+  },
+];
+
 export const BADGE_INFO: Record<ModelBadge, { label: string; description: string }> = {
   LORA: { label: 'LORA', description: 'Accepte une LoRA (personnage entraîné)' },
   REF: { label: 'REF', description: 'Cohérence par images de référence' },
   PERF: { label: 'PERF', description: 'Qualité de rendu' },
+  LOCAL: { label: 'LOCAL', description: 'Généré sur ton GPU par ComfyUI, sans API ni coût' },
 };
 
 /** Suffixe d'endpoint SpicyAPI → tâche. */
@@ -202,7 +223,7 @@ export const TASK_LABEL: Record<TaskKind, string> = {
 };
 
 export function getFamily(id: string): ModelFamilyDef | undefined {
-  return MODEL_FAMILIES.find(f => f.id === id) ?? TOOL_FAMILIES.find(f => f.id === id);
+  return MODEL_FAMILIES.find(f => f.id === id) ?? LOCAL_FAMILIES.find(f => f.id === id) ?? TOOL_FAMILIES.find(f => f.id === id);
 }
 
 /** Famille d'un model ID SpicyAPI (`publisher/model/task` → `publisher/model`). */

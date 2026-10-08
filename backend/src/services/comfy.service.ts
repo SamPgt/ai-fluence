@@ -121,6 +121,108 @@ export async function startComfy(): Promise<ComfyStatus> {
   return getComfyStatus();
 }
 
+export async function isComfyRunning(): Promise<boolean> {
+  return Boolean(await probe());
+}
+
+// ── File d'attente et fichiers ────────────────────────────────
+
+/** Identifie l'app auprès de ComfyUI (affiché dans sa file d'attente). */
+const CLIENT_ID = 'ai-fluence';
+
+async function comfyFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (!env.COMFYUI_URL) throw new Error('ComfyUI n’est pas configuré (COMFYUI_URL).');
+  try {
+    return await fetch(new URL(path, env.COMFYUI_URL), init);
+  } catch {
+    throw new Error('ComfyUI ne répond pas. Démarre-le depuis la barre latérale.');
+  }
+}
+
+interface NodeErrors {
+  [node: string]: { class_type?: string; errors?: { message?: string; details?: string }[] };
+}
+
+/** Met un workflow (format API) dans la file de ComfyUI et renvoie son `prompt_id`. */
+export async function queuePrompt(graph: unknown): Promise<string> {
+  const res = await comfyFetch('/prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: graph, client_id: CLIENT_ID }),
+  });
+  const body = (await res.json().catch(() => null)) as {
+    prompt_id?: string;
+    error?: { message?: string };
+    node_errors?: NodeErrors;
+  } | null;
+  if (res.ok && body?.prompt_id) return body.prompt_id;
+
+  // Erreurs de validation : on remonte le nœud fautif (modèle absent, nœud custom manquant…).
+  const details = Object.values(body?.node_errors ?? {})
+    .flatMap(n => (n.errors ?? []).map(e => `${n.class_type ?? 'Nœud'} : ${e.message ?? ''}${e.details ? ` (${e.details})` : ''}`))
+    .join(' ; ');
+  throw new Error(details || body?.error?.message || `ComfyUI a refusé le workflow (HTTP ${res.status}).`);
+}
+
+export interface ComfyFile {
+  filename: string;
+  subfolder: string;
+  type: string;
+}
+
+export type PromptState =
+  | { state: 'queued' | 'running' }
+  | { state: 'succeeded'; files: ComfyFile[] }
+  | { state: 'failed'; message: string }
+  /** Ni dans l'historique ni dans la file : ComfyUI a redémarré entre-temps. */
+  | { state: 'lost' };
+
+interface HistoryEntry {
+  status?: { status_str?: string; completed?: boolean; messages?: [string, Record<string, unknown>][] };
+  outputs?: Record<string, { images?: ComfyFile[] }>;
+}
+
+export async function getPromptState(promptId: string, outputNode: string): Promise<PromptState> {
+  const history = (await (await comfyFetch(`/history/${promptId}`)).json()) as Record<string, HistoryEntry>;
+  const entry = history[promptId];
+  if (entry) {
+    if (entry.status?.status_str === 'error') {
+      const err = entry.status.messages?.find(([type]) => type === 'execution_error')?.[1];
+      const message = err ? `${err.node_type ?? 'ComfyUI'} : ${err.exception_message ?? 'erreur'}` : 'La génération a échoué dans ComfyUI.';
+      return { state: 'failed', message: String(message).trim() };
+    }
+    if (entry.status?.completed) {
+      const files = (entry.outputs?.[outputNode]?.images ?? []).filter(f => f.type === 'output');
+      return files.length
+        ? { state: 'succeeded', files }
+        : { state: 'failed', message: 'ComfyUI n’a produit aucune image.' };
+    }
+  }
+  const queue = (await (await comfyFetch('/queue')).json()) as { queue_running?: unknown[][]; queue_pending?: unknown[][] };
+  if (queue.queue_running?.some(item => item[1] === promptId)) return { state: 'running' };
+  if (queue.queue_pending?.some(item => item[1] === promptId)) return { state: 'queued' };
+  // Entre la fin d'exécution et l'écriture de l'historique, le prompt peut n'être nulle part un court instant.
+  return entry ? { state: 'running' } : { state: 'lost' };
+}
+
+/** Envoie une image locale dans le dossier `input` de ComfyUI et renvoie le nom à donner à `LoadImage`. */
+export async function uploadImage(data: Uint8Array, filename: string, mime: string): Promise<string> {
+  const form = new FormData();
+  form.append('image', new Blob([new Uint8Array(data)], { type: mime }), filename);
+  form.append('overwrite', 'true');
+  const res = await comfyFetch('/upload/image', { method: 'POST', body: form });
+  const body = (await res.json().catch(() => null)) as { name?: string; subfolder?: string } | null;
+  if (!res.ok || !body?.name) throw new Error(`Envoi de l’image à ComfyUI impossible (HTTP ${res.status}).`);
+  return body.subfolder ? `${body.subfolder}/${body.name}` : body.name;
+}
+
+export async function downloadFile(file: ComfyFile): Promise<{ data: Uint8Array; mime: string }> {
+  const query = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type });
+  const res = await comfyFetch(`/view?${query}`);
+  if (!res.ok) throw new Error(`Téléchargement du résultat ComfyUI impossible (HTTP ${res.status}).`);
+  return { data: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get('content-type') ?? 'image/png' };
+}
+
 export async function stopComfy(): Promise<ComfyStatus> {
   if (!env.COMFYUI_URL || !env.COMFYUI_STOP) throw new Error('Arrêt de ComfyUI non configuré.');
   transient = { state: 'stopping', since: Date.now() };
