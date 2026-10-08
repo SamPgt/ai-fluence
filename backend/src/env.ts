@@ -13,7 +13,18 @@ const envSchema = z.object({
   CLIENT_URL: z.string().default('http://localhost:3070'),
   DATA_DIR: z.string().default('~/Documents/ai-influence-app'),
   SPICY_API_BASE_URL: z.string().optional(),
+  // ComfyUI local (optionnel). Vide = fonctionnalité masquée dans l'app.
+  COMFYUI_URL: optionalString(z.url()),
+  /** Commande de démarrage, ex. `python -m comfy_cli launch --background`. Vide = pas de bouton Démarrer. */
+  COMFYUI_LAUNCH: optionalString(z.string()),
+  /** Commande d'arrêt, ex. `python -m comfy_cli stop --port 8188`. */
+  COMFYUI_STOP: optionalString(z.string()),
 });
+
+/** `VAR=` dans le .env donne une chaîne vide : on la traite comme absente. */
+function optionalString<T extends z.ZodType<string>>(schema: T) {
+  return z.preprocess(v => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema.optional());
+}
 
 const parsed = envSchema.parse(process.env);
 

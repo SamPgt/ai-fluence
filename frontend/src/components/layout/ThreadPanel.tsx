@@ -16,6 +16,7 @@ import { useIsMac } from '@/lib/platform'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { ChatListItem } from '@/components/chat/ChatListItem'
 import { ChatSearchDialog } from '@/components/chat/ChatSearchDialog'
+import { ComfyStatus } from '@/components/layout/ComfyStatus'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
@@ -134,6 +135,7 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
           </div>
         </ScrollArea>
 
+        <ComfyStatus />
         <Link
           to="/parametres"
           search={{ tab: 'credits' }}

@@ -6,6 +6,7 @@ import type {
   Asset,
   AuthResponse,
   CatalogResponse,
+  ComfyStatus,
   CreateGenerationResponse,
   CreditsResponse,
   EnhancePromptRequest,
@@ -94,6 +95,12 @@ export const settingsApi = {
   openMediaDir: () => apiFetch<{ ok: true }>('/settings/open-media-dir', { method: 'POST' }),
   balance: () => apiFetch<{ balance: Balance | null }>('/settings/balance'),
   credits: () => apiFetch<CreditsResponse>('/settings/credits'),
+}
+
+export const comfyApi = {
+  status: () => apiFetch<{ status: ComfyStatus }>('/comfy/status'),
+  start: () => apiFetch<{ status: ComfyStatus }>('/comfy/start', { method: 'POST' }),
+  stop: () => apiFetch<{ status: ComfyStatus }>('/comfy/stop', { method: 'POST' }),
 }
 
 export const catalogApi = {

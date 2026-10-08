@@ -12,6 +12,7 @@ import threadsRoutes from './routes/threads.route.js';
 import generationsRoutes from './routes/generations.route.js';
 import presetsRoutes from './routes/presets.route.js';
 import promptsRoutes from './routes/prompts.route.js';
+import comfyRoutes from './routes/comfy.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -46,7 +47,8 @@ const app = new Hono<AppEnv>()
   .route('/threads', threadsRoutes)
   .route('/generations', generationsRoutes)
   .route('/presets', presetsRoutes)
-  .route('/prompts', promptsRoutes);
+  .route('/prompts', promptsRoutes)
+  .route('/comfy', comfyRoutes);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {

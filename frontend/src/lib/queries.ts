@@ -1,11 +1,12 @@
 import { queryOptions } from '@tanstack/react-query'
-import { catalogApi, personasApi, presetsApi, settingsApi, threadsApi } from './api'
+import { catalogApi, comfyApi, personasApi, presetsApi, settingsApi, threadsApi } from './api'
 
 export const qk = {
   catalog: ['catalog'] as const,
   settings: ['settings'] as const,
   balance: ['balance'] as const,
   credits: ['credits'] as const,
+  comfy: ['comfy'] as const,
   personas: ['personas'] as const,
   presets: ['presets'] as const,
   threads: (personaId: string | null) => ['threads', personaId ?? 'all'] as const,
@@ -34,6 +35,19 @@ export const balanceQuery = (enabled = true) =>
     staleTime: 30_000,
     refetchInterval: 60_000,
     enabled,
+    retry: false,
+  })
+
+export const comfyStatusQuery = () =>
+  queryOptions({
+    queryKey: qk.comfy,
+    queryFn: () => comfyApi.status().then((r) => r.status),
+    // Rapide pendant un démarrage/arrêt, lent sinon (ComfyUI peut être lancé ou coupé hors de l'app).
+    refetchInterval: (q) => {
+      const s = q.state.data
+      if (!s?.enabled) return false
+      return s.state === 'starting' || s.state === 'stopping' ? 1500 : 15_000
+    },
     retry: false,
   })
 

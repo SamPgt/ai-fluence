@@ -68,6 +68,24 @@ export interface CreditsResponse {
   usage: { from: string; to: string; totalSpend: string; tasks: number } | null;
 }
 
+// ── ComfyUI (local) ───────────────────────────────────────────
+
+export type ComfyState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
+
+export interface ComfyStatus {
+  /** `COMFYUI_URL` renseigné côté backend. Sinon, rien à afficher. */
+  enabled: boolean;
+  /** Commandes de démarrage/arrêt configurées : l'app peut piloter ComfyUI. */
+  canControl: boolean;
+  state: ComfyState;
+  url: string | null;
+  version: string | null;
+  gpu: { name: string; vramTotal: number; vramFree: number } | null;
+  error: string | null;
+  /** Dernières lignes de sortie de la commande lancée (pour diagnostiquer). */
+  log: string[];
+}
+
 // ── Catalogue ─────────────────────────────────────────────────
 
 export interface CatalogTask {
