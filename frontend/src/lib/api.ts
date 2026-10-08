@@ -116,6 +116,7 @@ export const assetsApi = {
     return apiFetch<{ asset: Asset }>('/assets', { method: 'POST', body: form })
   },
   references: (personaId: string) => apiFetch<{ assets: Asset[] }>('/assets/references', { query: { personaId } }),
+  remove: (id: string) => apiFetch<{ ok: true }>(`/assets/${id}`, { method: 'DELETE' }),
   setReference: (assetId: string, personaId: string, isReference: boolean) =>
     apiFetch<{ asset: Asset }>(`/assets/${assetId}/reference`, { method: 'PATCH', body: { personaId, isReference } }),
   gallery: (query: { personaId?: string; media?: 'image' | 'video'; before?: string }) =>
@@ -149,6 +150,7 @@ export const generationsApi = {
   create: (body: GenerationRequest) =>
     apiFetch<CreateGenerationResponse>('/generations', { method: 'POST', body }),
   get: (id: string) => apiFetch<{ generation: Generation }>(`/generations/${id}`),
+  remove: (id: string) => apiFetch<{ ok: true }>(`/generations/${id}`, { method: 'DELETE' }),
   upscaleQuote: (body: UpscaleRequest) =>
     apiFetch<{ quote: QuoteResponse }>('/generations/upscale/quote', { method: 'POST', body }),
   upscale: (body: UpscaleRequest) =>

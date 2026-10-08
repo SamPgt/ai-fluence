@@ -184,6 +184,17 @@ export async function getNodeOptions(nodeClass: string, input: string): Promise<
   return options;
 }
 
+/** Les nœuds (custom) sont-ils installés dans ComfyUI ? */
+export async function hasNodes(nodeClasses: string[]): Promise<boolean> {
+  const checks = await Promise.all(
+    nodeClasses.map(async nodeClass => {
+      const info = (await (await comfyFetch(`/object_info/${nodeClass}`)).json().catch(() => ({}))) as Record<string, unknown>;
+      return nodeClass in info;
+    }),
+  );
+  return checks.every(Boolean);
+}
+
 export interface ComfyFile {
   filename: string;
   subfolder: string;
@@ -227,6 +238,20 @@ export async function getPromptState(promptId: string, outputNode: string): Prom
   if (queue.queue_pending?.some(item => item[1] === promptId)) return { state: 'queued' };
   // Entre la fin d'exécution et l'écriture de l'historique, le prompt peut n'être nulle part un court instant.
   return entry ? { state: 'running' } : { state: 'lost' };
+}
+
+/** Retire un prompt de la file de ComfyUI, ou l'interrompt s'il est en cours d'exécution. */
+export async function cancelPrompt(promptId: string): Promise<void> {
+  const queue = (await (await comfyFetch('/queue')).json()) as { queue_running?: unknown[][] };
+  if (queue.queue_running?.some(item => item[1] === promptId)) {
+    await comfyFetch('/interrupt', { method: 'POST' });
+  } else {
+    await comfyFetch('/queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete: [promptId] }),
+    });
+  }
 }
 
 /** Envoie une image locale dans le dossier `input` de ComfyUI et renvoie le nom à donner à `LoadImage`. */

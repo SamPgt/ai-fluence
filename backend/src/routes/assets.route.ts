@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { db } from '../db/index.js';
 import { assets, generations, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
+import { deleteOutput } from '../services/generation.service.js';
 import { toAsset } from '../services/serialize.js';
 import { getSettingsRow, mediaDirOf, slug } from '../services/settings.service.js';
 import {
@@ -104,6 +105,11 @@ export const assetsRoutes = new Hono<AppEnv>()
       return c.json({ asset: toAsset(row) });
     },
   )
+  /** Retire un résultat de l'app (le fichier reste sur le disque). */
+  .delete('/:id', async c => {
+    await deleteOutput(c.get('user'), c.req.param('id'));
+    return c.json({ ok: true });
+  })
   /** Galerie : tous les résultats générés, du plus récent au plus ancien. */
   .get(
     '/gallery',

@@ -12,6 +12,11 @@ export interface ComposerState {
   paramsByFamily: Record<string, Record<string, unknown>>
   prompt: string
   attachments: Asset[]
+  /**
+   * Image utilisée comme visage (modèles qui le permettent) : `auto` = la 2e image,
+   * `none` = aucune, sinon l'id de l'image choisie.
+   */
+  faceChoice: 'auto' | 'none' | string
   refMode: VideoRefMode
   /** Contextes activés (restent actifs après l'envoi). */
   contextIds: string[]
@@ -24,6 +29,7 @@ export const composerStore = new Store<ComposerState>({
   paramsByFamily: {},
   prompt: '',
   attachments: [],
+  faceChoice: 'auto',
   refMode: 'start-frame',
   contextIds: [],
   focusTick: 0,
@@ -45,23 +51,30 @@ export const composer = {
       attachments: [...s.attachments, ...assets.filter((a) => !s.attachments.some((x) => x.id === a.id))],
     })),
   removeAttachment: (id: string) =>
-    composerStore.setState((s) => ({ ...s, attachments: s.attachments.filter((a) => a.id !== id) })),
+    composerStore.setState((s) => ({
+      ...s,
+      attachments: s.attachments.filter((a) => a.id !== id),
+      faceChoice: s.faceChoice === id ? 'auto' : s.faceChoice,
+    })),
+  setFace: (faceChoice: ComposerState['faceChoice']) => composerStore.setState((s) => ({ ...s, faceChoice })),
   setRefMode: (refMode: VideoRefMode) => composerStore.setState((s) => ({ ...s, refMode })),
   toggleContext: (id: string) =>
     composerStore.setState((s) => ({
       ...s,
       contextIds: s.contextIds.includes(id) ? s.contextIds.filter((x) => x !== id) : [...s.contextIds, id],
     })),
-  clearAfterSend: () => composerStore.setState((s) => ({ ...s, prompt: '', attachments: [] })),
+  clearAfterSend: () => composerStore.setState((s) => ({ ...s, prompt: '', attachments: [], faceChoice: 'auto' })),
   /** Pré-remplit le composer (Relancer, Éditer, Animer). */
   load: (patch: Partial<Pick<ComposerState, 'family' | 'prompt' | 'attachments' | 'refMode' | 'contextIds'>> & {
     params?: Record<string, unknown>
+    /** Image « visage » de la demande rechargée (null : aucune). */
+    faceId?: string | null
   }) =>
     composerStore.setState((s) => ({
       ...s,
       ...('family' in patch && patch.family ? { family: patch.family } : {}),
       ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
-      ...(patch.attachments ? { attachments: patch.attachments } : {}),
+      ...(patch.attachments ? { attachments: patch.attachments, faceChoice: patch.faceId ?? (patch.faceId === null ? 'none' : 'auto') } : {}),
       ...(patch.refMode ? { refMode: patch.refMode } : {}),
       ...(patch.contextIds ? { contextIds: patch.contextIds } : {}),
       ...(patch.params && (patch.family ?? s.family)

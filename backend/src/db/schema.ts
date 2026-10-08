@@ -117,6 +117,8 @@ export const generations = pgTable(
     /** `input` exact envoyé à SpicyAPI. */
     input: jsonb('input').$type<Record<string, unknown>>().notNull().default({}),
     referenceAssetIds: jsonb('reference_asset_ids').$type<string[]>().notNull().default([]),
+    /** Image dont le visage est appliqué au résultat (ReActor, local). */
+    faceAssetId: uuid('face_asset_id'),
     lorasApplied: integer('loras_applied').notNull().default(0),
     /** Contextes activés à l'envoi (instantané : reste lisible si le contexte est modifié ou supprimé). */
     contexts: jsonb('contexts').$type<GenerationContext[]>().notNull().default([]),

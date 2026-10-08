@@ -6,10 +6,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Film, ImagePlus, Info, Loader2, Wand2, X } from 'lucide-react'
+import { ArrowUp, Film, ImageIcon, ImagePlus, Info, Loader2, ScanFace, Wand2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   TASK_LABEL,
+  buildInput,
   resolveTask,
   schemaSupportsLoras,
   type GenerationRequest,
@@ -101,9 +102,18 @@ export function Composer({
   const family = families.find((f) => f.id === state.family)
   const isLocal = family?.provider === 'comfy'
   const params = (state.family && state.paramsByFamily[state.family]) || {}
+
+  // Visage (modèles locaux avec ReActor) : une image jointe peut servir de visage plutôt que d'image de départ.
+  const imageAttachments = state.attachments.filter((a) => a.mediaType === 'image')
+  const faceId = !family?.supportsFace || state.faceChoice === 'none'
+    ? null
+    : state.faceChoice !== 'auto' && imageAttachments.some((a) => a.id === state.faceChoice)
+      ? state.faceChoice
+      : (imageAttachments[1]?.id ?? null)
+  const inputs = state.attachments.filter((a) => a.id !== faceId)
   const counts = {
-    images: state.attachments.filter((a) => a.mediaType === 'image').length,
-    videos: state.attachments.filter((a) => a.mediaType === 'video').length,
+    images: inputs.filter((a) => a.mediaType === 'image').length,
+    videos: inputs.filter((a) => a.mediaType === 'video').length,
   }
   const resolution = family
     ? resolveTask(
@@ -139,7 +149,8 @@ export function Composer({
         refMode: state.refMode,
         prompt: state.prompt,
         params,
-        referenceAssetIds: state.attachments.map((a) => a.id),
+        referenceAssetIds: inputs.map((a) => a.id),
+        faceAssetId: faceId,
         contextIds: activeContextIds,
       }
     : null
@@ -259,9 +270,27 @@ export function Composer({
     notices.push({ text: (catalogError as Error).message, tone: 'error' })
   if (resolution && !resolution.ok)
     notices.push({ text: resolution.reason, tone: 'warn' })
-  if (quoteIsCurrent && quote.data && quote.data.dropped > 0) {
+  // Fichiers ignorés : calculés tout de suite (même logique que le serveur), sans attendre le devis.
+  const dropped =
+    quoteIsCurrent && quote.data
+      ? quote.data.dropped
+      : schema && task
+        ? buildInput({
+            schema,
+            task,
+            prompt: '',
+            params: {},
+            images: inputs.filter((a) => a.mediaType === 'image').map((a) => a.id),
+            videos: inputs.filter((a) => a.mediaType === 'video').map((a) => a.id),
+            loras: [],
+          }).dropped
+        : 0
+  if (dropped > 0) {
     notices.push({
-      text: `${quote.data.dropped} fichier(s) ignoré(s) : trop de références pour ce modèle`,
+      text:
+        family?.supportsFace && task === 'image-to-image'
+          ? 'Une seule image de départ possible : passe l’autre en « Visage » ou retire-la.'
+          : `${dropped} fichier(s) ignoré(s) : trop de références pour ce modèle`,
       tone: 'warn',
     })
   }
@@ -310,6 +339,24 @@ export function Composer({
                     )}
                   {a.mediaType === 'video' && (
                     <Film className="absolute top-1 left-1 h-3.5 w-3.5 text-white drop-shadow" />
+                  )}
+                  {family?.supportsFace && a.mediaType === 'image' && (
+                    <button
+                      type="button"
+                      onClick={() => composer.setFace(a.id === faceId ? 'none' : a.id)}
+                      title={
+                        a.id === faceId
+                          ? 'Visage appliqué au résultat. Cliquer pour en faire l’image de départ.'
+                          : 'Image de départ. Cliquer pour l’utiliser comme visage.'
+                      }
+                      className={cn(
+                        'absolute bottom-1 left-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-white transition-colors',
+                        a.id === faceId ? 'bg-emerald-600/90 hover:bg-emerald-600' : 'bg-black/70 hover:bg-black/85',
+                      )}
+                    >
+                      {a.id === faceId ? <ScanFace className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
+                      {a.id === faceId ? 'Visage' : 'Départ'}
+                    </button>
                   )}
                   <button
                     type="button"

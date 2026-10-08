@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { Film, Loader2 } from 'lucide-react'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Film, Loader2, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { getFamily, type Asset } from '@ai-fluence/shared'
 
 import { assetsApi } from '@/lib/api'
@@ -10,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { MediaViewer } from '@/components/thread/MediaViewer'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   Select,
   SelectContent,
@@ -30,6 +32,18 @@ function GalleryPage() {
     prompt: string
   } | null>(null)
   const { data: personas = [] } = useQuery(personasQuery())
+  const queryClient = useQueryClient()
+  const [deleting, setDeleting] = useState<Asset | null>(null)
+  // Retire le résultat de l'app (galerie, fil) ; le fichier reste sur le disque.
+  const remove = useMutation({
+    mutationFn: (id: string) => assetsApi.remove(id),
+    onSuccess: () => {
+      setDeleting(null)
+      queryClient.invalidateQueries({ queryKey: ['gallery'] })
+      queryClient.invalidateQueries({ queryKey: ['thread'] })
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
 
   const query = useInfiniteQuery({
     queryKey: qk.gallery(personaId, media),
@@ -129,6 +143,15 @@ function GalleryPage() {
               {asset.mediaType === 'video' && (
                 <Film className="absolute top-2 left-2 h-4 w-4 text-white drop-shadow" />
               )}
+              <button
+                type="button"
+                onClick={() => setDeleting(asset)}
+                title="Supprimer ce résultat"
+                aria-label="Supprimer ce résultat"
+                className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur transition group-hover:opacity-100 hover:bg-destructive"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
               {generation && (
                 <Link
                   to="/t/$threadId"
@@ -164,6 +187,14 @@ function GalleryPage() {
       <MediaViewer
         asset={viewing?.asset ?? null}
         onClose={() => setViewing(null)}
+      />
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="Supprimer ce résultat ?"
+        description="Il sera retiré de la galerie et de son fil. Le fichier reste dans ton dossier local."
+        pending={remove.isPending}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
       />
     </>
   )

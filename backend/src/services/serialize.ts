@@ -65,7 +65,7 @@ export function toThread(
   };
 }
 
-export function toGeneration(row: GenerationRow, references: Asset[], outputs: Asset[]): Generation {
+export function toGeneration(row: GenerationRow, references: Asset[], outputs: Asset[], face: Asset | null = null): Generation {
   return {
     id: row.id,
     threadId: row.threadId,
@@ -78,6 +78,7 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
     params: row.params,
     refMode: row.refMode,
     references,
+    face,
     contexts: row.contexts,
     lorasApplied: row.lorasApplied,
     status: row.status,

@@ -34,7 +34,7 @@ import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
-import { downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
+import { cancelPrompt, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -67,6 +67,8 @@ interface Prepared {
   finalPrompt: string;
   persona: PersonaRow | null;
   references: AssetRow[];
+  /** Image dont le visage est appliqué au résultat (ReActor). */
+  face: AssetRow | null;
   dropped: number;
   lorasApplied: number;
 }
@@ -100,6 +102,19 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
       .where(and(eq(assets.userId, user.id), inArray(assets.id, req.referenceAssetIds)));
     const byId = new Map(rows.map(r => [r.id, r]));
     references = req.referenceAssetIds.map(id => byId.get(id)).filter((r): r is AssetRow => Boolean(r));
+  }
+
+  let face: AssetRow | null = null;
+  if (req.faceAssetId) {
+    if (!family.supportsFace) {
+      throw new HTTPException(400, { message: `${def.label} ne sait pas appliquer un visage.` });
+    }
+    [face] = await db
+      .select()
+      .from(assets)
+      .where(and(eq(assets.id, req.faceAssetId), eq(assets.userId, user.id)))
+      .limit(1);
+    if (!face || face.mediaType !== 'image') throw new HTTPException(400, { message: 'Image du visage introuvable.' });
   }
 
   const images = references.filter(r => r.mediaType === 'image');
@@ -161,6 +176,9 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     loras,
   });
 
+  // Le visage ne passe pas par le schéma : il est ajouté au workflow au lancement.
+  if (face) built.input.face_image_url = localAssetRef(face);
+
   const required = endpoint.schema.required ?? [];
   if (required.includes('prompt') && !built.input.prompt) {
     throw new HTTPException(400, { message: 'Ce modèle a besoin d’un prompt.' });
@@ -176,6 +194,7 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     finalPrompt,
     persona,
     references,
+    face,
     dropped: built.dropped,
     lorasApplied: built.lorasApplied,
   };
@@ -321,6 +340,7 @@ async function launch(
       params: meta.params,
       input: p.input,
       referenceAssetIds: p.references.map(r => r.id),
+      faceAssetId: p.face?.id ?? null,
       contexts: p.contexts,
       lorasApplied: p.lorasApplied,
       idempotencyKey,
@@ -364,15 +384,18 @@ async function submitToComfy(p: Prepared): Promise<string> {
   const endpoint = localEndpoint(p.modelId);
   if (!endpoint) throw new Error(`Workflow local introuvable pour ${p.modelId}.`);
 
+  const upload = async (asset: AssetRow) =>
+    uploadImage(await readFile(asset.filePath), `ai-fluence-${asset.id}.${extFor(asset.mime)}`, asset.mime);
+
   let image: string | undefined;
   const ref = typeof p.input.image_url === 'string' ? p.input.image_url : null;
   if (endpoint.slots.image && ref) {
     const asset = p.references.find(a => localAssetRef(a) === ref);
     if (!asset) throw new Error('Image de départ introuvable.');
-    const data = await readFile(asset.filePath);
-    image = await uploadImage(data, `ai-fluence-${asset.id}.${extFor(asset.mime)}`, asset.mime);
+    image = await upload(asset);
   }
-  return queuePrompt(buildGraph(endpoint, p.input, image));
+  const face = p.face ? await upload(p.face) : undefined;
+  return queuePrompt(buildGraph(endpoint, p.input, { image, face }));
 }
 
 /** Largeur et hauteur lues dans l'en-tête PNG (ComfyUI enregistre en PNG). */
@@ -442,6 +465,56 @@ async function watchComfy(row: GenerationRow, promptId: string): Promise<void> {
     .where(eq(generations.id, row.id));
 }
 
+// ── Suppression ───────────────────────────────────────────────
+// Retire de l'app (fil, galerie) sans jamais toucher aux fichiers sur le disque.
+
+/** Avatars qui pointent vers ces images : remis à vide plutôt que laissés cassés. */
+async function detachAvatars(assetIds: string[]) {
+  if (!assetIds.length) return;
+  await db.update(personas).set({ avatarAssetId: null }).where(inArray(personas.avatarAssetId, assetIds));
+  await db.update(users).set({ avatarAssetId: null }).where(inArray(users.avatarAssetId, assetIds));
+}
+
+/** Supprime une demande et ses résultats. Une génération locale en cours est annulée dans ComfyUI. */
+export async function deleteGeneration(user: SessionUser, generationId: string): Promise<void> {
+  const [row] = await db
+    .select()
+    .from(generations)
+    .where(and(eq(generations.id, generationId), eq(generations.userId, user.id)))
+    .limit(1);
+  if (!row) throw new HTTPException(404, { message: 'Génération introuvable.' });
+
+  const pending = row.status === 'queued' || row.status === 'running';
+  if (pending && row.provider === 'spicy') {
+    throw new HTTPException(409, {
+      message: 'Génération SpicyAPI en cours : elle ne peut pas être annulée, attends la fin pour la supprimer.',
+    });
+  }
+  if (pending && row.comfyPromptId) await cancelPrompt(row.comfyPromptId).catch(() => undefined);
+
+  const outputs = await db
+    .select({ id: assets.id })
+    .from(assets)
+    .where(and(eq(assets.generationId, row.id), eq(assets.kind, 'output')));
+  const outputIds = outputs.map(a => a.id);
+  await detachAvatars(outputIds);
+  if (outputIds.length) await db.delete(assets).where(inArray(assets.id, outputIds));
+  await db.delete(generations).where(eq(generations.id, row.id));
+}
+
+/** Supprime une image ou une vidéo générée. */
+export async function deleteOutput(user: SessionUser, assetId: string): Promise<void> {
+  const [asset] = await db
+    .select({ id: assets.id, kind: assets.kind })
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.userId, user.id)))
+    .limit(1);
+  if (!asset) throw new HTTPException(404, { message: 'Média introuvable.' });
+  if (asset.kind !== 'output') throw new HTTPException(400, { message: 'Seuls les résultats générés peuvent être supprimés.' });
+  await detachAvatars([asset.id]);
+  await db.delete(assets).where(eq(assets.id, asset.id));
+}
+
 // ── Upscale ───────────────────────────────────────────────────
 
 interface PreparedUpscale {
@@ -495,6 +568,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
       finalPrompt: '',
       persona: null,
       references: [asset],
+      face: null,
       dropped: 0,
       lorasApplied: 0,
     },
@@ -542,7 +616,7 @@ export async function loadGenerations(
     .orderBy(asc(generations.createdAt));
   if (!rows.length) return [];
 
-  const refIds = [...new Set(rows.flatMap(r => r.referenceAssetIds))];
+  const refIds = [...new Set(rows.flatMap(r => (r.faceAssetId ? [...r.referenceAssetIds, r.faceAssetId] : r.referenceAssetIds)))];
   const [refRows, outputRows] = await Promise.all([
     refIds.length ? db.select().from(assets).where(inArray(assets.id, refIds)) : Promise.resolve([]),
     db
@@ -557,6 +631,7 @@ export async function loadGenerations(
       r,
       r.referenceAssetIds.map(id => refsById.get(id)).filter(Boolean) as ReturnType<typeof toAsset>[],
       outputRows.filter(a => a.generationId === r.id && a.kind === 'output').map(toAsset),
+      (r.faceAssetId && refsById.get(r.faceAssetId)) || null,
     ),
   );
 }

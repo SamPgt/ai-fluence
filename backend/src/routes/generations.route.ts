@@ -7,6 +7,7 @@ import {
   PriceChangedError,
   createGeneration,
   createUpscale,
+  deleteGeneration,
   loadGenerations,
   quoteGeneration,
   quoteUpscale,
@@ -22,6 +23,7 @@ const generationSchema = z.object({
   prompt: z.string().max(5000).trim().default(''),
   params: z.record(z.string(), z.unknown()).default({}),
   referenceAssetIds: z.array(z.uuid()).max(30).default([]),
+  faceAssetId: z.uuid().nullable().optional(),
   contextIds: z.array(z.uuid()).max(20).default([]),
   expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
 });
@@ -67,6 +69,11 @@ const generationsRoutes = new Hono<AppEnv>()
     const [generation] = await loadGenerations(c.get('user').id, { ids: [c.req.param('id')] });
     if (!generation) return c.json({ error: 'Génération introuvable.' }, 404);
     return c.json({ generation });
+  })
+  /** Retire la demande et ses résultats de l'app (les fichiers restent sur le disque). */
+  .delete('/:id', async c => {
+    await deleteGeneration(c.get('user'), c.req.param('id'));
+    return c.json({ ok: true });
   });
 
 export default generationsRoutes;

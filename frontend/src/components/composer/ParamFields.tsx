@@ -41,6 +41,7 @@ const LABELS: Record<string, string> = {
   model: 'Modèle',
   lora: 'LoRA',
   lora_strength: 'Force de la LoRA',
+  face_restore: 'Restauration du visage',
 }
 
 /** Paramètres affichés directement dans la barre du composer (le reste est dans le popover). */
@@ -53,7 +54,8 @@ export function labelOf(key: string): string {
 function formatOption(key: string, v: unknown): string {
   if (key === 'duration_seconds') return v === -1 ? 'Auto' : `${v} s`
   // Fichiers ComfyUI (modèles, LoRA) : sans l'extension.
-  if (key === 'model' || key === 'lora') return String(v).replace(/\.(safetensors|ckpt|pt|gguf)$/i, '')
+  if (key === 'face_restore' && v === 'none') return 'Aucune'
+  if (key === 'model' || key === 'lora' || key === 'face_restore') return String(v).replace(/\.(safetensors|ckpt|pt|gguf)$/i, '')
   return String(v)
 }
 

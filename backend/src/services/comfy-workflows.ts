@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LOCAL_FAMILIES, type CatalogFamily, type InputSchema, type TaskKind } from '@ai-fluence/shared';
 import { env } from '../env.js';
-import { getNodeOptions, isComfyRunning } from './comfy.service.js';
+import { getNodeOptions, hasNodes, isComfyRunning } from './comfy.service.js';
 
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 
@@ -36,13 +36,38 @@ export interface LocalEndpoint {
   model?: { loader: string; input: string; match: RegExp; preferred: string };
   /** Paramètres `lora` / `lora_strength` : un `LoraLoaderModelOnly` est inséré entre `from` et `to`. */
   lora?: { from: [node: string, output: number]; to: Slot };
+  /**
+   * Visage : avec une image « visage », un `ReActorFaceSwap` est inséré entre l'image décodée (`from`)
+   * et l'enregistrement (`to`). Paramètre `face_restore` : restauration du visage après le swap.
+   */
+  faceSwap?: { from: [node: string, output: number]; to: Slot };
 }
+
+/** Nœud custom ReActor (https://github.com/Gourieff/ComfyUI-ReActor). */
+const REACTOR = 'ReActorFaceSwap';
+
+/** Réglages ReActor du workflow d'origine (`reActor.png`). */
+const REACTOR_DEFAULTS = {
+  enabled: true,
+  swap_model: 'inswapper_128.onnx',
+  facedetection: 'retinaface_resnet50',
+  face_restore_model: 'none',
+  face_restore_visibility: 1,
+  codeformer_weight: 0.5,
+  detect_gender_input: 'no',
+  detect_gender_source: 'no',
+  input_faces_index: '0',
+  source_faces_index: '0',
+  console_log_level: 1,
+};
 
 /** Valeur du paramètre `lora` quand aucune LoRA n'est appliquée. */
 export const NO_LORA = 'Aucune';
 
-/** Id du nœud LoRA ajouté au workflow (hors de la plage des ids exportés par ComfyUI). */
+/** Ids des nœuds ajoutés au workflow (hors de la plage des ids exportés par ComfyUI). */
 const LORA_NODE = '900';
+const FACE_IMAGE_NODE = '910';
+const FACE_SWAP_NODE = '911';
 
 const WORKFLOWS_DIR = fileURLToPath(new URL('../../comfy-workflows/', import.meta.url));
 
@@ -83,6 +108,9 @@ const Z_IMAGE_MODEL: LocalEndpoint['model'] = {
 /** La LoRA s'applique au modèle chargé (66), avant le réglage d'échantillonnage (69). */
 const Z_IMAGE_LORA: LocalEndpoint['lora'] = { from: ['66', 0], to: ['69', 'model'] };
 
+/** Le visage s'applique à l'image décodée (65), avant l'enregistrement (9). */
+const Z_IMAGE_FACE: LocalEndpoint['faceSwap'] = { from: ['65', 0], to: ['9', 'images'] };
+
 export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpoint>>> = {
   'local/z-image-turbo': {
     'text-to-image': {
@@ -101,6 +129,7 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
       slots: { ...Z_IMAGE_SLOTS, width: ['68', 'width'], height: ['68', 'height'] },
       model: Z_IMAGE_MODEL,
       lora: Z_IMAGE_LORA,
+      faceSwap: Z_IMAGE_FACE,
     },
     'image-to-image': {
       modelId: 'local/z-image-turbo/image-to-image',
@@ -125,6 +154,7 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
       slots: { ...Z_IMAGE_SLOTS, strength: ['70', 'denoise'], image: ['73', 'image'] },
       model: Z_IMAGE_MODEL,
       lora: Z_IMAGE_LORA,
+      faceSwap: Z_IMAGE_FACE,
     },
   },
 };
@@ -139,11 +169,16 @@ export function sizeFor(aspectRatio: string): { width: number; height: number } 
 
 /**
  * Remplit le workflow avec l'`input` construit par `buildInput` (prompt, paramètres, seed).
- * `image` : nom du fichier déjà envoyé dans le dossier `input` de ComfyUI.
+ * `files` : noms des fichiers déjà envoyés dans le dossier `input` de ComfyUI
+ * (`image` : image de départ, `face` : visage à appliquer).
  */
-export function buildGraph(endpoint: LocalEndpoint, input: Record<string, unknown>, image?: string): Graph {
+export function buildGraph(
+  endpoint: LocalEndpoint,
+  input: Record<string, unknown>,
+  files: { image?: string; face?: string } = {},
+): Graph {
   const graph = JSON.parse(readFileSync(WORKFLOWS_DIR + endpoint.file, 'utf8')) as Graph;
-  const values: Record<string, unknown> = { ...input, image };
+  const values: Record<string, unknown> = { ...input, image: files.image };
   const props = endpoint.schema.properties ?? {};
   for (const [key, prop] of Object.entries(props)) {
     if (values[key] === undefined && prop.default !== undefined) values[key] = prop.default;
@@ -167,15 +202,48 @@ export function buildGraph(endpoint: LocalEndpoint, input: Record<string, unknow
     };
     graph[node].inputs[input] = [LORA_NODE, 0];
   }
+
+  if (files.face) {
+    if (!endpoint.faceSwap) throw new Error(`Workflow ${endpoint.file} : le visage n'est pas pris en charge.`);
+    const [node, input] = endpoint.faceSwap.to;
+    if (!graph[node]) throw new Error(`Workflow ${endpoint.file} : nœud ${node} introuvable.`);
+    graph[FACE_IMAGE_NODE] = { class_type: 'LoadImage', inputs: { image: files.face } };
+    graph[FACE_SWAP_NODE] = {
+      class_type: REACTOR,
+      inputs: {
+        ...REACTOR_DEFAULTS,
+        face_restore_model: values.face_restore ?? REACTOR_DEFAULTS.face_restore_model,
+        input_image: endpoint.faceSwap.from,
+        source_image: [FACE_IMAGE_NODE, 0],
+      },
+    };
+    graph[node].inputs[input] = [FACE_SWAP_NODE, 0];
+  }
   return graph;
+}
+
+/** ReActor installé dans ComfyUI : le visage peut être proposé. */
+async function canSwapFaces(): Promise<boolean> {
+  return hasNodes([REACTOR]).catch(() => false);
 }
 
 /**
  * Schéma complété avec ce qui est installé dans ComfyUI : modèles compatibles et LoRA.
  * Un fichier ajouté dans ComfyUI apparaît donc dans l'app sans toucher au code.
  */
-async function liveSchema(endpoint: LocalEndpoint): Promise<InputSchema> {
+async function liveSchema(endpoint: LocalEndpoint, faces: boolean): Promise<InputSchema> {
   const properties = { ...endpoint.schema.properties };
+  if (endpoint.faceSwap && faces) {
+    const models = await getNodeOptions(REACTOR, 'face_restore_model');
+    if (models.length) {
+      properties.face_restore = {
+        type: 'string',
+        enum: models,
+        default: models.includes('none') ? 'none' : models[0],
+        description: 'Avec une image « Visage » : affine le visage après le swap.',
+      };
+    }
+  }
   if (endpoint.model) {
     const { loader, input, match, preferred } = endpoint.model;
     const files = (await getNodeOptions(loader, input)).filter(f => match.test(f));
@@ -197,18 +265,21 @@ async function liveSchema(endpoint: LocalEndpoint): Promise<InputSchema> {
 export async function getLocalFamilies(): Promise<CatalogFamily[]> {
   if (!env.COMFYUI_URL) return [];
   const running = await isComfyRunning();
+  const faces = running && (await canSwapFaces());
   return Promise.all(
     LOCAL_FAMILIES.map(async (def): Promise<CatalogFamily> => {
       const tasks: CatalogFamily['tasks'] = {};
-      for (const endpoint of Object.values(LOCAL_ENDPOINTS[def.id] ?? {})) {
+      const endpoints = Object.values(LOCAL_ENDPOINTS[def.id] ?? {});
+      for (const endpoint of endpoints) {
         // ComfyUI arrêté : schéma de base, la famille est de toute façon indisponible.
-        const schema = running ? await liveSchema(endpoint).catch(() => endpoint.schema) : endpoint.schema;
+        const schema = running ? await liveSchema(endpoint, faces).catch(() => endpoint.schema) : endpoint.schema;
         tasks[endpoint.task] = { modelId: endpoint.modelId, schema, startingPrice: null, policyTier: null };
       }
       const ready = running && Object.keys(tasks).length > 0;
       return {
         ...def,
         provider: 'comfy',
+        supportsFace: faces && endpoints.some(e => e.faceSwap),
         tasks,
         available: ready,
         unavailableReason: ready ? null : 'Démarre ComfyUI pour l’utiliser',

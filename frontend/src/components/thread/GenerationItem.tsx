@@ -11,16 +11,18 @@ import {
   Shuffle,
   ImageUpscale,
   SquarePen,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getFamily, type Asset, type Generation, type GenerationRequest } from '@ai-fluence/shared'
 
-import { assetsApi } from '@/lib/api'
+import { assetsApi, generationsApi } from '@/lib/api'
 import { composer } from '@/lib/composer-store'
 import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
 import { formatDuration, formatUsd, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ModelBadge } from '@/components/ui/model-badge'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { AssetThumb } from '@/components/composer/ReferencePicker'
 import {
   DropdownMenu,
@@ -63,10 +65,13 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
   const [upscaling, setUpscaling] = useState<Asset | null>(null)
   const isUpscale = g.task === 'upscale'
   const [relaunch, setRelaunch] = useState<GenerationRequest | null>(null)
+  const [deleting, setDeleting] = useState<{ kind: 'generation' } | { kind: 'asset'; asset: Asset } | null>(null)
   /** Même demande (nouveau seed), sur ce modèle ou un autre. */
   const relaunchRequest = (family: string): GenerationRequest => {
     const params = { ...g.params }
     delete params.seed
+    // Modèle sans visage : l'image du visage redevient une simple référence.
+    const keepFace = Boolean(g.face && catalog?.families.find((f) => f.id === family)?.supportsFace)
     return {
       threadId: g.threadId,
       personaId: g.personaId,
@@ -74,7 +79,8 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       refMode: g.refMode,
       prompt: g.prompt,
       params,
-      referenceAssetIds: g.references.map((r) => r.id),
+      referenceAssetIds: [...g.references, ...(g.face && !keepFace ? [g.face] : [])].map((r) => r.id),
+      faceAssetId: keepFace ? g.face!.id : null,
       contextIds: g.contexts.map((c) => c.id),
     }
   }
@@ -91,6 +97,19 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       toast.success(`Ajoutée aux références de ${persona!.name}`)
       queryClient.invalidateQueries({ queryKey: qk.references(persona!.id) })
       queryClient.invalidateQueries({ queryKey: qk.personas })
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  // Suppression : retire de l'app (fil, galerie), les fichiers restent sur le disque.
+  const remove = useMutation({
+    mutationFn: (target: NonNullable<typeof deleting>) =>
+      target.kind === 'generation' ? generationsApi.remove(g.id) : assetsApi.remove(target.asset.id),
+    onSuccess: () => {
+      setDeleting(null)
+      queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) })
+      queryClient.invalidateQueries({ queryKey: qk.threadsAll })
+      queryClient.invalidateQueries({ queryKey: ['gallery'] })
     },
     onError: (e) => toast.error((e as Error).message),
   })
@@ -113,7 +132,8 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
     composer.load({
       family,
       prompt: g.prompt.trim(),
-      attachments: g.references,
+      attachments: g.face ? [...g.references, g.face] : g.references,
+      faceId: g.face?.id ?? null,
       refMode: g.refMode,
       contextIds: g.contexts.map((c) => c.id),
       params,
@@ -128,15 +148,27 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       {/* Demande (côté utilisateur) : la bulle ne contient que les références et le texte,
           les actions et les infos du modèle sont en dessous, sur le fond. */}
       <div className="ml-auto flex w-fit max-w-[85%] flex-col items-end gap-1.5">
-        {(g.references.length > 0 || g.prompt.trim()) && (
+        {(g.references.length > 0 || g.face || g.prompt.trim()) && (
           <div className="space-y-2 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3">
-            {g.references.length > 0 && (
+            {(g.references.length > 0 || g.face) && (
               <div className="flex flex-wrap justify-end gap-1.5">
                 {g.references.map((r) => (
                   <button key={r.id} onClick={() => setViewing(r)} className="overflow-hidden rounded-lg">
                     <AssetThumb asset={r} className="h-14 w-14" />
                   </button>
                 ))}
+                {g.face && (
+                  <button
+                    onClick={() => setViewing(g.face)}
+                    className="relative overflow-hidden rounded-lg"
+                    title="Visage appliqué au résultat"
+                  >
+                    <AssetThumb asset={g.face} className="h-14 w-14" />
+                    <span className="absolute bottom-0.5 left-0.5 rounded bg-emerald-600/90 px-1 text-[9px] font-medium text-white">
+                      Visage
+                    </span>
+                  </button>
+                )}
               </div>
             )}
             {g.prompt.trim() && <p className="text-[15px] whitespace-pre-wrap">{g.prompt.trim()}</p>}
@@ -186,6 +218,14 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                     ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <button
+                onClick={() => setDeleting({ kind: 'generation' })}
+                className="rounded-md p-1.5 hover:bg-accent hover:text-destructive"
+                title="Supprimer la demande et ses résultats"
+                aria-label="Supprimer la demande"
+              >
+                <Trash2 className="size-[14.4px]" />
+              </button>
             </div>
           ) : (
             <span />
@@ -241,6 +281,10 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             </div>
           )}
 
+          {g.status === 'succeeded' && g.outputs.length === 0 && (
+            <p className="text-xs text-muted-foreground italic">Résultat supprimé.</p>
+          )}
+
           {g.status === 'succeeded' && (
             <div className={cn('grid gap-2', g.outputs.length > 1 ? 'grid-cols-2' : 'grid-cols-1')}>
               {g.outputs.map((asset) => (
@@ -280,6 +324,9 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                     >
                       <Download className="h-3.5 w-3.5" />
                     </a>
+                    <ActionButton onClick={() => setDeleting({ kind: 'asset', asset })} title="Supprimer ce résultat">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </ActionButton>
                   </div>
                 </div>
               ))}
@@ -316,6 +363,20 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
 
       <MediaViewer asset={viewing} onClose={() => setViewing(null)} />
       <UpscaleDialog asset={upscaling} threadId={g.threadId} onClose={() => setUpscaling(null)} />
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={deleting?.kind === 'asset' ? 'Supprimer ce résultat ?' : 'Supprimer cette demande ?'}
+        description={
+          deleting?.kind === 'asset'
+            ? 'Il sera retiré du fil et de la galerie. Le fichier reste dans ton dossier local.'
+            : pending && g.provider === 'comfy'
+              ? 'La génération en cours sera annulée dans ComfyUI. La demande sera retirée du fil.'
+              : 'Le prompt et ses résultats seront retirés du fil et de la galerie. Les fichiers restent dans ton dossier local.'
+        }
+        pending={remove.isPending}
+        onConfirm={() => deleting && remove.mutate(deleting)}
+      />
       <RelaunchDialog request={relaunch} onClose={() => setRelaunch(null)} />
     </div>
   )

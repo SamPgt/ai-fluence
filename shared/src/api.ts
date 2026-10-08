@@ -102,6 +102,8 @@ export interface CatalogFamily {
   badges: ModelBadge[];
   hint: string;
   provider: ModelProvider;
+  /** Accepte une image « visage » appliquée au résultat (ReActor, modèles locaux). */
+  supportsFace: boolean;
   available: boolean;
   /** Pourquoi le modèle n'est pas utilisable (clé manquante, ComfyUI arrêté…). */
   unavailableReason: string | null;
@@ -206,6 +208,8 @@ export interface Generation {
   params: Record<string, unknown>;
   refMode: VideoRefMode;
   references: Asset[];
+  /** Image « visage » appliquée au résultat (ReActor). */
+  face: Asset | null;
   /** Contextes utilisés (instantané au moment de la génération). */
   contexts: GenerationContext[];
   lorasApplied: number;
@@ -233,6 +237,8 @@ export interface GenerationRequest {
   prompt: string;
   params: Record<string, unknown>;
   referenceAssetIds: string[];
+  /** Image dont le visage est appliqué au résultat (modèles avec `supportsFace`). */
+  faceAssetId?: string | null;
   /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
   contextIds?: string[];
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */

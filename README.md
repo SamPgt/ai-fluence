@@ -97,11 +97,13 @@ Quand ComfyUI tourne, les modèles locaux (badge `LOCAL`) apparaissent dans le s
 
 | Modèle | Tâches | Fichiers attendus dans ComfyUI |
 | --- | --- | --- |
-| Z-Image (local) | texte → image, image → image | un ou plusieurs modèles Z-Image dans `diffusion_models` (ex. `zImageTurbo_turbo.safetensors`), `qwen_3_4b_fp8_mixed.safetensors` (text_encoders), `flux1AE_v10.safetensors` (vae) |
+| Z-Image (local) | texte → image, image → image, + visage (si ReActor est installé) | un ou plusieurs modèles Z-Image dans `diffusion_models` (ex. `zImageTurbo_turbo.safetensors`), `qwen_3_4b_fp8_mixed.safetensors` (text_encoders), `flux1AE_v10.safetensors` (vae) |
 
 Les fichiers installés dans ComfyUI sont lus en direct :
 - **Modèle** : tous les fichiers de `diffusion_models` dont le nom contient « Z-Image » (Turbo, finetunes comme CyberRealistic…) ;
 - **LoRA** : tous les fichiers de `models/loras`, avec leur force. Le paramètre n'apparaît que s'il y a au moins une LoRA.
+
+**Visage (ReActor)** : avec un modèle local, chaque image jointe porte une pastille **Départ** ou **Visage** (clic pour changer). L'image « Départ » est retravaillée (image → image) ; l'image « Visage » donne son visage au résultat, via [ReActor](https://github.com/Gourieff/ComfyUI-ReActor) ajouté en fin de workflow. Par défaut, la 1re image est l'image de départ et la 2e le visage ; un visage seul donne texte → image + visage. Seul le visage est remplacé : cheveux, silhouette et tenue viennent du prompt. Le paramètre « Restauration du visage » (CodeFormer, GFPGAN…) affine le résultat. Sans ReActor dans ComfyUI, les pastilles n'apparaissent pas. Avec un modèle SpicyAPI, toutes les images restent des références, comme avant.
 
 Un fichier ajouté dans ComfyUI apparaît dans l'app au rafraîchissement du catalogue. Le temps de calcul de chaque génération locale est affiché sous le résultat.
 
@@ -121,7 +123,7 @@ Ajouter un workflow :
 └── references/<persona>/    images importées (références, avatars)
 ```
 
-Le dossier se change dans Paramétrage → Stockage. Supprimer un fil ou un persona **ne supprime jamais les fichiers**.
+Le dossier se change dans Paramétrage → Stockage. Supprimer un fil, une demande, un résultat ou un persona les retire de l’app mais **ne supprime jamais les fichiers**.
 
 ## LoRA
 

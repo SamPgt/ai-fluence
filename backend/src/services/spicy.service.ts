@@ -61,6 +61,7 @@ export async function getCatalog(userId: string): Promise<CatalogResponse> {
     return {
       ...def,
       provider: 'spicy',
+      supportsFace: false,
       tasks,
       available,
       unavailableReason: available ? null : hasKey ? 'Indisponible avec cette clé' : 'Clé API SpicyAPI manquante',
