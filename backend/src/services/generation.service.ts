@@ -502,6 +502,31 @@ export async function deleteGeneration(user: SessionUser, generationId: string):
   await db.delete(generations).where(eq(generations.id, row.id));
 }
 
+/**
+ * Supprime un fil, ses demandes et leurs résultats (fil et galerie).
+ * Refusé si une génération SpicyAPI tourne encore ; les générations locales en cours sont annulées.
+ */
+export async function deleteThread(user: SessionUser, threadId: string): Promise<void> {
+  const [thread] = await db
+    .select({ id: threads.id })
+    .from(threads)
+    .where(and(eq(threads.id, threadId), eq(threads.userId, user.id)))
+    .limit(1);
+  if (!thread) throw new HTTPException(404, { message: 'Fil introuvable.' });
+
+  const rows = await db
+    .select({ id: generations.id, status: generations.status, provider: generations.provider })
+    .from(generations)
+    .where(eq(generations.threadId, thread.id));
+  if (rows.some(r => r.provider === 'spicy' && (r.status === 'queued' || r.status === 'running'))) {
+    throw new HTTPException(409, {
+      message: 'Une génération SpicyAPI de ce fil est en cours : attends la fin pour le supprimer.',
+    });
+  }
+  for (const row of rows) await deleteGeneration(user, row.id);
+  await db.delete(threads).where(eq(threads.id, thread.id));
+}
+
 /** Supprime une image ou une vidéo générée. */
 export async function deleteOutput(user: SessionUser, assetId: string): Promise<void> {
   const [asset] = await db

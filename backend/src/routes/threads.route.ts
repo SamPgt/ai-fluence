@@ -6,7 +6,7 @@ import type { SearchResult, ThreadDetailResponse } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { generations, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
-import { loadGenerations } from '../services/generation.service.js';
+import { deleteThread, loadGenerations } from '../services/generation.service.js';
 import { toThread } from '../services/serialize.js';
 import type { AppEnv } from '../types.js';
 
@@ -85,8 +85,8 @@ const threadsRoutes = new Hono<AppEnv>()
     },
   )
   .delete('/:id', async c => {
-    // Les fichiers restent dans le dossier local, seules les entrées du fil sont supprimées.
-    await db.delete(threads).where(and(eq(threads.id, c.req.param('id')), eq(threads.userId, c.get('user').id)));
+    // Retire le fil, ses demandes et leurs résultats (galerie comprise) ; les fichiers restent dans le dossier local.
+    await deleteThread(c.get('user'), c.req.param('id'));
     return c.json({ ok: true });
   });
 

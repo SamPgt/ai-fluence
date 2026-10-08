@@ -1,6 +1,7 @@
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Wallet } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { threadsApi } from '@/lib/api'
 import {
@@ -46,8 +47,10 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
     mutationFn: (id: string) => threadsApi.remove(id),
     onSuccess: (_, id) => {
       invalidate()
+      queryClient.invalidateQueries({ queryKey: ['gallery'] })
       if (id === params.threadId) navigate({ to: '/' })
     },
+    onError: (e) => toast.error((e as Error).message),
   })
   const togglePin = useMutation({
     mutationFn: (t: { id: string; isPinned: boolean }) =>

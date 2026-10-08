@@ -107,7 +107,7 @@ export function ChatListItem({ thread, isActive, onDelete, onTogglePin }: ChatLi
         title="Supprimer ce fil ?"
         description={
           <>
-            « {thread.title} » sera retiré de l’app. Les images et vidéos restent dans ton dossier local.
+            « {thread.title} » et ses résultats seront retirés de l’app (galerie comprise). Les images et vidéos restent dans ton dossier local.
           </>
         }
         onConfirm={() => {
