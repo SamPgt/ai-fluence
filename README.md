@@ -121,3 +121,7 @@ ai-fluence/
 ## Déploiement
 
 Pour l'instant, c'est un outil local. Si l'app passe un jour en web : front sur Vercel, back sur Railway, pas de Docker. Il faudra alors remettre nitro pour le build du front (retiré à cause d'un conflit de version avec Vite 8) et remplacer le stockage disque par un stockage objet (S3 ou R2). Tout le stockage passe par `backend/src/services/storage.service.ts`, c'est le seul fichier à adapter.
+
+## Licence
+
+Ce projet est distribué sous licence [PolyForm Noncommercial 1.0.0](LICENSE) : libre pour un usage personnel, éducatif, de recherche ou associatif, mais tout usage commercial est interdit sans accord préalable. Le code repris de [rs-4/tanstack-ai-demo](https://github.com/rs-4/tanstack-ai-demo) reste sous licence MIT (voir `frontend/LICENSE`).
