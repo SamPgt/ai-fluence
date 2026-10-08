@@ -14,7 +14,7 @@
 export type MediaKind = 'image' | 'video';
 
 /** Pourquoi on propose ce modèle (badge coloré dans le dropdown). */
-export type ModelBadge = 'LORA' | 'REF' | 'PERF';
+export type ModelBadge = 'EDIT' | 'LORA' | 'REF' | 'PERF';
 
 export type TaskKind =
   | 'text-to-image'
@@ -40,21 +40,21 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     id: 'alibaba/qwen-image-2512-lora',
     label: 'Qwen Image 2512 LoRA',
     media: 'image',
-    badges: ['LORA'],
+    badges: ['REF', 'LORA'],
     hint: 'Ta LoRA de personnage, base Qwen-Image-2512',
   },
   {
     id: 'alibaba/z-image-turbo-lora',
     label: 'Z-Image Turbo LoRA',
     media: 'image',
-    badges: ['LORA'],
+    badges: ['EDIT', 'LORA'],
     hint: 'LoRA réaliste et pas chère',
   },
   {
     id: 'black-forest-labs/flux-1-dev-lora',
     label: 'FLUX.1 Dev LoRA',
     media: 'image',
-    badges: ['LORA'],
+    badges: ['EDIT', 'LORA'],
     hint: 'LoRA FLUX.1 [dev], base la plus connue',
   },
   {
@@ -68,21 +68,21 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     id: 'bytedance/seedream-5.0-flash',
     label: 'Seedream 5.0 Flash',
     media: 'image',
-    badges: ['PERF'],
+    badges: ['REF', 'PERF'],
     hint: 'Rapide, 2K',
   },
   {
     id: 'alibaba/qwen-image-3.0-pro',
     label: 'Qwen Image 3.0 Pro',
     media: 'image',
-    badges: ['PERF'],
+    badges: ['REF', 'PERF'],
     hint: 'Très bon suivi du prompt',
   },
   {
     id: 'openai/gpt-image-2.5-sunburst',
     label: 'GPT Image 2.5',
     media: 'image',
-    badges: ['PERF'],
+    badges: ['REF', 'PERF'],
     hint: "Texte dans l'image, jusqu'à 16 références (filtré)",
   },
 
@@ -91,7 +91,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     id: 'minimax/h3-lora',
     label: 'MiniMax H3 LoRA',
     media: 'video',
-    badges: ['LORA', 'REF'],
+    badges: ['REF', 'LORA'],
     hint: 'LoRA vidéo + références, avec audio',
   },
   {
@@ -156,7 +156,10 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
  * Outils lancés depuis un résultat (pas dans le dropdown des modèles).
  * Upscale : agrandit et affine une image ou une vidéo, sans prompt.
  */
-export const UPSCALERS: Record<MediaKind, { family: string; modelId: string; label: string; defaultResolution: string }> = {
+export const UPSCALERS: Record<
+  MediaKind,
+  { family: string; modelId: string; label: string; defaultResolution: string }
+> = {
   image: {
     family: 'spicyapi/image-upscaler-v1',
     modelId: 'spicyapi/image-upscaler-v1/upscale',
@@ -172,11 +175,27 @@ export const UPSCALERS: Record<MediaKind, { family: string; modelId: string; lab
 };
 
 export const TOOL_FAMILIES: ModelFamilyDef[] = [
-  { id: UPSCALERS.image.family, label: UPSCALERS.image.label, media: 'image', badges: [], hint: 'Agrandit et affine une image' },
-  { id: UPSCALERS.video.family, label: UPSCALERS.video.label, media: 'video', badges: [], hint: 'Passe une vidéo en haute résolution' },
+  {
+    id: UPSCALERS.image.family,
+    label: UPSCALERS.image.label,
+    media: 'image',
+    badges: [],
+    hint: 'Agrandit et affine une image',
+  },
+  {
+    id: UPSCALERS.video.family,
+    label: UPSCALERS.video.label,
+    media: 'video',
+    badges: [],
+    hint: 'Passe une vidéo en haute résolution',
+  },
 ];
 
 export const BADGE_INFO: Record<ModelBadge, { label: string; description: string }> = {
+  EDIT: {
+    label: 'EDIT',
+    description: 'Retouche une image (une seule image en entrée, avec une force)',
+  },
   LORA: { label: 'LORA', description: 'Accepte une LoRA (personnage entraîné)' },
   REF: { label: 'REF', description: 'Cohérence par images de référence' },
   PERF: { label: 'PERF', description: 'Qualité de rendu' },
@@ -201,6 +220,34 @@ export const TASK_LABEL: Record<TaskKind, string> = {
   upscale: 'Upscale',
 };
 
+const BADGE_ORDER: ModelBadge[] = ['EDIT', 'LORA', 'REF', 'PERF'];
+
+/**
+ * Badges déduits du schéma live : EDIT (une seule image à retoucher), LORA (accepte des LoRA),
+ * REF (au moins 2 images de référence, ou des références vidéo). PERF reste un choix éditorial.
+ */
+export function deriveBadges(
+  tasks: Partial<
+    Record<TaskKind, { schema: { properties?: Record<string, { maxItems?: number }> } }>
+  >,
+  editorial: ModelBadge[]
+): ModelBadge[] {
+  const props = (t: TaskKind) => tasks[t]?.schema.properties ?? {};
+  const all = Object.values(tasks).flatMap(t => Object.keys(t?.schema.properties ?? {}));
+  const edit = props('image-to-image');
+  const r2v = props('reference-to-video');
+  const badges = new Set<ModelBadge>(editorial.filter(b => b === 'PERF'));
+  if (edit.image_url && !edit.image_urls) badges.add('EDIT');
+  if (all.some(k => k === 'loras' || k.endsWith('_noise_loras'))) badges.add('LORA');
+  if (
+    (edit.image_urls?.maxItems ?? 0) > 1 ||
+    Object.keys(r2v).some(k => k.startsWith('reference_') && k.endsWith('_urls'))
+  ) {
+    badges.add('REF');
+  }
+  return BADGE_ORDER.filter(b => badges.has(b));
+}
+
 export function getFamily(id: string): ModelFamilyDef | undefined {
   return MODEL_FAMILIES.find(f => f.id === id) ?? TOOL_FAMILIES.find(f => f.id === id);
 }
@@ -209,3 +256,15 @@ export function getFamily(id: string): ModelFamilyDef | undefined {
 export function familyIdOf(modelId: string): string {
   return modelId.split('/').slice(0, 2).join('/');
 }
+
+/**
+ * Modèles de base Civitai compatibles avec chaque famille LoRA.
+ * Les familles absentes (ex. MiniMax H3) n'ont pas de LoRA sur Civitai.
+ */
+export const CIVITAI_BASE_MODELS: Record<string, string[]> = {
+  'alibaba/qwen-image-2512-lora': ['Qwen'],
+  'alibaba/z-image-turbo-lora': ['ZImageTurbo'],
+  'black-forest-labs/flux-1-dev-lora': ['Flux.1 D'],
+  'alibaba/wan-2.2-lora': ['Wan Video 2.2 T2V-A14B', 'Wan Video 2.2 I2V-A14B'],
+  'lightricks/ltx-2.3-spicy-lora': ['LTXV 2.3', 'LTXV2'],
+};

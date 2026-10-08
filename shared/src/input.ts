@@ -225,3 +225,35 @@ export function schemaSupportsLoras(schema: InputSchema | undefined): boolean {
   const p = schema?.properties ?? {};
   return Boolean(p.loras || p.high_noise_loras || p.low_noise_loras);
 }
+
+export interface ImageInputInfo {
+  /** Nombre maximum d'images acceptées, lu dans le schéma du modèle. 0 = aucune. */
+  max: number;
+  /** Ce que deviennent les images : références à combiner, image à retoucher, ou images de départ/fin. */
+  mode: 'reference' | 'edit' | 'start-frame' | 'none';
+}
+
+/**
+ * Combien d'images le modèle accepte quand on lui en donne, et pour quoi faire.
+ * Basé sur le schéma de l'endpoint qui serait appelé avec des images.
+ */
+export function imageInputInfo(
+  media: MediaKind,
+  tasks: Partial<Record<TaskKind, { schema: InputSchema }>>,
+  refMode: VideoRefMode = 'start-frame',
+): ImageInputInfo {
+  if (media === 'image') {
+    const props = tasks['image-to-image']?.schema.properties;
+    if (!props) return { max: 0, mode: 'none' };
+    if (props.image_urls) {
+      const max = props.image_urls.maxItems ?? 10;
+      return { max, mode: max > 1 ? 'reference' : 'edit' };
+    }
+    return props.image_url ? { max: 1, mode: 'edit' } : { max: 0, mode: 'none' };
+  }
+  const r2v = tasks['reference-to-video']?.schema.properties?.reference_image_urls;
+  const i2v = tasks['image-to-video']?.schema.properties;
+  if ((refMode === 'reference' || !i2v) && r2v) return { max: r2v.maxItems ?? 9, mode: 'reference' };
+  if (i2v) return { max: i2v.last_image_url ? 2 : 1, mode: 'start-frame' };
+  return { max: 0, mode: 'none' };
+}

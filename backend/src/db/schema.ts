@@ -9,7 +9,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, PersonaLora, TaskKind } from '@ai-fluence/shared';
+import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaLora, TaskKind } from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -63,13 +63,10 @@ export const personas = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    kind: text('kind').$type<'influencer' | 'art'>().notNull().default('influencer'),
     color: text('color').notNull().default('#8b5cf6'),
     avatarAssetId: uuid('avatar_asset_id'),
-    description: text('description').notNull().default(''),
-    personality: text('personality').notNull().default(''),
-    promptSuffix: text('prompt_suffix').notNull().default(''),
-    triggerWord: text('trigger_word').notNull().default(''),
+    /** Blocs de contexte (titre, texte, envoyé au prompt ou aide à la reformulation). */
+    contextBlocks: jsonb('context_blocks').$type<PersonaContextBlock[]>().notNull().default([]),
     loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
     defaultImageFamily: text('default_image_family'),
     defaultVideoFamily: text('default_video_family'),
@@ -120,6 +117,8 @@ export const generations = pgTable(
     lorasApplied: integer('loras_applied').notNull().default(0),
     /** Contextes activés à l'envoi (instantané : reste lisible si le contexte est modifié ou supprimé). */
     contexts: jsonb('contexts').$type<GenerationContext[]>().notNull().default([]),
+    /** LoRA cochées à l'envoi (instantané). */
+    loras: jsonb('loras').$type<GenerationLora[]>().notNull().default([]),
     status: text('status').$type<'queued' | 'running' | 'succeeded' | 'failed'>().notNull().default('queued'),
     spicyTaskId: text('spicy_task_id'),
     idempotencyKey: text('idempotency_key').notNull(),
@@ -180,7 +179,9 @@ export const promptPresets = pgTable(
     label: text('label').notNull(),
     text: text('text').notNull(),
     media: text('media').$type<'image' | 'video' | 'all'>().notNull().default('all'),
-    /** Contexte masqué du composer sans être supprimé. */
+    /** Persona propriétaire ; null = raccourci disponible pour tous les personas. */
+    personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'cascade' }),
+    /** Raccourci masqué du composer sans être supprimé. */
     enabled: boolean('enabled').notNull().default(true),
     position: integer('position').notNull().default(0),
     createdAt: createdAt(),

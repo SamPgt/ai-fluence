@@ -1,18 +1,19 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { HTTPException } from 'hono/http-exception';
-import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { EnhancePromptResponse } from '@ai-fluence/shared';
-import { db } from '../db/index.js';
-import { personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { getSettingsRow, requireApiKey } from '../services/settings.service.js';
 import type { AppEnv } from '../types.js';
 
 const CHAT_URL = 'https://api.spicyapi.ai/v1/chat/completions';
 
-function systemPrompt(media: 'image' | 'video', persona?: typeof personas.$inferSelect) {
+/**
+ * Consigne de reformulation : uniquement le texte de l'utilisateur. Le contexte du persona
+ * n'y entre jamais, il est ajouté à part à chaque génération (pas de doublon ni d'écrasement).
+ */
+function systemPrompt(media: 'image' | 'video') {
   const lines = [
     `You rewrite short ideas into strong prompts for an AI ${media === 'video' ? 'video' : 'image'} generation model.`,
     'Write in English, one paragraph, concrete and visual: subject, action, setting, lighting, camera, style.',
@@ -22,12 +23,6 @@ function systemPrompt(media: 'image' | 'video', persona?: typeof personas.$infer
     'Keep every explicit detail from the user. Do not add a trigger word, quotes, labels or explanations.',
     'Answer with the prompt only.',
   ];
-  if (persona) {
-    lines.push('', `The content is for the character or art page "${persona.name}".`);
-    if (persona.description) lines.push(`Who/what it is: ${persona.description}`);
-    if (persona.personality) lines.push(`Personality, behavior and tone: ${persona.personality}`);
-    lines.push('Make the result consistent with this identity.');
-  }
   return lines.join('\n');
 }
 
@@ -46,17 +41,8 @@ const promptsRoutes = new Hono<AppEnv>().use(auth).post(
     const body = c.req.valid('json');
     const apiKey = await requireApiKey(user.id);
     const settings = await getSettingsRow(user.id);
-    let persona: typeof personas.$inferSelect | undefined;
-    if (body.personaId) {
-      [persona] = await db
-        .select()
-        .from(personas)
-        .where(and(eq(personas.id, body.personaId), eq(personas.userId, user.id)))
-        .limit(1);
-    }
-
     const messages = [
-      { role: 'system', content: systemPrompt(body.media, persona) },
+      { role: 'system', content: systemPrompt(body.media) },
       { role: 'user', content: body.prompt },
     ];
     // Réflexion limitée : une reformulation n'en a pas besoin, et un modèle qui réfléchit trop

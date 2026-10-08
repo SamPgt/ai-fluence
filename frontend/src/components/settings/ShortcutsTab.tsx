@@ -1,6 +1,6 @@
 /**
- * Contextes : textes activables d'un clic dans le composer, ajoutés à la fin du prompt.
- * Chaque contexte peut être masqué (interrupteur) sans être supprimé.
+ * Raccourcis : textes activables d'un clic dans le composer, ajoutés à la fin du prompt.
+ * Chaque raccourci peut être masqué (interrupteur) sans être supprimé.
  */
 import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -12,6 +12,7 @@ import { presetsApi } from '@/lib/api'
 import { presetsQuery, qk } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { CheckMark } from '@/components/ui/check-mark'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   Dialog,
@@ -38,15 +39,18 @@ function toMedia(photo: boolean, video: boolean): Media {
   return photo && video ? 'all' : photo ? 'image' : 'video'
 }
 
-/** Modale de création et de modification d'un contexte. */
+/** Modale de création et de modification d'un raccourci. */
 function ShortcutDialog({
   open,
   shortcut,
+  personaId,
   onOpenChange,
 }: {
   open: boolean
-  /** Contexte à modifier, ou `null` pour en créer un. */
+  /** Raccourci à modifier, ou `null` pour en créer un. */
   shortcut: PromptPreset | null
+  /** Persona propriétaire des nouveaux raccourcis (null = disponibles partout). */
+  personaId: string | null
   onOpenChange: (open: boolean) => void
 }) {
   const queryClient = useQueryClient()
@@ -72,7 +76,7 @@ function ShortcutDialog({
       }
       return shortcut
         ? presetsApi.update(shortcut.id, body)
-        : presetsApi.create(body)
+        : presetsApi.create({ ...body, personaId })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: qk.presets })
@@ -92,10 +96,11 @@ function ShortcutDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {shortcut ? 'Modifier le contexte' : 'Nouveau contexte'}
+            {shortcut ? 'Modifier le raccourci' : 'Nouveau raccourci'}
           </DialogTitle>
           <DialogDescription>
-            Activé dans le composer, son texte est ajouté à la fin du prompt, après le tien.
+            Activé dans le composer, son texte est ajouté à la fin du prompt,
+            après le tien.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
@@ -138,7 +143,11 @@ function ShortcutDialog({
                     type="checkbox"
                     checked={o.checked}
                     onChange={(e) => o.set(e.target.checked)}
-                    className="h-4 w-4 accent-brand"
+                    className="peer sr-only"
+                  />
+                  <CheckMark
+                    checked={o.checked}
+                    className="peer-focus-visible:ring-2 peer-focus-visible:ring-ring"
                   />
                   {o.label}
                 </label>
@@ -260,8 +269,16 @@ function ShortcutRow({
   )
 }
 
-export function ContextsTab() {
-  const { data: shortcuts = [] } = useQuery(presetsQuery())
+/**
+ * Liste des raccourcis d'une portée : un persona, ou `null` pour ceux disponibles partout.
+ */
+export function ShortcutsTab({
+  personaId = null,
+}: {
+  personaId?: string | null
+}) {
+  const { data: all = [] } = useQuery(presetsQuery())
+  const shortcuts = all.filter((s) => s.personaId === personaId)
   const [editing, setEditing] = useState<PromptPreset | null>(null)
   const [open, setOpen] = useState(false)
 
@@ -274,11 +291,11 @@ export function ContextsTab() {
     <section className="space-y-4 rounded-xl border border-border/60 bg-card/50 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold">Contextes</h2>
+          <h2 className="text-sm font-semibold">Raccourcis</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Affichés au-dessus du chat : la sélection ajoute le texte
-            correspondant à la fin du prompt. L’interrupteur les masque sans
-            les supprimer.
+            {personaId
+              ? 'Raccourcis propres à ce persona. '
+              : 'Disponibles pour tous les personas. '}
           </p>
         </div>
         <Button
@@ -295,11 +312,16 @@ export function ContextsTab() {
         ))}
         {shortcuts.length === 0 && (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            Aucun contexte pour l’instant.
+            Aucun raccourci pour l’instant.
           </p>
         )}
       </div>
-      <ShortcutDialog open={open} shortcut={editing} onOpenChange={setOpen} />
+      <ShortcutDialog
+        open={open}
+        shortcut={editing}
+        personaId={personaId}
+        onOpenChange={setOpen}
+      />
     </section>
   )
 }

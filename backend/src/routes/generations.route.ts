@@ -23,6 +23,7 @@ const generationSchema = z.object({
   params: z.record(z.string(), z.unknown()).default({}),
   referenceAssetIds: z.array(z.uuid()).max(30).default([]),
   contextIds: z.array(z.uuid()).max(20).default([]),
+  loraIds: z.array(z.string().max(64)).max(12).optional(),
   expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
 });
 

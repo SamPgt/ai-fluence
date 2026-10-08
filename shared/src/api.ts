@@ -121,21 +121,75 @@ export interface PersonaLora {
   /** Famille de modèle pour laquelle la LoRA a été entraînée. */
   family: string;
   noise?: 'high' | 'low' | 'both';
+  /** Mots déclencheurs de cette LoRA (aucun, un ou plusieurs). */
+  triggerWords: string[];
+  /** Aperçu affiché dans la liste (LoRA importée depuis la bibliothèque). */
+  previewUrl?: string;
+  /** Page d'origine de la LoRA (Civitai). */
+  sourceUrl?: string;
+}
+
+// ── Bibliothèque communautaire (Civitai) ─────────────────────
+
+export type CivitaiSort = 'Most Downloaded' | 'Highest Rated' | 'Newest';
+
+export interface CivitaiFile {
+  /** Lien de téléchargement Civitai, résolu côté serveur à chaque génération. */
+  url: string;
+  fileName: string;
+  sizeKB: number;
+  /** Wan 2.2 : passe visée par ce fichier. */
+  noise?: 'high' | 'low';
+}
+
+export interface CivitaiPreview {
+  /** Image fixe (première image d'une vidéo). */
+  url: string;
+  /** Vidéo légère, lue au survol. */
+  videoUrl?: string;
+  nsfw: boolean;
+}
+
+export interface CivitaiLora {
+  modelId: number;
+  versionId: number;
+  name: string;
+  versionName: string;
+  creator: string;
+  pageUrl: string;
+  /** Famille AI Fluence correspondante. */
+  family: string;
+  baseModel: string;
+  triggerWords: string[];
+  previews: CivitaiPreview[];
+  files: CivitaiFile[];
+  downloads: number;
+  likes: number;
+  nsfw: boolean;
+}
+
+export interface CivitaiSearchResponse {
+  items: CivitaiLora[];
+  nextCursor: string | null;
+}
+
+/** Taille maximale du texte d'un bloc de contexte. */
+export const CONTEXT_BLOCK_MAX = 600;
+
+/** Bloc du contexte du persona : envoyé à chaque génération de ce persona. */
+export interface PersonaContextBlock {
+  id: string;
+  title: string;
+  text: string;
 }
 
 export interface Persona {
   id: string;
   name: string;
-  kind: 'influencer' | 'art';
   color: string;
   avatarAssetId: string | null;
   avatarUrl: string | null;
-  description: string;
-  /** Personnalité, façon de parler, comportement : utilisé par l'amélioration de prompt. */
-  personality: string;
-  /** Ajouté à chaque prompt (DA, apparence…). */
-  promptSuffix: string;
-  triggerWord: string;
+  contextBlocks: PersonaContextBlock[];
   loras: PersonaLora[];
   defaultImageFamily: string | null;
   defaultVideoFamily: string | null;
@@ -170,6 +224,16 @@ export interface GenerationContext {
   text: string;
 }
 
+/** LoRA appliquée à une génération (instantané). */
+export interface GenerationLora {
+  id: string;
+  label: string;
+  triggerWords: string[];
+}
+
+/** Limite SpicyAPI : LoRA par génération. */
+export const MAX_LORAS_PER_GENERATION = 3;
+
 export type GenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 export interface Generation {
@@ -187,6 +251,8 @@ export interface Generation {
   references: Asset[];
   /** Contextes utilisés (instantané au moment de la génération). */
   contexts: GenerationContext[];
+  /** LoRA du persona cochées à l'envoi. */
+  loras: GenerationLora[];
   lorasApplied: number;
   status: GenerationStatus;
   errorCode: string | null;
@@ -211,6 +277,8 @@ export interface GenerationRequest {
   referenceAssetIds: string[];
   /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
   contextIds?: string[];
+  /** LoRA du persona cochées (aucune si absent, 3 max). */
+  loraIds?: string[];
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
   expectedCost?: string;
 }
@@ -266,6 +334,8 @@ export interface PromptPreset {
   media: MediaKind | 'all';
   /** Affiché dans le composer. */
   enabled: boolean;
+  /** Persona propriétaire, ou `null` pour un raccourci disponible partout. */
+  personaId: string | null;
   position: number;
 }
 

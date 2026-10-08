@@ -5,7 +5,11 @@ import type { CatalogFamily, MediaKind } from '@ai-fluence/shared'
 import { cn } from '@/lib/utils'
 import { formatUsd } from '@/lib/format'
 import { ModelBadge } from '@/components/ui/model-badge'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 
 const SECTIONS: { media: MediaKind; title: string }[] = [
   { media: 'image', title: 'Modèles photo' },
@@ -17,7 +21,9 @@ function startingPrice(f: CatalogFamily): string | null {
     .map((t) => t?.startingPrice)
     .filter((p): p is NonNullable<typeof p> => Boolean(p))
   if (!prices.length) return null
-  const cheapest = prices.reduce((a, b) => (Number(a.price) <= Number(b.price) ? a : b))
+  const cheapest = prices.reduce((a, b) =>
+    Number(a.price) <= Number(b.price) ? a : b,
+  )
   return `dès ${formatUsd(cheapest.price)}${cheapest.unit === 'per_second' ? '/s' : cheapest.unit === 'per_image' ? '/img' : ''}`
 }
 
@@ -31,7 +37,8 @@ export function ModelPicker({
   value: string | null
   onChange: (id: string) => void
   /** LoRA du persona appliquée sur ce modèle (affichée sur le bouton). */
-  lora?: { personaName: string; triggerWord: string } | null
+  /** Le modèle choisi accepte des LoRA : pastille violette. `active` = mots des LoRA cochées. */
+  lora?: { active: string[] } | null
 }) {
   const [open, setOpen] = useState(false)
   const current = families.find((f) => f.id === value)
@@ -43,16 +50,23 @@ export function ModelPicker({
           type="button"
           className="flex h-8 items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-3 text-xs font-medium transition-colors hover:bg-accent"
         >
-          {current?.media === 'video' ? <Film className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
-          <span className="max-w-[140px] truncate">{current?.label ?? 'Choisir un modèle'}</span>
+          {current?.media === 'video' ? (
+            <Film className="h-3.5 w-3.5" />
+          ) : (
+            <ImageIcon className="h-3.5 w-3.5" />
+          )}
+          <span className="max-w-[140px] truncate">
+            {current?.label ?? 'Choisir un modèle'}
+          </span>
           {lora && (
             <span
-              title={`LoRA de ${lora.personaName} appliquée${lora.triggerWord ? ` (« ${lora.triggerWord} »)` : ''}`}
-              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-px text-[10px] font-semibold text-violet-300"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
-              LoRA
-            </span>
+              title={
+                lora.active.length
+                  ? `LoRA active : ${lora.active.join(', ')}`
+                  : 'Modèle compatible LoRA'
+              }
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400"
+            />
           )}
           <ChevronDown className="h-3.5 w-3.5 opacity-60" />
         </button>
@@ -85,9 +99,13 @@ export function ModelPicker({
                         !f.available && 'cursor-not-allowed opacity-40',
                       )}
                     >
-                      <span className="w-4 shrink-0">{f.id === value && <Check className="h-3.5 w-3.5" />}</span>
+                      <span className="w-4 shrink-0">
+                        {f.id === value && <Check className="h-3.5 w-3.5" />}
+                      </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm">{f.label}</span>
+                        <span className="block truncate text-sm">
+                          {f.label}
+                        </span>
                         <span className="block truncate text-[11px] text-muted-foreground">
                           {f.available ? f.hint : 'Indisponible avec cette clé'}
                           {price && f.available ? ` · ${price}` : ''}

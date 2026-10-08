@@ -14,6 +14,8 @@ import {
   resolveTask,
   type CreateGenerationResponse,
   type GenerationContext,
+  type GenerationLora,
+  MAX_LORAS_PER_GENERATION,
   type Generation,
   type GenerationRequest,
   type LoraEntry,
@@ -28,6 +30,7 @@ import { assets, generations, personas, promptPresets, threads, users } from '..
 import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
+import { resolveLoraUrl } from './civitai.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -52,6 +55,7 @@ async function ensureSpicyUri(client: SpicyClient, asset: AssetRow): Promise<str
 interface Prepared {
   client: SpicyClient;
   contexts: GenerationContext[];
+  loras: GenerationLora[];
   task: TaskKind;
   modelId: string;
   input: Record<string, unknown>;
@@ -62,7 +66,7 @@ interface Prepared {
   lorasApplied: number;
 }
 
-async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepared> {
+async function prepare(user: SessionUser, req: GenerationRequest, forCreate = false): Promise<Prepared> {
   const def = getFamily(req.family);
   if (!def) throw new HTTPException(400, { message: 'Modèle inconnu.' });
 
@@ -101,9 +105,19 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   if (!resolution.ok) throw new HTTPException(400, { message: resolution.reason });
   const endpoint = family.tasks[resolution.task]!;
 
-  const loras: LoraEntry[] = (persona?.loras ?? [])
-    .filter(l => l.family === req.family && l.path)
-    .map(l => ({ path: l.path, scale: l.scale, noise: l.noise }));
+  // LoRA du persona entraînées pour ce modèle et cochées dans le composer (aucune par défaut, 3 max).
+  const loraIds = new Set(req.loraIds ?? []);
+  const personaLoras = (persona?.loras ?? [])
+    .filter(l => l.family === req.family && l.path && loraIds.has(l.id))
+    .slice(0, MAX_LORAS_PER_GENERATION);
+  // Les liens Civitai sont résolus en lien signé temporaire seulement au lancement (le devis n'en a pas besoin).
+  const loras: LoraEntry[] = await Promise.all(
+    personaLoras.map(async l => ({
+      path: forCreate ? await resolveLoraUrl(l.path) : l.path,
+      scale: l.scale,
+      noise: l.noise,
+    })),
+  );
 
   const client = await clientForUser(user.id);
   const [imageUris, videoUris] = await Promise.all([
@@ -111,14 +125,20 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     Promise.all(videos.map(a => ensureSpicyUri(client, a))),
   ]);
 
-  // Le mot déclencheur n'a de sens que si une LoRA du persona est appliquée.
-  const willApplyLoras = loras.length > 0;
-  const parts = [
-    willApplyLoras && persona?.triggerWord ? persona.triggerWord.trim() : '',
-    req.prompt.trim(),
-  ].filter(Boolean);
-  let finalPrompt = parts.join(' ');
-  if (persona?.promptSuffix.trim()) finalPrompt = `${finalPrompt}${finalPrompt ? ', ' : ''}${persona.promptSuffix.trim()}`;
+  // Mots déclencheurs des LoRA appliquées, en tête de prompt (sans doublon).
+  // Si l'utilisateur l'a déjà écrit dans sa phrase, on ne le rajoute pas.
+  const typed = req.prompt.toLowerCase();
+  const triggers = [
+    ...new Set(personaLoras.flatMap(l => l.triggerWords ?? []).map(w => w.trim()).filter(Boolean)),
+  ].filter(w => !typed.includes(w.toLowerCase()));
+  let finalPrompt = [triggers.join(', '), req.prompt.trim()].filter(Boolean).join(' ');
+
+  // Contexte du persona : toujours envoyé, en lignes étiquetées (lisibles par les encodeurs texte).
+  const blocks = (persona?.contextBlocks ?? []).filter(b => b.text.trim());
+  if (blocks.length) {
+    const lines = blocks.map(b => `- ${b.title.trim() ? `${b.title.trim()}: ` : ''}${b.text.trim().replace(/\s+/g, ' ')}`);
+    finalPrompt = `${finalPrompt}${finalPrompt ? '\n\n' : ''}Persona context:\n${lines.join('\n')}`;
+  }
 
   // Contextes activés : ajoutés à la fin, séparés du texte de l'utilisateur.
   let contexts: GenerationContext[] = [];
@@ -153,6 +173,7 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   return {
     client,
     contexts,
+    loras: personaLoras.map(l => ({ id: l.id, label: l.label, triggerWords: l.triggerWords ?? [] })),
     task: resolution.task,
     modelId: endpoint.modelId,
     input: built.input,
@@ -190,7 +211,7 @@ export async function createGeneration(
   user: SessionUser,
   req: GenerationRequest,
 ): Promise<CreateGenerationResponse> {
-  const p = await prepare(user, req);
+  const p = await prepare(user, req, true);
   const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
 
   // Le devis affiché au clic vaut confirmation ; s'il a augmenté entre-temps, on redemande.
@@ -282,6 +303,7 @@ async function launch(
       input: p.input,
       referenceAssetIds: p.references.map(r => r.id),
       contexts: p.contexts,
+      loras: p.loras,
       lorasApplied: p.lorasApplied,
       idempotencyKey,
       estimatedCost: quote.estimatedCost,
@@ -358,6 +380,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
     p: {
       client,
       contexts: [],
+      loras: [],
       task: 'upscale',
       modelId: tool.modelId,
       input,

@@ -2,6 +2,7 @@ import { SpicyApiError, SpicyClient, SpicyTransportError, type ApiModel } from '
 import { HTTPException } from 'hono/http-exception';
 import {
   ENDPOINT_SUFFIX_TO_TASK,
+  deriveBadges,
   MODEL_FAMILIES,
   type CatalogFamily,
   type CatalogResponse,
@@ -54,7 +55,9 @@ export async function getCatalog(userId: string): Promise<CatalogResponse> {
         policyTier: m.policyTier ?? null,
       };
     }
-    return { ...def, tasks, available: Object.keys(tasks).length > 0 };
+    // Badges recalculés depuis les schémas live : toujours justes, même si le catalogue évolue.
+    const badges = Object.keys(tasks).length ? deriveBadges(tasks, def.badges) : def.badges;
+    return { ...def, badges, tasks, available: Object.keys(tasks).length > 0 };
   });
   const textModels = models.filter(m => m.modality === 'text' && m.enabled).map(m => m.model);
   return { families, textModels };

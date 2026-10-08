@@ -10,8 +10,10 @@ import { ArrowUp, Film, ImagePlus, Info, Loader2, Wand2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   TASK_LABEL,
+  imageInputInfo,
   resolveTask,
   schemaSupportsLoras,
+  MAX_LORAS_PER_GENERATION,
   type GenerationRequest,
   type PriceChangedResponse,
   type TaskKind,
@@ -19,7 +21,13 @@ import {
 
 import { ApiError, assetsApi, generationsApi, promptsApi } from '@/lib/api'
 import { composer, composerStore } from '@/lib/composer-store'
-import { catalogQuery, personasQuery, presetsQuery, qk, settingsQuery } from '@/lib/queries'
+import {
+  catalogQuery,
+  personasQuery,
+  presetsQuery,
+  qk,
+  settingsQuery,
+} from '@/lib/queries'
 import { formatUnit, formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -36,7 +44,7 @@ import {
   editableFields,
   labelOf,
 } from './ParamFields'
-import { ContextChips } from './PresetChips'
+import { ContextChips, loraTitle } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -116,8 +124,17 @@ export function Composer({
   const schema = task ? family?.tasks[task]?.schema : undefined
   const requiresPrompt = schema?.required?.includes('prompt') ?? true
   const supportsLoras = schemaSupportsLoras(schema)
-  const personaLoras =
-    persona?.loras.filter((l) => l.family === state.family) ?? []
+  // LoRA du persona pour ce modèle : rien n'est coché d'office, 3 max.
+  const personaLoras = supportsLoras
+    ? (persona?.loras.filter((l) => l.family === state.family && l.path) ?? [])
+    : []
+  const activeLoras = personaLoras
+    .filter((l) => state.loraIds.includes(l.id))
+    .slice(0, MAX_LORAS_PER_GENERATION)
+  // Nombre réel d'images acceptées par le modèle choisi (compteur « n / max »).
+  const imageInfo = family
+    ? imageInputInfo(family.media, family.tasks, state.refMode)
+    : { max: 0, mode: 'none' as const }
   const showRefToggle =
     family?.media === 'video' &&
     counts.images > 0 &&
@@ -127,7 +144,13 @@ export function Composer({
 
   // Contextes envoyés : ceux qui sont actifs ET proposés pour ce type de média.
   const activeContextIds = contexts
-    .filter((c) => c.enabled && state.contextIds.includes(c.id) && (c.media === 'all' || c.media === (family?.media ?? 'image')))
+    .filter(
+      (c) =>
+        c.enabled &&
+        (c.personaId === null || c.personaId === personaId) &&
+        state.contextIds.includes(c.id) &&
+        (c.media === 'all' || c.media === (family?.media ?? 'image')),
+    )
     .map((c) => c.id)
 
   const request: GenerationRequest | null = family
@@ -140,6 +163,7 @@ export function Composer({
         params,
         referenceAssetIds: state.attachments.map((a) => a.id),
         contextIds: activeContextIds,
+        loraIds: activeLoras.map((l) => l.id),
       }
     : null
 
@@ -247,7 +271,6 @@ export function Composer({
     }
   }
 
-
   // Ordre fixe (ratio, résolution, durée), quel que soit l'ordre du schéma du modèle.
   const quickFields = editableFields(schema)
     .filter(([k]) => QUICK_FIELDS.includes(k))
@@ -281,14 +304,20 @@ export function Composer({
           onFiles(e.dataTransfer.files)
         }}
       >
-        <ContextChips media={family?.media ?? 'image'} activeIds={state.contextIds} onToggle={composer.toggleContext} />
+        <ContextChips
+          media={family?.media ?? 'image'}
+          personaId={personaId}
+          activeIds={state.contextIds}
+          onToggle={composer.toggleContext}
+          loras={personaLoras}
+          activeLoraIds={activeLoras.map((l) => l.id)}
+          onToggleLora={composer.toggleLora}
+        />
 
         <div
           className={cn(
             'relative flex flex-col rounded-3xl border bg-muted/50 shadow-[0_2px_8px_rgba(0,0,0,0.2)] backdrop-blur-sm transition-colors',
-            dragging
-              ? 'border-brand/70 bg-brand/5'
-              : 'border-border/60',
+            dragging ? 'border-brand/70 bg-brand/5' : 'border-border/60',
           )}
         >
           {/* Pièces jointes */}
@@ -328,6 +357,26 @@ export function Composer({
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </div>
               ))}
+              {/* Compteur réel du modèle : images envoyées / maximum accepté. */}
+              {imageInfo.max > 0 && (
+                <span
+                  className={cn(
+                    'ml-auto self-start text-[11px] tabular-nums',
+                    state.attachments.length > imageInfo.max
+                      ? 'text-amber-300'
+                      : 'text-muted-foreground',
+                  )}
+                  title={
+                    imageInfo.mode === 'edit'
+                      ? 'Ce modèle retouche une seule image'
+                      : imageInfo.mode === 'start-frame'
+                        ? 'Image de début (et de fin si le modèle le permet)'
+                        : 'Images de référence acceptées par ce modèle'
+                  }
+                >
+                  {state.attachments.length} / {imageInfo.max}
+                </span>
+              )}
             </div>
           )}
 
@@ -376,6 +425,7 @@ export function Composer({
               {persona && (
                 <ReferencePicker
                   persona={persona}
+                  info={imageInfo}
                   selectedIds={state.attachments.map((a) => a.id)}
                   onToggle={(a) =>
                     state.attachments.some((x) => x.id === a.id)
@@ -389,12 +439,7 @@ export function Composer({
                 value={state.family}
                 onChange={composer.setFamily}
                 lora={
-                  persona && supportsLoras && personaLoras.length
-                    ? {
-                        personaName: persona.name,
-                        triggerWord: persona.triggerWord,
-                      }
-                    : null
+                  supportsLoras ? { active: activeLoras.map(loraTitle) } : null
                 }
               />
               {quickFields.map(([key, prop]) => (
@@ -448,11 +493,7 @@ export function Composer({
                   !settings?.hasApiKey
                 }
                 className="flex h-8 items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 text-xs transition-colors hover:bg-accent disabled:opacity-30"
-                title={
-                  persona
-                    ? `Reformuler avec la personnalité de ${persona.name}`
-                    : 'Reformuler le prompt'
-                }
+                title="Reformuler ton texte en un prompt plus visuel (le contexte du persona n’est pas modifié)"
               >
                 {enhance.isPending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

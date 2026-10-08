@@ -36,6 +36,34 @@
       "when": 1791404266922,
       "tag": "0004_generation_contexts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791488710393,
+      "tag": "0005_persona_context_blocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791488724242,
+      "tag": "0006_persona_data_migration",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791488724614,
+      "tag": "0007_persona_drop_legacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791494993042,
+      "tag": "0008_generation_loras",
+      "breakpoints": true
     }
   ]
 }

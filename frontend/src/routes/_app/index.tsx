@@ -48,7 +48,7 @@ function NewThread() {
         </h1>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
           {persona
-            ? persona.description ||
+            ? persona.contextBlocks.find((b) => b.text.trim())?.text ||
               'Choisis un modèle LORA ou REF pour garder le personnage cohérent.'
             : 'Photo ou vidéo : choisis un modèle, ajoute des références si besoin, et décris la scène.'}
         </p>

@@ -215,6 +215,9 @@ code {
   .badge-perf {
     @apply bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30;
   }
+  .badge-edit {
+    @apply bg-orange-500/15 text-orange-300 ring-1 ring-orange-500/30;
+  }
 
   .scrollbar-none {
     scrollbar-width: none;

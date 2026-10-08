@@ -13,6 +13,8 @@ const envSchema = z.object({
   CLIENT_URL: z.string().default('http://localhost:3070'),
   DATA_DIR: z.string().default('~/Documents/ai-influence-app'),
   SPICY_API_BASE_URL: z.string().optional(),
+  /** Optionnel : bibliothèque LoRA Civitai (recherche + téléchargements protégés). Ne quitte jamais le backend. */
+  CIVITAI_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.parse(process.env);

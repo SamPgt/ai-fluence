@@ -6,6 +6,8 @@ import type {
   Asset,
   AuthResponse,
   CatalogResponse,
+  CivitaiSearchResponse,
+  CivitaiSort,
   CreateGenerationResponse,
   CreditsResponse,
   EnhancePromptRequest,
@@ -127,6 +129,12 @@ export const personasApi = {
   remove: (id: string) => apiFetch<{ ok: true }>(`/personas/${id}`, { method: 'DELETE' }),
 }
 
+export const civitaiApi = {
+  status: () => apiFetch<{ enabled: boolean }>('/civitai/status'),
+  search: (q: { family?: string; query?: string; sort: CivitaiSort; nsfw: boolean; cursor?: string }) =>
+    apiFetch<CivitaiSearchResponse>('/civitai/search', { query: q }),
+}
+
 export const threadsApi = {
   list: (personaId?: string | null) => apiFetch<{ threads: Thread[] }>('/threads', { query: { personaId } }),
   get: (id: string) => apiFetch<ThreadDetailResponse>(`/threads/${id}`),
@@ -150,7 +158,7 @@ export const generationsApi = {
 
 export const presetsApi = {
   list: () => apiFetch<{ presets: PromptPreset[] }>('/presets'),
-  create: (body: Pick<PromptPreset, 'label' | 'text' | 'media'> & { enabled?: boolean }) =>
+  create: (body: Pick<PromptPreset, 'label' | 'text' | 'media'> & { enabled?: boolean; personaId?: string | null }) =>
     apiFetch<{ preset: PromptPreset }>('/presets', { method: 'POST', body }),
   update: (id: string, body: Partial<Pick<PromptPreset, 'label' | 'text' | 'media' | 'enabled'>>) =>
     apiFetch<{ preset: PromptPreset }>(`/presets/${id}`, { method: 'PATCH', body }),

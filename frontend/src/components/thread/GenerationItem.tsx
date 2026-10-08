@@ -10,15 +10,20 @@ import {
   RefreshCw,
   Shuffle,
   ImageUpscale,
-  SquarePen,
+  PencilLine,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { getFamily, type Asset, type Generation, type GenerationRequest } from '@ai-fluence/shared'
+import {
+  getFamily,
+  type Asset,
+  type Generation,
+  type GenerationRequest,
+} from '@ai-fluence/shared'
 
 import { assetsApi } from '@/lib/api'
 import { composer } from '@/lib/composer-store'
 import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
-import { formatUsd, timeAgo } from '@/lib/format'
+import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ModelBadge } from '@/components/ui/model-badge'
 import { AssetThumb } from '@/components/composer/ReferencePicker'
@@ -39,11 +44,22 @@ function Elapsed({ since }: { since: string }) {
     const t = setInterval(() => tick((n) => n + 1), 1000)
     return () => clearInterval(t)
   }, [])
-  const s = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000))
+  const s = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(since).getTime()) / 1000),
+  )
   return <>{s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`}</>
 }
 
-function ActionButton({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) {
+function ActionButton({
+  onClick,
+  title,
+  children,
+}: {
+  onClick: () => void
+  title: string
+  children: React.ReactNode
+}) {
   return (
     <button
       type="button"
@@ -76,6 +92,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       params,
       referenceAssetIds: g.references.map((r) => r.id),
       contextIds: g.contexts.map((c) => c.id),
+      loraIds: lorasOf(family),
     }
   }
   const { data: catalog } = useQuery(catalogQuery())
@@ -86,7 +103,8 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
   const pending = g.status === 'queued' || g.status === 'running'
 
   const toReference = useMutation({
-    mutationFn: (asset: Asset) => assetsApi.setReference(asset.id, persona!.id, true),
+    mutationFn: (asset: Asset) =>
+      assetsApi.setReference(asset.id, persona!.id, true),
     onSuccess: () => {
       toast.success(`Ajoutée aux références de ${persona!.name}`)
       queryClient.invalidateQueries({ queryKey: qk.references(persona!.id) })
@@ -96,14 +114,36 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
   })
 
   const families = catalog?.families.filter((f) => f.available) ?? []
-  const pickFamily = (media: 'image' | 'video', needs: 'image-to-image' | 'image-to-video') => {
+  const pickFamily = (
+    media: 'image' | 'video',
+    needs: 'image-to-image' | 'image-to-video',
+  ) => {
     const candidates = [
-      media === 'image' ? persona?.defaultImageFamily : persona?.defaultVideoFamily,
-      media === 'image' ? settings?.defaultImageFamily : settings?.defaultVideoFamily,
+      media === 'image'
+        ? persona?.defaultImageFamily
+        : persona?.defaultVideoFamily,
+      media === 'image'
+        ? settings?.defaultImageFamily
+        : settings?.defaultVideoFamily,
       def?.media === media ? g.family : null,
     ]
-    const ok = (id: string | null | undefined) => families.find((f) => f.id === id && f.tasks[needs])
-    return (candidates.map(ok).find(Boolean) ?? families.find((f) => f.media === media && f.tasks[needs]))?.id
+    const ok = (id: string | null | undefined) =>
+      families.find((f) => f.id === id && f.tasks[needs])
+    return (
+      candidates.map(ok).find(Boolean) ??
+      families.find((f) => f.media === media && f.tasks[needs])
+    )?.id
+  }
+
+  /** LoRA de cette génération (anciennes générations : toutes celles du persona pour ce modèle). */
+  const lorasOf = (family: string) => {
+    if (family !== g.family) return []
+    if (!g.loras.length && g.lorasApplied > 0) {
+      return (persona?.loras ?? [])
+        .filter((l) => l.family === family)
+        .map((l) => l.id)
+    }
+    return g.loras.map((l) => l.id)
   }
 
   /** Recharge le composer avec cette génération (modèle au choix). */
@@ -116,12 +156,23 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       attachments: g.references,
       refMode: g.refMode,
       contextIds: g.contexts.map((c) => c.id),
+      loraIds: lorasOf(family),
       params,
     })
   }
-  const edit = (asset: Asset) => composer.load({ family: pickFamily('image', 'image-to-image'), prompt: '', attachments: [asset] })
+  const edit = (asset: Asset) =>
+    composer.load({
+      family: pickFamily('image', 'image-to-image'),
+      prompt: '',
+      attachments: [asset],
+    })
   const animate = (asset: Asset) =>
-    composer.load({ family: pickFamily('video', 'image-to-video'), prompt: '', attachments: [asset], refMode: 'start-frame' })
+    composer.load({
+      family: pickFamily('video', 'image-to-video'),
+      prompt: '',
+      attachments: [asset],
+      refMode: 'start-frame',
+    })
 
   return (
     <div className="space-y-3">
@@ -133,13 +184,21 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             {g.references.length > 0 && (
               <div className="flex flex-wrap justify-end gap-1.5">
                 {g.references.map((r) => (
-                  <button key={r.id} onClick={() => setViewing(r)} className="overflow-hidden rounded-lg">
+                  <button
+                    key={r.id}
+                    onClick={() => setViewing(r)}
+                    className="overflow-hidden rounded-lg"
+                  >
                     <AssetThumb asset={r} className="h-14 w-14" />
                   </button>
                 ))}
               </div>
             )}
-            {g.prompt.trim() && <p className="text-[15px] whitespace-pre-wrap">{g.prompt.trim()}</p>}
+            {g.prompt.trim() && (
+              <p className="text-[15px] whitespace-pre-wrap">
+                {g.prompt.trim()}
+              </p>
+            )}
           </div>
         )}
         <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
@@ -152,54 +211,43 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                 title="Modifier la demande : la remet dans le composer"
                 aria-label="Modifier la demande"
               >
-                <SquarePen className="size-[14.4px]" />
+                <PencilLine className="size-[14.4px]" />
               </button>
-              <button
-                onClick={() => setRelaunch(relaunchRequest(g.family))}
-                className="flex items-center gap-1 rounded-md px-1.5 py-1.5 hover:bg-accent hover:text-foreground"
-                title="Relancer la même demande avec un nouveau seed"
-              >
-                <RefreshCw className="size-[14.4px]" /> Relancer
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1.5 hover:bg-accent hover:text-foreground"
-                    title="Relancer la même demande avec un autre modèle"
-                  >
-                    <Shuffle className="size-[14.4px]" /> Relancer avec…
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-64">
-                  <DropdownMenuLabel className="text-[11px] font-bold text-zinc-300 uppercase">
-                    {def?.media === 'video' ? 'Modèles vidéo' : 'Modèles photo'}
-                  </DropdownMenuLabel>
-                  {families
-                    .filter((f) => f.media === def?.media && f.id !== g.family)
-                    .map((f) => (
-                      <DropdownMenuItem key={f.id} onClick={() => setRelaunch(relaunchRequest(f.id))} className="justify-between">
-                        {f.label}
-                        <span className="flex gap-1">
-                          {f.badges.map((b) => <ModelBadge key={b} badge={b} />)}
-                        </span>
-                      </DropdownMenuItem>
-                    ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
           ) : (
             <span />
           )}
           {/* Contextes, modèle et paramètres */}
           <div className="flex flex-wrap items-center justify-end gap-1.5 pr-1">
+            {g.loras.map((l) => (
+              <span
+                key={l.id}
+                title={
+                  l.triggerWords.length
+                    ? `Mot déclencheur : ${l.triggerWords.join(', ')}`
+                    : 'LoRA'
+                }
+                className="flex items-center gap-1 rounded-full border border-violet-400/30 px-2 py-0.5 text-violet-300"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
+                {l.label || 'LoRA'}
+              </span>
+            ))}
             {g.contexts.map((c) => (
-              <span key={c.id} title={c.text} className="rounded-full border border-brand/30 px-2 py-0.5 text-brand/90">
+              <span
+                key={c.id}
+                title={c.text}
+                className="rounded-full border border-brand/30 px-2 py-0.5 text-brand/90"
+              >
                 {c.label}
               </span>
             ))}
-            <span className="font-medium text-foreground/80">{def?.label ?? g.family}</span>
-            {def?.badges.map((b) => <ModelBadge key={b} badge={b} />)}
-            {g.lorasApplied > 0 && <span className="text-violet-300">· LoRA ×{g.lorasApplied}</span>}
+            <span className="font-medium text-foreground/80">
+              {def?.label ?? g.family}
+            </span>
+            {def?.badges.map((b) => (
+              <ModelBadge key={b} badge={b} />
+            ))}
             {Object.entries(g.params)
               .filter(([k, v]) => v !== undefined && k !== 'seed')
               .slice(0, 4)
@@ -219,7 +267,11 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             <div className="flex aspect-[4/3] max-w-md flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-muted/30">
               <Loader2 className="h-6 w-6 animate-spin text-brand" />
               <div className="text-center text-xs text-muted-foreground">
-                <div>{g.status === 'queued' ? 'En file d’attente…' : 'Génération en cours…'}</div>
+                <div>
+                  {g.status === 'queued'
+                    ? 'En file d’attente…'
+                    : 'Génération en cours…'}
+                </div>
                 <div className="tabular-nums">
                   <Elapsed since={g.createdAt} />
                   {g.estimatedCost && ` · ≈ ${formatUsd(g.estimatedCost)}`}
@@ -233,7 +285,10 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive-foreground" />
               <div className="space-y-2">
                 <p>{g.errorMessage ?? 'La génération a échoué.'}</p>
-                <button onClick={() => rerun()} className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+                <button
+                  onClick={() => rerun()}
+                  className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                >
                   Modifier la demande
                 </button>
               </div>
@@ -241,34 +296,61 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
           )}
 
           {g.status === 'succeeded' && (
-            <div className={cn('grid gap-2', g.outputs.length > 1 ? 'grid-cols-2' : 'grid-cols-1')}>
+            <div
+              className={cn(
+                'grid gap-2',
+                g.outputs.length > 1 ? 'grid-cols-2' : 'grid-cols-1',
+              )}
+            >
               {g.outputs.map((asset) => (
-                <div key={asset.id} className="group relative max-w-xl overflow-hidden rounded-2xl border border-border/40 bg-black/20">
+                <div
+                  key={asset.id}
+                  className="group relative max-w-xl overflow-hidden rounded-2xl border border-border/40 bg-black/20"
+                >
                   {asset.mediaType === 'video' ? (
-                    <video src={asset.url} controls loop playsInline preload="metadata" className="w-full" />
+                    <video
+                      src={asset.url}
+                      controls
+                      loop
+                      playsInline
+                      preload="metadata"
+                      className="w-full"
+                    />
                   ) : (
-                    <button onClick={() => setViewing(asset)} className="block w-full">
-                      <img src={asset.url} alt={g.prompt} className="w-full object-contain" loading="lazy" />
+                    <button
+                      onClick={() => setViewing(asset)}
+                      className="block w-full"
+                    >
+                      <img
+                        src={asset.url}
+                        alt={g.prompt}
+                        className="w-full object-contain"
+                        loading="lazy"
+                      />
                     </button>
                   )}
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                     {asset.mediaType === 'image' && (
                       <>
-                        <ActionButton onClick={() => edit(asset)} title="Éditer (image → image)">
+                        <ActionButton
+                          onClick={() => edit(asset)}
+                          title="Éditer (image → image)"
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                         </ActionButton>
-                        <ActionButton onClick={() => animate(asset)} title="Animer (image → vidéo)">
+                        <ActionButton
+                          onClick={() => animate(asset)}
+                          title="Animer (image → vidéo)"
+                        >
                           <Clapperboard className="h-3.5 w-3.5" />
                         </ActionButton>
                       </>
                     )}
-                    {!isUpscale && (
-                      <ActionButton onClick={() => setUpscaling(asset)} title="Upscale">
-                        <ImageUpscale className="h-3.5 w-3.5" />
-                      </ActionButton>
-                    )}
                     {persona && (
-                      <ActionButton onClick={() => toReference.mutate(asset)} title={`Ajouter aux références de ${persona.name}`}>
+                      <ActionButton
+                        onClick={() => toReference.mutate(asset)}
+                        title={`Ajouter aux références de ${persona.name}`}
+                      >
                         <BookmarkPlus className="h-3.5 w-3.5" />
                       </ActionButton>
                     )}
@@ -285,20 +367,72 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             </div>
           )}
 
-          {/* Pied : date et actions à gauche, coût à droite (comme le prix du composer et le total du fil) */}
+          {/* Pied : actions à gauche, coût à droite (comme le prix du composer et le total du fil) */}
           {!pending && (
-            <div className={cn('flex items-center gap-2 text-[11px] text-muted-foreground', g.outputs.length <= 1 && 'max-w-xl')}>
-              <span>{timeAgo(g.createdAt)}</span>
-              {g.seed !== null && <span>· seed {g.seed}</span>}
-              {!isUpscale && g.status === 'succeeded' && g.outputs.length === 1 && (
-                <button
-                  onClick={() => setUpscaling(g.outputs[0])}
-                  className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-                  title="Agrandir et affiner le résultat"
-                >
-                  <ImageUpscale className="h-3 w-3" /> Upscale
-                </button>
+            <div
+              className={cn(
+                'flex items-center gap-1 text-[11px] text-muted-foreground',
+                g.outputs.length <= 1 && 'max-w-xl',
               )}
+            >
+              {!isUpscale && (
+                <>
+                  <button
+                    onClick={() => setRelaunch(relaunchRequest(g.family))}
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+                    title="Relancer la même demande avec un nouveau seed"
+                  >
+                    <RefreshCw className="h-3 w-3" /> Relancer
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+                        title="Relancer la même demande avec un autre modèle"
+                      >
+                        <Shuffle className="h-3 w-3" /> Relancer avec…
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-64">
+                      <DropdownMenuLabel className="text-[11px] font-bold text-zinc-300 uppercase">
+                        {def?.media === 'video'
+                          ? 'Modèles vidéo'
+                          : 'Modèles photo'}
+                      </DropdownMenuLabel>
+                      {families
+                        .filter(
+                          (f) => f.media === def?.media && f.id !== g.family,
+                        )
+                        .map((f) => (
+                          <DropdownMenuItem
+                            key={f.id}
+                            onClick={() => setRelaunch(relaunchRequest(f.id))}
+                            className="justify-between"
+                          >
+                            {f.label}
+                            <span className="flex gap-1">
+                              {f.badges.map((b) => (
+                                <ModelBadge key={b} badge={b} />
+                              ))}
+                            </span>
+                          </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              )}
+              {!isUpscale &&
+                g.status === 'succeeded' &&
+                g.outputs.length === 1 && (
+                  <button
+                    onClick={() => setUpscaling(g.outputs[0])}
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+                    title="Agrandir et affiner le résultat"
+                  >
+                    <ImageUpscale className="h-3 w-3" /> Upscale
+                  </button>
+                )}
+              {g.seed !== null && <span className="px-1.5">seed {g.seed}</span>}
               <span className="ml-auto pr-1 tabular-nums">
                 {g.cost ? formatUsd(g.cost) : '—'}
                 {g.cost && !g.settled && ' (provisoire)'}
@@ -309,7 +443,11 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       </div>
 
       <MediaViewer asset={viewing} onClose={() => setViewing(null)} />
-      <UpscaleDialog asset={upscaling} threadId={g.threadId} onClose={() => setUpscaling(null)} />
+      <UpscaleDialog
+        asset={upscaling}
+        threadId={g.threadId}
+        onClose={() => setUpscaling(null)}
+      />
       <RelaunchDialog request={relaunch} onClose={() => setRelaunch(null)} />
     </div>
   )

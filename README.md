@@ -56,6 +56,7 @@ Puis remplir `backend/.env` :
 | `API_PORT` | Port de l'API Hono (3470 par défaut) |
 | `CLIENT_URL` | URL du front (http://localhost:3070 par défaut) |
 | `DATA_DIR` | Dossier des fichiers générés (`~/Documents/ai-influence-app` par défaut) |
+| `CIVITAI_KEY` | Optionnel. Active la bibliothèque LoRA Civitai et les téléchargements protégés. La clé reste dans le backend, SpicyAPI reçoit seulement un lien signé temporaire. |
 | `spicyApiKey` | Facultatif, utilisé seulement par le serveur MCP SpicyAPI de `.mcp.json` |
 
 ## Lancer l'app

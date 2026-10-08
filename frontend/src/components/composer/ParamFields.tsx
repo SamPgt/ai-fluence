@@ -3,13 +3,29 @@
  * Ajouter un modèle ne demande aucun code ici.
  */
 import { RotateCcw, SlidersHorizontal } from 'lucide-react'
-import { COMPOSER_FIELDS, type InputSchema, type JsonSchemaProp } from '@ai-fluence/shared'
+import {
+  COMPOSER_FIELDS,
+  type InputSchema,
+  type JsonSchemaProp,
+} from '@ai-fluence/shared'
 
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -44,7 +60,9 @@ const LABELS: Record<string, string> = {
 export const QUICK_FIELDS = ['aspect_ratio', 'resolution', 'duration_seconds']
 
 export function labelOf(key: string): string {
-  return LABELS[key] ?? key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+  return (
+    LABELS[key] ?? key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+  )
 }
 
 function formatOption(key: string, v: unknown): string {
@@ -52,9 +70,14 @@ function formatOption(key: string, v: unknown): string {
   return String(v)
 }
 
-export function editableFields(schema: InputSchema | undefined): [string, JsonSchemaProp][] {
+export function editableFields(
+  schema: InputSchema | undefined,
+): [string, JsonSchemaProp][] {
   return Object.entries(schema?.properties ?? {}).filter(
-    ([key, prop]) => !COMPOSER_FIELDS.has(key) && prop.type !== 'array' && prop.type !== 'object',
+    ([key, prop]) =>
+      !COMPOSER_FIELDS.has(key) &&
+      prop.type !== 'array' &&
+      prop.type !== 'object',
   )
 }
 
@@ -66,16 +89,31 @@ interface FieldProps {
   compact?: boolean
 }
 
-export function ParamField({ name, prop, value, onChange, compact }: FieldProps) {
+export function ParamField({
+  name,
+  prop,
+  value,
+  onChange,
+  compact,
+}: FieldProps) {
   const current = value ?? prop.default
 
   if (prop.enum) {
     return (
-      <Select value={current === undefined ? undefined : String(current)} onValueChange={(v) => {
-        const match = prop.enum!.find((o) => String(o) === v)
-        onChange(match)
-      }}>
-        <SelectTrigger size="sm" className={cn(compact && 'h-8 rounded-full border-border/60 bg-background/40 px-3 text-xs')}>
+      <Select
+        value={current === undefined ? undefined : String(current)}
+        onValueChange={(v) => {
+          const match = prop.enum!.find((o) => String(o) === v)
+          onChange(match)
+        }}
+      >
+        <SelectTrigger
+          size="sm"
+          className={cn(
+            compact &&
+              'h-8 rounded-full border-border/60 bg-background/40 px-3 text-xs',
+          )}
+        >
           <SelectValue placeholder={labelOf(name)} />
         </SelectTrigger>
         <SelectContent>
@@ -94,7 +132,9 @@ export function ParamField({ name, prop, value, onChange, compact }: FieldProps)
   }
 
   if (prop.type === 'boolean') {
-    return <Switch checked={current === true} onCheckedChange={(v) => onChange(v)} />
+    return (
+      <Switch checked={current === true} onCheckedChange={(v) => onChange(v)} />
+    )
   }
 
   if (prop.type === 'integer' || prop.type === 'number') {
@@ -105,9 +145,17 @@ export function ParamField({ name, prop, value, onChange, compact }: FieldProps)
         min={prop.minimum}
         max={prop.maximum}
         step={prop.type === 'integer' ? 1 : 0.05}
-        placeholder={prop.default !== undefined ? String(prop.default) : name === 'seed' ? 'aléatoire' : ''}
+        placeholder={
+          prop.default !== undefined
+            ? String(prop.default)
+            : name === 'seed'
+              ? 'aléatoire'
+              : ''
+        }
         value={value === undefined || value === null ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+        onChange={(e) =>
+          onChange(e.target.value === '' ? undefined : Number(e.target.value))
+        }
       />
     )
   }
@@ -124,7 +172,11 @@ export function ParamField({ name, prop, value, onChange, compact }: FieldProps)
   }
 
   return (
-    <Input className="h-8" value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value || undefined)} />
+    <Input
+      className="h-8"
+      value={(value as string) ?? ''}
+      onChange={(e) => onChange(e.target.value || undefined)}
+    />
   )
 }
 
@@ -140,9 +192,13 @@ export function ParamsPopover({
   onChange: (key: string, v: unknown) => void
   onReset: () => void
 }) {
-  const fields = editableFields(schema).filter(([k]) => !QUICK_FIELDS.includes(k))
+  const fields = editableFields(schema).filter(
+    ([k]) => !QUICK_FIELDS.includes(k),
+  )
   // Point « modifié » : seulement les réglages du popover qui diffèrent de leur valeur par défaut.
-  const changed = fields.filter(([k, prop]) => values[k] !== undefined && values[k] !== prop.default).length
+  const changed = fields.filter(
+    ([k, prop]) => values[k] !== undefined && values[k] !== prop.default,
+  ).length
 
   return (
     <Popover>
@@ -166,22 +222,43 @@ export function ParamsPopover({
       <PopoverContent side="top" align="start" className="w-80 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold">Paramètres</span>
-          <button type="button" onClick={onReset} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <button
+            type="button"
+            onClick={onReset}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
             <RotateCcw className="h-3 w-3" /> Réinitialiser
           </button>
         </div>
         <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1">
           {fields.map(([key, prop]) => (
-            <div key={key} className={cn(prop.type === 'boolean' ? 'flex items-center justify-between gap-3' : 'space-y-1.5')}>
-              <Label className="text-xs text-muted-foreground" title={prop.description}>
+            <div
+              key={key}
+              className={cn(
+                prop.type === 'boolean'
+                  ? 'flex items-center justify-between gap-3'
+                  : 'space-y-1.5',
+              )}
+            >
+              <Label
+                className="text-xs text-muted-foreground"
+                title={prop.description}
+              >
                 {labelOf(key)}
-                {prop.minimum !== undefined && prop.maximum !== undefined && !prop.enum && (
-                  <span className="text-muted-foreground/60">
-                    ({prop.minimum}–{prop.maximum})
-                  </span>
-                )}
+                {prop.minimum !== undefined &&
+                  prop.maximum !== undefined &&
+                  !prop.enum && (
+                    <span className="text-muted-foreground/60">
+                      ({prop.minimum}–{prop.maximum})
+                    </span>
+                  )}
               </Label>
-              <ParamField name={key} prop={prop} value={values[key]} onChange={(v) => onChange(key, v)} />
+              <ParamField
+                name={key}
+                prop={prop}
+                value={values[key]}
+                onChange={(v) => onChange(key, v)}
+              />
             </div>
           ))}
         </div>
