@@ -131,6 +131,8 @@ export const generations = pgTable(
     cost: text('cost'),
     settled: boolean('settled').notNull().default(false),
     seed: integer('seed'),
+    /** Durée de la génération (ComfyUI : exécution seule ; SpicyAPI : de la création à la fin de la tâche). */
+    durationMs: integer('duration_ms'),
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
     createdAt: createdAt(),

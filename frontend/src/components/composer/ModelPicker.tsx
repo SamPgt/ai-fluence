@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { Check, ChevronDown, Film, ImageIcon } from 'lucide-react'
-import type { CatalogFamily, MediaKind } from '@ai-fluence/shared'
+import type { CatalogFamily } from '@ai-fluence/shared'
 
 import { cn } from '@/lib/utils'
 import { formatUsd } from '@/lib/format'
 import { ModelBadge } from '@/components/ui/model-badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
-const SECTIONS: { media: MediaKind; title: string }[] = [
-  { media: 'image', title: 'Modèles photo' },
-  { media: 'video', title: 'Modèles vidéo' },
+/** Les modèles locaux d'abord (sur le GPU, gratuits), puis les modèles cloud par type de média. */
+const SECTIONS: { title: string; match: (f: CatalogFamily) => boolean }[] = [
+  { title: 'Modèles locaux', match: (f) => f.provider === 'comfy' },
+  { title: 'Modèles photo', match: (f) => f.provider !== 'comfy' && f.media === 'image' },
+  { title: 'Modèles vidéo', match: (f) => f.provider !== 'comfy' && f.media === 'video' },
 ]
 
 function startingPrice(f: CatalogFamily): string | null {
@@ -60,14 +62,14 @@ export function ModelPicker({
       <PopoverContent align="start" side="top" className="w-[360px] p-1.5">
         {/* Marge à droite : la barre de défilement ne passe plus sur les badges. */}
         <div className="max-h-[60vh] overflow-y-auto pr-2.5">
-          {SECTIONS.map((section) => (
-            <div key={section.media} className="pb-1">
+          {SECTIONS.filter((section) => families.some(section.match)).map((section) => (
+            <div key={section.title} className="pb-1">
               {/* Titre de section : gras, petit, blanc-gris */}
               <div className="px-2 pt-2 pb-1 text-[11px] font-bold tracking-wide text-zinc-300 uppercase">
                 {section.title}
               </div>
               {families
-                .filter((f) => f.media === section.media)
+                .filter(section.match)
                 .map((f) => {
                   const price = startingPrice(f)
                   return (

@@ -164,6 +164,26 @@ export async function queuePrompt(graph: unknown): Promise<string> {
   throw new Error(details || body?.error?.message || `ComfyUI a refusé le workflow (HTTP ${res.status}).`);
 }
 
+/** Listes de fichiers (modèles, LoRA…) proposées par un nœud, gardées quelques secondes. */
+const OPTIONS_TTL_MS = 15_000;
+const optionsCache = new Map<string, { at: number; options: string[] }>();
+
+/** Valeurs possibles d'une entrée de nœud (ex. `UNETLoader.unet_name` = fichiers de `diffusion_models`). */
+export async function getNodeOptions(nodeClass: string, input: string): Promise<string[]> {
+  const key = `${nodeClass}.${input}`;
+  const cached = optionsCache.get(key);
+  if (cached && Date.now() - cached.at < OPTIONS_TTL_MS) return cached.options;
+  const res = await comfyFetch(`/object_info/${nodeClass}`);
+  const info = (await res.json()) as Record<string, { input?: { required?: Record<string, unknown[]> } }>;
+  // Deux formats selon la version : `[[...valeurs]]` ou `["COMBO", { options: [...] }]`.
+  const spec = info[nodeClass]?.input?.required?.[input];
+  const options = Array.isArray(spec?.[0])
+    ? (spec[0] as string[])
+    : (((spec?.[1] as { options?: string[] } | undefined)?.options) ?? []);
+  optionsCache.set(key, { at: Date.now(), options });
+  return options;
+}
+
 export interface ComfyFile {
   filename: string;
   subfolder: string;
@@ -172,7 +192,8 @@ export interface ComfyFile {
 
 export type PromptState =
   | { state: 'queued' | 'running' }
-  | { state: 'succeeded'; files: ComfyFile[] }
+  /** `durationMs` : temps d'exécution dans ComfyUI, sans l'attente dans la file. */
+  | { state: 'succeeded'; files: ComfyFile[]; durationMs: number | null }
   | { state: 'failed'; message: string }
   /** Ni dans l'historique ni dans la file : ComfyUI a redémarré entre-temps. */
   | { state: 'lost' };
@@ -193,8 +214,11 @@ export async function getPromptState(promptId: string, outputNode: string): Prom
     }
     if (entry.status?.completed) {
       const files = (entry.outputs?.[outputNode]?.images ?? []).filter(f => f.type === 'output');
+      const at = (type: string) => entry.status?.messages?.find(([t]) => t === type)?.[1]?.timestamp as number | undefined;
+      const start = at('execution_start');
+      const end = at('execution_success');
       return files.length
-        ? { state: 'succeeded', files }
+        ? { state: 'succeeded', files, durationMs: start && end ? end - start : null }
         : { state: 'failed', message: 'ComfyUI n’a produit aucune image.' };
     }
   }

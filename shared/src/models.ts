@@ -188,10 +188,10 @@ export const TOOL_FAMILIES: ModelFamilyDef[] = [
 export const LOCAL_FAMILIES: ModelFamilyDef[] = [
   {
     id: 'local/z-image-turbo',
-    label: 'Z-Image Turbo (local)',
+    label: 'Z-Image (local)',
     media: 'image',
     badges: ['LOCAL'],
-    hint: 'Sur ton GPU via ComfyUI, gratuit',
+    hint: 'Turbo et ses variantes installées dans ComfyUI, gratuit',
     provider: 'comfy',
   },
 ];

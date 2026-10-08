@@ -1,0 +1,1 @@
+ALTER TABLE "generations" ADD COLUMN "duration_ms" integer;

@@ -18,7 +18,7 @@ import { getFamily, type Asset, type Generation, type GenerationRequest } from '
 import { assetsApi } from '@/lib/api'
 import { composer } from '@/lib/composer-store'
 import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
-import { formatUsd, timeAgo } from '@/lib/format'
+import { formatDuration, formatUsd, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ModelBadge } from '@/components/ui/model-badge'
 import { AssetThumb } from '@/components/composer/ReferencePicker'
@@ -205,7 +205,8 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
               .slice(0, 4)
               .map(([k, v]) => (
                 <span key={k} className="rounded bg-secondary/60 px-1.5 py-0.5">
-                  {String(v)}
+                  {/* Fichiers ComfyUI (modèle, LoRA) : sans l'extension. */}
+                  {String(v).replace(/\.(safetensors|ckpt|pt|gguf)$/i, '')}
                 </span>
               ))}
           </div>
@@ -290,6 +291,11 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             <div className={cn('flex items-center gap-2 text-[11px] text-muted-foreground', g.outputs.length <= 1 && 'max-w-xl')}>
               <span>{timeAgo(g.createdAt)}</span>
               {g.seed !== null && <span>· seed {g.seed}</span>}
+              {g.durationMs !== null && (
+                <span title={g.provider === 'comfy' ? 'Temps de calcul sur ton GPU' : 'De l’envoi au résultat'}>
+                  · {formatDuration(g.durationMs)}
+                </span>
+              )}
               {!isUpscale && settings?.hasApiKey && g.status === 'succeeded' && g.outputs.length === 1 && (
                 <button
                   onClick={() => setUpscaling(g.outputs[0])}

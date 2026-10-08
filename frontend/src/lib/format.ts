@@ -13,6 +13,15 @@ export function formatUnit(unit: string, quantity: string): string {
   return `${quantity} ${unit.replace('per_', '')}`
 }
 
+/** Durée lisible : `38 s`, `1 min 12 s`. */
+export function formatDuration(ms: number): string {
+  const total = Math.max(1, Math.round(ms / 1000))
+  if (total < 60) return `${total} s`
+  const min = Math.floor(total / 60)
+  const sec = total % 60
+  return sec ? `${min} min ${sec} s` : `${min} min`
+}
+
 export function timeAgo(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000
   if (diff < 60) return "à l'instant"

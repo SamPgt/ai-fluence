@@ -418,7 +418,7 @@ async function watchComfy(row: GenerationRow, promptId: string): Promise<void> {
       const seed = typeof row.input.seed === 'number' ? row.input.seed : null;
       await db
         .update(generations)
-        .set({ status: 'succeeded', cost: '0', settled: true, seed, completedAt: new Date() })
+        .set({ status: 'succeeded', cost: '0', settled: true, seed, durationMs: state.durationMs, completedAt: new Date() })
         .where(eq(generations.id, row.id));
       await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
     } else {
@@ -704,6 +704,7 @@ async function handleSuccess(row: GenerationRow, record: TaskRecord) {
   }
 
   const seed = typeof record.input?.seed === 'number' ? (record.input.seed as number) : null;
+  const durationMs = record.completedAt ? Date.parse(record.completedAt) - Date.parse(record.createdAt) : null;
   await db
     .update(generations)
     .set({
@@ -711,6 +712,7 @@ async function handleSuccess(row: GenerationRow, record: TaskRecord) {
       cost: record.cost,
       settled: record.settled,
       seed,
+      durationMs,
       completedAt: record.completedAt ? new Date(record.completedAt) : new Date(),
     })
     .where(eq(generations.id, row.id));

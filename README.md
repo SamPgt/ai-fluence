@@ -97,7 +97,13 @@ Quand ComfyUI tourne, les modèles locaux (badge `LOCAL`) apparaissent dans le s
 
 | Modèle | Tâches | Fichiers attendus dans ComfyUI |
 | --- | --- | --- |
-| Z-Image Turbo (local) | texte → image, image → image | `zImageTurbo_turbo.safetensors` (diffusion_models), `qwen_3_4b_fp8_mixed.safetensors` (text_encoders), `flux1AE_v10.safetensors` (vae) |
+| Z-Image (local) | texte → image, image → image | un ou plusieurs modèles Z-Image dans `diffusion_models` (ex. `zImageTurbo_turbo.safetensors`), `qwen_3_4b_fp8_mixed.safetensors` (text_encoders), `flux1AE_v10.safetensors` (vae) |
+
+Les fichiers installés dans ComfyUI sont lus en direct :
+- **Modèle** : tous les fichiers de `diffusion_models` dont le nom contient « Z-Image » (Turbo, finetunes comme CyberRealistic…) ;
+- **LoRA** : tous les fichiers de `models/loras`, avec leur force. Le paramètre n'apparaît que s'il y a au moins une LoRA.
+
+Un fichier ajouté dans ComfyUI apparaît dans l'app au rafraîchissement du catalogue. Le temps de calcul de chaque génération locale est affiché sous le résultat.
 
 Ajouter un workflow :
 1. Dans ComfyUI, exporte-le au format API (menu Workflow → Export (API)) dans `backend/comfy-workflows/<modèle>/<tâche>.json`.

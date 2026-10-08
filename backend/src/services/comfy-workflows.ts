@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LOCAL_FAMILIES, type CatalogFamily, type InputSchema, type TaskKind } from '@ai-fluence/shared';
 import { env } from '../env.js';
-import { isComfyRunning } from './comfy.service.js';
+import { getNodeOptions, isComfyRunning } from './comfy.service.js';
 
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 
@@ -28,8 +28,21 @@ export interface LocalEndpoint {
   /** Nœud `SaveImage` dont on récupère les images. */
   outputNode: string;
   /** Où écrire chaque valeur de l'`input`. `width`/`height` viennent de `aspect_ratio`. */
-  slots: Partial<Record<'prompt' | 'negative_prompt' | 'seed' | 'steps' | 'strength' | 'width' | 'height' | 'image', Slot>>;
+  slots: Partial<Record<'prompt' | 'negative_prompt' | 'seed' | 'steps' | 'strength' | 'width' | 'height' | 'image' | 'model', Slot>>;
+  /**
+   * Paramètre `model` : fichier au choix parmi ceux installés dans ComfyUI (liste lue en direct).
+   * `match` filtre les fichiers compatibles avec le workflow.
+   */
+  model?: { loader: string; input: string; match: RegExp; preferred: string };
+  /** Paramètres `lora` / `lora_strength` : un `LoraLoaderModelOnly` est inséré entre `from` et `to`. */
+  lora?: { from: [node: string, output: number]; to: Slot };
 }
+
+/** Valeur du paramètre `lora` quand aucune LoRA n'est appliquée. */
+export const NO_LORA = 'Aucune';
+
+/** Id du nœud LoRA ajouté au workflow (hors de la plage des ids exportés par ComfyUI). */
+const LORA_NODE = '900';
 
 const WORKFLOWS_DIR = fileURLToPath(new URL('../../comfy-workflows/', import.meta.url));
 
@@ -56,7 +69,19 @@ const Z_IMAGE_SLOTS = {
   negative_prompt: ['71', 'text'],
   seed: ['70', 'seed'],
   steps: ['70', 'steps'],
+  model: ['66', 'unet_name'],
 } satisfies LocalEndpoint['slots'];
+
+/** Z-Image : tous les fichiers de `diffusion_models` dont le nom évoque Z-Image (Turbo, finetunes…). */
+const Z_IMAGE_MODEL: LocalEndpoint['model'] = {
+  loader: 'UNETLoader',
+  input: 'unet_name',
+  match: /z[-_ ]?image/i,
+  preferred: 'zImageTurbo_turbo.safetensors',
+};
+
+/** La LoRA s'applique au modèle chargé (66), avant le réglage d'échantillonnage (69). */
+const Z_IMAGE_LORA: LocalEndpoint['lora'] = { from: ['66', 0], to: ['69', 'model'] };
 
 export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpoint>>> = {
   'local/z-image-turbo': {
@@ -74,6 +99,8 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
         },
       },
       slots: { ...Z_IMAGE_SLOTS, width: ['68', 'width'], height: ['68', 'height'] },
+      model: Z_IMAGE_MODEL,
+      lora: Z_IMAGE_LORA,
     },
     'image-to-image': {
       modelId: 'local/z-image-turbo/image-to-image',
@@ -96,6 +123,8 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
         },
       },
       slots: { ...Z_IMAGE_SLOTS, strength: ['70', 'denoise'], image: ['73', 'image'] },
+      model: Z_IMAGE_MODEL,
+      lora: Z_IMAGE_LORA,
     },
   },
 };
@@ -128,27 +157,64 @@ export function buildGraph(endpoint: LocalEndpoint, input: Record<string, unknow
     if (!node) throw new Error(`Workflow ${endpoint.file} : nœud ${slot[0]} introuvable.`);
     node.inputs[slot[1]] = value;
   }
+
+  if (endpoint.lora && typeof values.lora === 'string' && values.lora !== NO_LORA) {
+    const [node, input] = endpoint.lora.to;
+    if (!graph[node]) throw new Error(`Workflow ${endpoint.file} : nœud ${node} introuvable.`);
+    graph[LORA_NODE] = {
+      class_type: 'LoraLoaderModelOnly',
+      inputs: { lora_name: values.lora, strength_model: values.lora_strength ?? 1, model: endpoint.lora.from },
+    };
+    graph[node].inputs[input] = [LORA_NODE, 0];
+  }
   return graph;
+}
+
+/**
+ * Schéma complété avec ce qui est installé dans ComfyUI : modèles compatibles et LoRA.
+ * Un fichier ajouté dans ComfyUI apparaît donc dans l'app sans toucher au code.
+ */
+async function liveSchema(endpoint: LocalEndpoint): Promise<InputSchema> {
+  const properties = { ...endpoint.schema.properties };
+  if (endpoint.model) {
+    const { loader, input, match, preferred } = endpoint.model;
+    const files = (await getNodeOptions(loader, input)).filter(f => match.test(f));
+    if (files.length) {
+      properties.model = { type: 'string', enum: files, default: files.includes(preferred) ? preferred : files[0] };
+    }
+  }
+  if (endpoint.lora) {
+    const loras = await getNodeOptions('LoraLoaderModelOnly', 'lora_name');
+    if (loras.length) {
+      properties.lora = { type: 'string', enum: [NO_LORA, ...loras], default: NO_LORA };
+      properties.lora_strength = { type: 'number', default: 1, minimum: 0, maximum: 2 };
+    }
+  }
+  return { ...endpoint.schema, properties };
 }
 
 /** Familles locales du catalogue : présentes seulement si ComfyUI est configuré. */
 export async function getLocalFamilies(): Promise<CatalogFamily[]> {
   if (!env.COMFYUI_URL) return [];
   const running = await isComfyRunning();
-  return LOCAL_FAMILIES.map(def => {
-    const tasks: CatalogFamily['tasks'] = {};
-    for (const endpoint of Object.values(LOCAL_ENDPOINTS[def.id] ?? {})) {
-      tasks[endpoint.task] = { modelId: endpoint.modelId, schema: endpoint.schema, startingPrice: null, policyTier: null };
-    }
-    const ready = running && Object.keys(tasks).length > 0;
-    return {
-      ...def,
-      provider: 'comfy',
-      tasks,
-      available: ready,
-      unavailableReason: ready ? null : 'Démarre ComfyUI pour l’utiliser',
-    };
-  });
+  return Promise.all(
+    LOCAL_FAMILIES.map(async (def): Promise<CatalogFamily> => {
+      const tasks: CatalogFamily['tasks'] = {};
+      for (const endpoint of Object.values(LOCAL_ENDPOINTS[def.id] ?? {})) {
+        // ComfyUI arrêté : schéma de base, la famille est de toute façon indisponible.
+        const schema = running ? await liveSchema(endpoint).catch(() => endpoint.schema) : endpoint.schema;
+        tasks[endpoint.task] = { modelId: endpoint.modelId, schema, startingPrice: null, policyTier: null };
+      }
+      const ready = running && Object.keys(tasks).length > 0;
+      return {
+        ...def,
+        provider: 'comfy',
+        tasks,
+        available: ready,
+        unavailableReason: ready ? null : 'Démarre ComfyUI pour l’utiliser',
+      };
+    }),
+  );
 }
 
 /** Endpoint local d'un model ID (`local/z-image-turbo/text-to-image`). */

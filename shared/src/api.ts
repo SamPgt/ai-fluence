@@ -216,6 +216,8 @@ export interface Generation {
   cost: string | null;
   settled: boolean;
   seed: number | null;
+  /** Durée de la génération, en millisecondes. */
+  durationMs: number | null;
   outputs: Asset[];
   provider: ModelProvider;
   spicyTaskId: string | null;

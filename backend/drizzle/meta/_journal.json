@@ -43,6 +43,13 @@
       "when": 1791479544828,
       "tag": "0005_generation_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791483816574,
+      "tag": "0006_generation_duration",
+      "breakpoints": true
     }
   ]
 }

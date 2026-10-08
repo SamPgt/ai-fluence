@@ -38,10 +38,13 @@ const LABELS: Record<string, string> = {
   prompt_optimization_mode: 'Optimisation du prompt',
   output_quality: 'Compression',
   official_fallback: 'Relance au prix officiel si échec',
+  model: 'Modèle',
+  lora: 'LoRA',
+  lora_strength: 'Force de la LoRA',
 }
 
 /** Paramètres affichés directement dans la barre du composer (le reste est dans le popover). */
-export const QUICK_FIELDS = ['aspect_ratio', 'resolution', 'duration_seconds']
+export const QUICK_FIELDS = ['model', 'aspect_ratio', 'resolution', 'duration_seconds']
 
 export function labelOf(key: string): string {
   return LABELS[key] ?? key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
@@ -49,6 +52,8 @@ export function labelOf(key: string): string {
 
 function formatOption(key: string, v: unknown): string {
   if (key === 'duration_seconds') return v === -1 ? 'Auto' : `${v} s`
+  // Fichiers ComfyUI (modèles, LoRA) : sans l'extension.
+  if (key === 'model' || key === 'lora') return String(v).replace(/\.(safetensors|ckpt|pt|gguf)$/i, '')
   return String(v)
 }
 
@@ -75,7 +80,15 @@ export function ParamField({ name, prop, value, onChange, compact }: FieldProps)
         const match = prop.enum!.find((o) => String(o) === v)
         onChange(match)
       }}>
-        <SelectTrigger size="sm" className={cn(compact && 'h-8 rounded-full border-border/60 bg-background/40 px-3 text-xs')}>
+        <SelectTrigger
+          size="sm"
+          // Dans la barre, une valeur longue (nom de fichier d'un modèle) est coupée ; complète au survol et dans la liste.
+          title={compact && current !== undefined ? `${labelOf(name)} : ${formatOption(name, current)}` : undefined}
+          className={cn(
+            compact &&
+              'h-8 max-w-36 rounded-full border-border/60 bg-background/40 px-3 text-xs *:data-[slot=select-value]:block *:data-[slot=select-value]:truncate',
+          )}
+        >
           <SelectValue placeholder={labelOf(name)} />
         </SelectTrigger>
         <SelectContent>

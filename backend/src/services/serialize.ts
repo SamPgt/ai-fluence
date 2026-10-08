@@ -87,6 +87,7 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
     cost: row.cost,
     settled: row.settled,
     seed: row.seed,
+    durationMs: row.durationMs,
     outputs,
     provider: row.provider,
     spicyTaskId: row.spicyTaskId,
