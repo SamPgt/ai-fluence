@@ -77,6 +77,10 @@ export async function getCatalog(userId: string): Promise<CatalogResponse> {
 const BUSINESS_MESSAGES: Record<number, string> = {
   40003: 'Le fichier envoyé ne correspond pas à son ticket d’upload. Réessaie.',
   40004: 'Cette combinaison de paramètres n’est pas disponible pour ce modèle. Change un paramètre.',
+  40201: 'Crédit SpicyAPI insuffisant. Recharge ton compte dans la Console SpicyAPI (Billing).',
+  40202: 'Plafond de dépenses SpicyAPI atteint. Relève-le dans la Console SpicyAPI.',
+  40301: 'Cette clé API n’a pas le droit d’utiliser ce modèle. Vérifie ses restrictions dans la Console SpicyAPI.',
+  40302: 'Ton adresse IP n’est pas autorisée pour cette clé API. Vérifie sa liste d’IP dans la Console SpicyAPI.',
   40310: 'Ton compte SpicyAPI doit vérifier son adresse e-mail dans la Console avant de générer.',
   40901: 'Le prix a changé, relance pour voir le nouveau devis.',
   50301: 'Ce modèle est momentanément indisponible.',
