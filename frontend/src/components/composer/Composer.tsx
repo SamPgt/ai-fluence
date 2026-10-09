@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Film, ImageIcon, ImagePlus, Info, Loader2, ScanFace, Wand2, X } from 'lucide-react'
+import { ArrowUp, Film, ImageIcon, ImagePlus, Info, Loader2, ScanFace, Shapes, Wand2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   TASK_LABEL,
@@ -39,6 +39,7 @@ import {
 } from './ParamFields'
 import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
+import { TraitPicker } from './TraitPicker'
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value)
@@ -128,7 +129,10 @@ export function Composer({
     : null
   const task = resolution?.ok ? resolution.task : null
   const schema = task ? family?.tasks[task]?.schema : undefined
-  const requiresPrompt = schema?.required?.includes('prompt') ?? true
+  // Des traits suffisent à faire un prompt : le texte libre devient facultatif.
+  const requiresPrompt = (schema?.required?.includes('prompt') ?? true) && state.traits.length === 0
+  // Fenêtre des traits : null = fermée ; sinon la catégorie à ouvrir (« '' » = la première).
+  const [traitPicker, setTraitPicker] = useState<string | null>(null)
   const supportsLoras = schemaSupportsLoras(schema)
   const personaLoras =
     persona?.loras.filter((l) => l.family === state.family) ?? []
@@ -156,6 +160,7 @@ export function Composer({
         faceAssetId: faceId,
         contextIds: activeContextIds,
         count: state.count,
+        traitIds: state.traits.map((t) => t.optionId),
       }
     : null
 
@@ -383,6 +388,36 @@ export function Composer({
             </div>
           )}
 
+          {/* Traits choisis dans la bibliothèque : une bulle par catégorie */}
+          {state.traits.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+              {state.traits.map((t) => (
+                <span
+                  key={t.optionId}
+                  className="group flex h-7 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] pr-1 pl-0.5 text-xs"
+                  title={`${t.categoryLabel} : ${t.fragment}`}
+                >
+                  <button type="button" onClick={() => setTraitPicker(t.categoryId)} className="flex items-center gap-1.5" aria-label={`Changer ${t.categoryLabel}`}>
+                    {t.thumbnailUrl ? (
+                      <img src={t.thumbnailUrl} alt="" className="h-6 w-6 rounded-full object-cover" />
+                    ) : (
+                      <span className="h-6 w-6 rounded-full bg-secondary" />
+                    )}
+                    <span className="max-w-40 truncate">{t.label ?? t.fragment}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => composer.removeTrait(t.optionId)}
+                    className="rounded-full p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-label={`Retirer ${t.label ?? t.fragment}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
             value={state.prompt}
@@ -424,6 +459,14 @@ export function Composer({
                 aria-label="Ajouter un fichier"
               >
                 <ImagePlus className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setTraitPicker('')}
+                className="flex h-8 items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-3 text-xs font-medium transition-colors hover:bg-accent"
+                title="Choisir un trait dans la bibliothèque (coiffure, tenue, lieu…)"
+              >
+                <Shapes className="h-3.5 w-3.5" /> Trait
               </button>
               {persona && (
                 <ReferencePicker
@@ -591,6 +634,26 @@ export function Composer({
             </Tooltip>
           </div>
         </div>
+
+        <TraitPicker
+          open={traitPicker !== null}
+          initialCategoryId={traitPicker || null}
+          gender={persona?.gender ?? null}
+          selected={state.traits}
+          onPick={(trait) => {
+            composer.setTrait(trait)
+            setTraitPicker(null)
+          }}
+          onClose={() => setTraitPicker(null)}
+        />
+
+        {/* Aperçu du prompt réellement envoyé, quand des traits l'assemblent */}
+        {state.traits.length > 0 && quoteIsCurrent && quote.data && (
+          <p className="mt-2 line-clamp-2 px-3 font-mono text-[11px] text-muted-foreground" title={quote.data.finalPrompt}>
+            <span className="font-sans font-medium text-foreground/70">Prompt envoyé : </span>
+            {quote.data.finalPrompt}
+          </p>
+        )}
 
         {/* Messages : affichés seulement quand il y a quelque chose à lire. */}
         {notices.length > 0 && (

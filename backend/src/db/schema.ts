@@ -12,6 +12,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type {
   GenerationContext,
+  GenerationTrait,
   Gender,
   LibraryZone,
   ModelProvider,
@@ -137,6 +138,8 @@ export const generations = pgTable(
     lorasApplied: integer('loras_applied').notNull().default(0),
     /** Contextes activés à l'envoi (instantané : reste lisible si le contexte est modifié ou supprimé). */
     contexts: jsonb('contexts').$type<GenerationContext[]>().notNull().default([]),
+    /** Traits de la bibliothèque (instantané : reste lisible si l'option est modifiée ou supprimée). */
+    traits: jsonb('traits').$type<GenerationTrait[]>().notNull().default([]),
     status: text('status').$type<'queued' | 'running' | 'succeeded' | 'failed'>().notNull().default('queued'),
     spicyTaskId: text('spicy_task_id'),
     /** `spicy` (cloud) ou `comfy` (ComfyUI local). */
@@ -228,6 +231,8 @@ export const libraryCategories = pgTable(
     description: text('description').notNull().default(''),
     /** Partie du prompt : Personnage, Tenue, Pose & action, Lieu & décor, Photo & ambiance. */
     zone: text('zone').$type<LibraryZone>().notNull().default('character'),
+    /** Tournure de l'option dans le prompt (`{option} hairstyle`) ; vide = le fragment tel quel. */
+    phrase: text('phrase').notNull().default(''),
     /** Options montrées en version femme ou homme selon le personnage (coiffures, tenues…). */
     gendered: boolean('gendered').notNull().default(false),
     /** Prompt anglais des miniatures, `{option}` remplacé par le fragment. Vide = gabarit par défaut. */

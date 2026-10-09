@@ -92,6 +92,13 @@
       "when": 1791559429187,
       "tag": "0012_library_thumbnails",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791562600960,
+      "tag": "0013_generation_traits",
+      "breakpoints": true
     }
   ]
 }

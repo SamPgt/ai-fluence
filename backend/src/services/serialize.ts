@@ -80,6 +80,7 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
     refMode: row.refMode,
     references,
     face,
+    traits: row.traits,
     batchId: row.batchId,
     batchIndex: row.batchIndex,
     contexts: row.contexts,

@@ -25,6 +25,7 @@ const generationSchema = z.object({
   referenceAssetIds: z.array(z.uuid()).max(30).default([]),
   faceAssetId: z.uuid().nullable().optional(),
   count: z.number().int().min(1).max(12).optional(),
+  traitIds: z.array(z.uuid()).max(20).default([]),
   contextIds: z.array(z.uuid()).max(20).default([]),
   expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
 });

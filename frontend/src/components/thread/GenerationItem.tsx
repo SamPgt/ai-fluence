@@ -102,6 +102,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       faceAssetId: keepFace ? g.face!.id : null,
       contextIds: g.contexts.map((c) => c.id),
       count: generations.length,
+      traitIds: g.traits.map((t) => t.optionId),
     }
   }
   const { data: catalog } = useQuery(catalogQuery())
@@ -164,6 +165,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       refMode: g.refMode,
       contextIds: g.contexts.map((c) => c.id),
       count: generations.length,
+      traits: g.traits,
       params,
     })
   }
@@ -211,8 +213,26 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       {/* Demande (côté utilisateur) : la bulle ne contient que les références et le texte,
           les actions et les infos du modèle sont en dessous, sur le fond. */}
       <div className="ml-auto flex w-fit max-w-[85%] flex-col items-end gap-1.5">
-        {(g.references.length > 0 || g.face || g.prompt.trim()) && (
+        {(g.references.length > 0 || g.face || g.prompt.trim() || g.traits.length > 0) && (
           <div className="space-y-2 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3">
+            {g.traits.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {g.traits.map((t) => (
+                  <span
+                    key={t.optionId}
+                    className="flex h-7 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] pr-2.5 pl-0.5 text-xs"
+                    title={`${t.categoryLabel} : ${t.fragment}`}
+                  >
+                    {t.thumbnailUrl ? (
+                      <img src={t.thumbnailUrl} alt="" className="h-6 w-6 rounded-full object-cover" />
+                    ) : (
+                      <span className="h-6 w-6 rounded-full bg-secondary" />
+                    )}
+                    {t.label ?? t.fragment}
+                  </span>
+                ))}
+              </div>
+            )}
             {(g.references.length > 0 || g.face) && (
               <div className="flex flex-wrap justify-end gap-1.5">
                 {g.references.map((r) => (

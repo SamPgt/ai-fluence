@@ -198,6 +198,19 @@ export interface GenerationContext {
   text: string;
 }
 
+/** Trait choisi dans la bibliothèque (bulle du composer), figé avec la génération. */
+export interface GenerationTrait {
+  optionId: string;
+  categoryId: string;
+  categoryLabel: string;
+  zone: LibraryZone;
+  /** Libellé français ; null si non traduit. */
+  label: string | null;
+  fragment: string;
+  /** Miniature de l'option (version du genre du personnage). */
+  thumbnailUrl: string | null;
+}
+
 export type GenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 export interface Generation {
@@ -215,6 +228,7 @@ export interface Generation {
   references: Asset[];
   /** Image « visage » appliquée au résultat (ReActor). */
   face: Asset | null;
+  traits: GenerationTrait[];
   /** Série : les générations d'une même demande ×N partagent ce `batchId`. */
   batchId: string | null;
   batchIndex: number;
@@ -249,6 +263,8 @@ export interface GenerationRequest {
   faceAssetId?: string | null;
   /** Série : nombre d'images à générer avec cette demande (1 par défaut). Chacune a sa propre graine. */
   count?: number;
+  /** Traits choisis dans la bibliothèque (ids d'options), assemblés en phrase avant le texte libre. */
+  traitIds?: string[];
   /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
   contextIds?: string[];
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
@@ -274,6 +290,8 @@ export interface QuoteResponse {
   lorasApplied: number;
   /** Nombre d'images de la série ; `estimatedCost` et `maxCharge` sont des totaux. */
   count: number;
+  /** Prompt réellement envoyé (traits assemblés, texte libre, suffixe du persona, contextes). */
+  finalPrompt: string;
 }
 
 export interface CreateGenerationResponse {
@@ -336,6 +354,8 @@ export interface LibraryCategory {
   description: string;
   /** Partie du prompt à laquelle appartient la catégorie (Personnage, Lieu & décor…). */
   zone: LibraryZone;
+  /** Tournure dans le prompt : `{option} hairstyle` ; vide = le fragment tel quel. */
+  phrase: string;
   /** Miniatures en version femme et homme (zones Personnage, Tenue, Pose & action). */
   gendered: boolean;
   thumbnailTemplate: string;

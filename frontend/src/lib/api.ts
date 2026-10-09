@@ -110,7 +110,7 @@ export const comfyApi = {
 }
 
 type LibraryCategoryInput = Pick<LibraryCategory, 'label'> &
-  Partial<Pick<LibraryCategory, 'key' | 'description' | 'zone' | 'gendered' | 'thumbnailTemplate'>>
+  Partial<Pick<LibraryCategory, 'key' | 'description' | 'zone' | 'gendered' | 'thumbnailTemplate' | 'phrase'>>
 type LibraryOptionInput = Pick<LibraryOption, 'fragment'> & Partial<Pick<LibraryOption, 'label' | 'gender' | 'tags' | 'weight'>>
 
 export const libraryApi = {

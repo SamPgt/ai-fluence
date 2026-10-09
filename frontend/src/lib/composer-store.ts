@@ -4,7 +4,7 @@
  * puissent pré-remplir le composer depuis n'importe où dans le fil.
  */
 import { Store } from '@tanstack/react-store'
-import type { Asset, VideoRefMode } from '@ai-fluence/shared'
+import type { Asset, GenerationTrait, VideoRefMode } from '@ai-fluence/shared'
 
 export interface ComposerState {
   family: string | null
@@ -20,6 +20,8 @@ export interface ComposerState {
   refMode: VideoRefMode
   /** Série : nombre d'images générées avec la même demande (reste choisi après l'envoi). */
   count: number
+  /** Traits choisis dans la bibliothèque (bulles), un par catégorie. Restent après l'envoi, comme les contextes. */
+  traits: GenerationTrait[]
   /** Contextes activés (restent actifs après l'envoi). */
   contextIds: string[]
   /** Incrémenté pour demander le focus du champ texte. */
@@ -34,6 +36,7 @@ export const composerStore = new Store<ComposerState>({
   faceChoice: 'auto',
   refMode: 'start-frame',
   count: 1,
+  traits: [],
   contextIds: [],
   focusTick: 0,
 })
@@ -62,6 +65,13 @@ export const composer = {
   setFace: (faceChoice: ComposerState['faceChoice']) => composerStore.setState((s) => ({ ...s, faceChoice })),
   setRefMode: (refMode: VideoRefMode) => composerStore.setState((s) => ({ ...s, refMode })),
   setCount: (count: number) => composerStore.setState((s) => ({ ...s, count })),
+  /** Ajoute un trait ; remplace celui de la même catégorie. */
+  setTrait: (trait: GenerationTrait) =>
+    composerStore.setState((s) => {
+      const i = s.traits.findIndex((t) => t.categoryId === trait.categoryId)
+      return { ...s, traits: i === -1 ? [...s.traits, trait] : s.traits.map((t, j) => (j === i ? trait : t)) }
+    }),
+  removeTrait: (optionId: string) => composerStore.setState((s) => ({ ...s, traits: s.traits.filter((t) => t.optionId !== optionId) })),
   toggleContext: (id: string) =>
     composerStore.setState((s) => ({
       ...s,
@@ -69,7 +79,7 @@ export const composer = {
     })),
   clearAfterSend: () => composerStore.setState((s) => ({ ...s, prompt: '', attachments: [], faceChoice: 'auto' })),
   /** Pré-remplit le composer (Relancer, Éditer, Animer). */
-  load: (patch: Partial<Pick<ComposerState, 'family' | 'prompt' | 'attachments' | 'refMode' | 'contextIds' | 'count'>> & {
+  load: (patch: Partial<Pick<ComposerState, 'family' | 'prompt' | 'attachments' | 'refMode' | 'contextIds' | 'count' | 'traits'>> & {
     params?: Record<string, unknown>
     /** Image « visage » de la demande rechargée (null : aucune). */
     faceId?: string | null
@@ -81,6 +91,7 @@ export const composer = {
       ...(patch.attachments ? { attachments: patch.attachments, faceChoice: patch.faceId ?? (patch.faceId === null ? 'none' : 'auto') } : {}),
       ...(patch.refMode ? { refMode: patch.refMode } : {}),
       ...(patch.count ? { count: patch.count } : {}),
+      ...(patch.traits ? { traits: patch.traits } : {}),
       ...(patch.contextIds ? { contextIds: patch.contextIds } : {}),
       ...(patch.params && (patch.family ?? s.family)
         ? { paramsByFamily: { ...s.paramsByFamily, [(patch.family ?? s.family)!]: patch.params } }

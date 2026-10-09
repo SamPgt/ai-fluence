@@ -141,7 +141,12 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
 - Une miniature ratée se régénère au survol de sa carte ; l'ancienne reste affichée jusque-là. « Tout régénérer » relance toute la catégorie (après un changement de gabarit, par exemple).
 - Dans une catégorie genrée, « Femme / Homme » choisit la version affichée des options valables pour les deux.
 
-Le choix visuel dans le composer arrive au lot suivant (cf. `docs/spec-wildcards.md`).
+**Traits dans le composer** : le bouton **« Trait »** ouvre la bibliothèque (zones et catégories à gauche, miniatures à droite). Un clic sur une miniature ajoute une **bulle** au-dessus du champ de texte : une par catégorie (choisir une autre coiffure remplace la précédente), clic sur la bulle pour changer, croix pour retirer. Les bulles restent après l'envoi, comme les contextes.
+
+- Seules les options et miniatures du genre du persona actif sont proposées (sans genre : choix Femme / Homme dans la fenêtre).
+- Les traits sont assemblés en une phrase en anglais, zone par zone, puis prolongés par le texte libre : « A woman with beach waves hairstyle and light freckles, wearing a red summer dress, a soft smile, a cozy bedroom, golden hour light, reading a book ». Le texte libre devient facultatif.
+- La **tournure** d'une catégorie (bibliothèque → « Gabarit ») règle l'insertion de ses options : `{option} hairstyle` transforme « bob » en « bob hairstyle ».
+- Le prompt réellement envoyé s'affiche sous le composer (« Prompt envoyé : … »). Les traits restent visibles dans la demande, et « Modifier la demande » les remet dans le composer.
 
 ## Où sont les fichiers
 

@@ -33,6 +33,7 @@ function toCategory(row: CategoryRow, optionCount: number): LibraryCategory {
     label: row.label,
     description: row.description,
     zone: row.zone,
+    phrase: row.phrase,
     gendered: row.gendered,
     thumbnailTemplate: row.thumbnailTemplate,
     optionCount,
@@ -117,6 +118,7 @@ const categoryFields = z.object({
   zone: z.enum(['character', 'outfit', 'action', 'place', 'photo']),
   gendered: z.boolean(),
   thumbnailTemplate: z.string().max(1000),
+  phrase: z.string().trim().max(200),
 });
 const categoryCreate = categoryFields.partial().required({ label: true }).transform(b => ({
   ...b,
@@ -124,6 +126,7 @@ const categoryCreate = categoryFields.partial().required({ label: true }).transf
   zone: b.zone ?? ('character' as const),
   gendered: b.gendered ?? false,
   thumbnailTemplate: b.thumbnailTemplate ?? '',
+  phrase: b.phrase ?? '',
 }));
 const categoryUpdate = categoryFields.partial();
 

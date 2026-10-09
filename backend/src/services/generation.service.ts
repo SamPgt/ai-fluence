@@ -18,6 +18,7 @@ import {
   resolveTask,
   type CreateGenerationResponse,
   type GenerationContext,
+  type GenerationTrait,
   type Generation,
   type GenerationRequest,
   type LoraEntry,
@@ -35,6 +36,7 @@ import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
+import { resolveTraits } from './traits.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -69,6 +71,7 @@ interface Prepared {
   references: AssetRow[];
   /** Image dont le visage est appliqué au résultat (ReActor). */
   face: AssetRow | null;
+  traits: GenerationTrait[];
   dropped: number;
   lorasApplied: number;
 }
@@ -141,12 +144,15 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
       ])
     : [images.map(localAssetRef), videos.map(localAssetRef)];
 
+  // Traits de la bibliothèque (bulles du composer) : une phrase, avant le texte libre.
+  const { traits, sentence } = await resolveTraits(user.id, req.traitIds ?? [], persona?.gender ?? null);
+
   // Le mot déclencheur n'a de sens que si une LoRA du persona est appliquée.
   const willApplyLoras = loras.length > 0;
-  const parts = [
-    willApplyLoras && persona?.triggerWord ? persona.triggerWord.trim() : '',
-    req.prompt.trim(),
-  ].filter(Boolean);
+  // La phrase des traits se prolonge par le texte libre (« …, reading a book »), ou se termine par un point.
+  const text = req.prompt.trim();
+  const body = sentence ? (text ? `${sentence}, ${text}` : `${sentence}.`) : text;
+  const parts = [willApplyLoras && persona?.triggerWord ? persona.triggerWord.trim() : '', body].filter(Boolean);
   let finalPrompt = parts.join(' ');
   if (persona?.promptSuffix.trim()) finalPrompt = `${finalPrompt}${finalPrompt ? ', ' : ''}${persona.promptSuffix.trim()}`;
 
@@ -195,6 +201,7 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     persona,
     references,
     face,
+    traits,
     dropped: built.dropped,
     lorasApplied: built.lorasApplied,
   };
@@ -284,6 +291,7 @@ type QuoteLike = Pick<Quote, 'quoteId' | 'estimatedCost' | 'maxCharge' | 'quanti
 function toQuoteResponse(p: Prepared, quote: QuoteLike, count = 1): QuoteResponse {
   return {
     count,
+    finalPrompt: p.finalPrompt,
     task: p.task,
     modelId: p.modelId,
     estimatedCost: times(quote.estimatedCost, count),
@@ -347,6 +355,7 @@ async function launch(
       input: p.input,
       referenceAssetIds: p.references.map(r => r.id),
       faceAssetId: p.face?.id ?? null,
+      traits: p.traits,
       batchId: meta.batchId ?? null,
       batchIndex: meta.batchIndex ?? 0,
       contexts: p.contexts,
@@ -602,6 +611,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
       persona: null,
       references: [asset],
       face: null,
+      traits: [],
       dropped: 0,
       lorasApplied: 0,
     },

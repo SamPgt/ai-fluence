@@ -319,6 +319,7 @@ function CategoryPanel({
   const avgMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
   const [showTemplate, setShowTemplate] = useState(false)
   const [template, setTemplate] = useState(category.thumbnailTemplate)
+  const [phrase, setPhrase] = useState(category.phrase)
   const defaultTemplate = getZone(category.zone).thumbnailTemplate
 
   const update = useMutation({
@@ -483,6 +484,23 @@ function CategoryPanel({
           </div>
           {showTemplate && (
             <div className="space-y-1.5 pt-1">
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                <span className="w-44 shrink-0">Tournure dans le prompt</span>
+                <Input
+                  value={phrase}
+                  onChange={(e) => setPhrase(e.target.value)}
+                  placeholder="{option}  (ex. {option} hairstyle)"
+                  className="h-7 font-mono text-[11px]"
+                />
+                <Button size="sm" className="h-7" disabled={phrase.trim() === category.phrase} onClick={() => update.mutate({ phrase: phrase.trim() })}>
+                  Enregistrer
+                </Button>
+              </div>
+              <p className="pb-1 text-[11px] text-muted-foreground">
+                Comment l'option s'insère dans la phrase du prompt : avec <code>{'{option} hairstyle'}</code>, « bob » devient « a woman with bob
+                hairstyle ». Vide : le fragment tel quel.
+              </p>
+              <span className="text-[11px] text-muted-foreground">Gabarit des miniatures</span>
               <Textarea
                 rows={2}
                 value={template || defaultTemplate}
