@@ -120,7 +120,7 @@ export interface CatalogResponse {
 
 export interface Asset {
   id: string;
-  kind: 'upload' | 'output';
+  kind: 'upload' | 'output' | 'thumbnail';
   mediaType: MediaKind;
   mime: string;
   /** URL servie par le backend (via le proxy `/api`). */
@@ -355,6 +355,21 @@ export interface LibraryOption {
   tags: string[];
   weight: number;
   source: string;
+}
+
+/** Version d'une miniature : femme, homme, ou unique (catégorie sans genre). */
+export type ThumbnailGender = Gender | 'any';
+
+export type ThumbnailStatus = 'queued' | 'running' | 'ready' | 'failed';
+
+export interface LibraryThumbnail {
+  optionId: string;
+  gender: ThumbnailGender;
+  status: ThumbnailStatus;
+  /** Image prête (la précédente reste affichée pendant une régénération). */
+  url: string | null;
+  error: string | null;
+  durationMs: number | null;
 }
 
 export interface LibraryImportResult {

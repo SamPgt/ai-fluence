@@ -17,6 +17,8 @@ import type {
   LibraryCategory,
   LibraryImportResult,
   LibraryOption,
+  LibraryThumbnail,
+  ThumbnailGender,
   LoginRequest,
   Persona,
   PersonaInput,
@@ -129,6 +131,13 @@ export const libraryApi = {
   updateOption: (id: string, body: Partial<LibraryOptionInput>) =>
     apiFetch<{ option: LibraryOption }>(`/library/options/${id}`, { method: 'PATCH', body }),
   removeOption: (id: string) => apiFetch<{ ok: true }>(`/library/options/${id}`, { method: 'DELETE' }),
+  thumbnails: (categoryId: string) => apiFetch<{ thumbnails: LibraryThumbnail[] }>(`/library/categories/${categoryId}/thumbnails`),
+  generateThumbnails: (categoryId: string, mode: 'missing' | 'all') =>
+    apiFetch<{ queued: number }>(`/library/categories/${categoryId}/thumbnails`, { method: 'POST', body: { mode } }),
+  cancelThumbnails: (categoryId: string) =>
+    apiFetch<{ cancelled: number }>(`/library/categories/${categoryId}/thumbnails/cancel`, { method: 'POST' }),
+  regenerateThumbnail: (optionId: string, gender?: ThumbnailGender) =>
+    apiFetch<{ queued: number }>(`/library/options/${optionId}/thumbnails`, { method: 'POST', body: { gender } }),
 }
 
 export const catalogApi = {

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import type { ComfyStatus } from '@ai-fluence/shared';
 import { env } from '../env.js';
 
@@ -15,6 +15,51 @@ const PROBE_TIMEOUT_MS = 1500;
 const START_TIMEOUT_MS = 3 * 60_000;
 const STOP_TIMEOUT_MS = 30_000;
 const LOG_LINES = 30;
+
+/**
+ * Arrêt forcé d'un ComfyUI figé (souvent la VRAM saturée) : `comfy stop` refuse d'arrêter un serveur qui ne
+ * répond plus, et comfy-cli refuse ensuite d'en lancer un autre. On retrouve le processus qui écoute sur le
+ * port de `COMFYUI_URL`, on vérifie que c'est bien Python, et on arrête toute son arborescence. Fonctionne
+ * quel que soit le lanceur (l'app, un terminal, comfy-cli).
+ */
+function comfyPort(): string {
+  const url = new URL(env.COMFYUI_URL!);
+  return url.port || (url.protocol === 'https:' ? '443' : '80');
+}
+
+/** PID du processus qui écoute sur le port de ComfyUI, s'il s'agit de Python. */
+function listeningPid(): number | null {
+  if (!env.COMFYUI_URL) return null;
+  const port = comfyPort();
+  let pid: number | null = null;
+  if (process.platform === 'win32') {
+    const out = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8', windowsHide: true }).stdout ?? '';
+    for (const line of out.split(/\r?\n/)) {
+      const [proto, local, , state, owner] = line.trim().split(/\s+/);
+      if (proto === 'TCP' && local?.endsWith(`:${port}`) && state === 'LISTENING') pid = Number(owner);
+    }
+  } else {
+    const out = spawnSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).stdout ?? '';
+    pid = Number(out.split('\n')[0]) || null;
+  }
+  if (!pid) return null;
+  const name =
+    process.platform === 'win32'
+      ? (spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true }).stdout ?? '')
+      : (spawnSync('ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8' }).stdout ?? '');
+  return /python/i.test(name) ? pid : null;
+}
+
+/** Arrête l'arborescence du processus ComfyUI qui écoute sur le port. Renvoie true si un processus a été arrêté. */
+async function forceStop(): Promise<boolean> {
+  const pid = listeningPid();
+  if (!pid) return false;
+  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+  else process.kill(pid, 'SIGKILL');
+  pushLog(Buffer.from(`Arrêt forcé de ComfyUI (PID ${pid}).`));
+  for (let i = 0; i < 20 && listeningPid(); i++) await new Promise(r => setTimeout(r, 250));
+  return true;
+}
 
 let transient: { state: 'starting' | 'stopping'; since: number } | null = null;
 let lastError: string | null = null;
@@ -104,7 +149,12 @@ export async function getComfyStatus(): Promise<ComfyStatus> {
     lastError ??= 'ComfyUI ne répond pas après le démarrage.';
   }
   transient = null;
-  return lastError ? { ...base, state: 'error', error: lastError } : base;
+  if (lastError) return { ...base, state: 'error', error: lastError };
+  // Le port est ouvert mais ComfyUI ne répond pas : figé (souvent la VRAM saturée).
+  if (listeningPid()) {
+    return { ...base, state: 'error', error: 'ComfyUI ne répond plus (figé). « Démarrer » l’arrête et le relance.' };
+  }
+  return base;
 }
 
 export async function startComfy(): Promise<ComfyStatus> {
@@ -114,6 +164,8 @@ export async function startComfy(): Promise<ComfyStatus> {
   transient = { state: 'starting', since: Date.now() };
   lastError = null;
   log = [];
+  // Une ancienne instance figée bloquerait le lancement (« already running ») : on l'arrête d'abord.
+  await forceStop();
   // On n'attend pas la fin : `--background` rend la main vite, mais une commande au premier plan ne la rendrait jamais.
   void run(env.COMFYUI_LAUNCH).then(code => {
     if (code !== 0 && transient?.state === 'starting') lastError = `La commande de démarrage a échoué (code ${code}).`;
@@ -278,8 +330,9 @@ export async function stopComfy(): Promise<ComfyStatus> {
   lastError = null;
   log = [];
   const code = await run(env.COMFYUI_STOP);
-  // Échec sans ComfyUI qui répond (ex. déjà arrêté) : le but est atteint.
-  if (code !== 0 && (await probe())) {
+  // `comfy stop` refuse d'arrêter un ComfyUI figé : on force l'arrêt du processus lancé par l'app.
+  const forced = await forceStop();
+  if (code !== 0 && !forced && (await probe())) {
     transient = null;
     lastError = `La commande d'arrêt a échoué (code ${code}).`;
   }

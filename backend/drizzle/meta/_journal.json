@@ -85,6 +85,13 @@
       "when": 1791557298537,
       "tag": "0011_library_zone",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791559429187,
+      "tag": "0012_library_thumbnails",
+      "breakpoints": true
     }
   ]
 }

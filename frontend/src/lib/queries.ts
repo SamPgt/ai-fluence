@@ -9,6 +9,7 @@ export const qk = {
   comfy: ['comfy'] as const,
   libraryCategories: ['library', 'categories'] as const,
   libraryOptions: (categoryId: string) => ['library', 'options', categoryId] as const,
+  libraryThumbnails: (categoryId: string) => ['library', 'thumbnails', categoryId] as const,
   personas: ['personas'] as const,
   presets: ['presets'] as const,
   threads: (personaId: string | null) => ['threads', personaId ?? 'all'] as const,
@@ -65,6 +66,14 @@ export const libraryOptionsQuery = (categoryId: string) =>
     queryKey: qk.libraryOptions(categoryId),
     queryFn: () => libraryApi.options(categoryId).then((r) => r.options),
     staleTime: 60_000,
+  })
+
+export const libraryThumbnailsQuery = (categoryId: string) =>
+  queryOptions({
+    queryKey: qk.libraryThumbnails(categoryId),
+    queryFn: () => libraryApi.thumbnails(categoryId).then((r) => r.thumbnails),
+    // Suivi rapproché tant que des miniatures sont en file ou en cours.
+    refetchInterval: (q) => (q.state.data?.some((t) => t.status === 'queued' || t.status === 'running') ? 1500 : false),
   })
 
 export const personasQuery = () =>

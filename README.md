@@ -134,7 +134,14 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
 - Ajouter, modifier ou supprimer une option à la main ; déplacer une catégorie vers une autre zone.
 - Chaque catégorie a un nom technique (`__coupe_de_cheveux__`) pour la syntaxe des wildcards.
 
-Les miniatures et le choix visuel dans le composer arrivent dans les lots suivants (cf. `docs/spec-wildcards.md`).
+**Miniatures** : chaque option a une image type, générée en local par ComfyUI (512×640, ~11 s par miniature sur une RTX 3060), pour choisir visuellement sans connaître le nom des coiffures ou des tenues.
+
+- « Générer les miniatures manquantes » sur une catégorie : mises dans la file de ComfyUI, générées l'une après l'autre, avec la progression, le temps restant et « Annuler ». Elles n'apparaissent ni dans les fils ni dans la galerie.
+- Le **gabarit** (bouton « Gabarit ») est le prompt neutre de la catégorie : `{option}` = le fragment de l'option, `{subject}` = une personne tirée au hasard (origine, âge, et version femme / homme selon la miniature). Chaque zone a un gabarit par défaut (portrait sur fond uni, plein pied pour les tenues, pièce vide pour les lieux…).
+- Une miniature ratée se régénère au survol de sa carte ; l'ancienne reste affichée jusque-là. « Tout régénérer » relance toute la catégorie (après un changement de gabarit, par exemple).
+- Dans une catégorie genrée, « Femme / Homme » choisit la version affichée des options valables pour les deux.
+
+Le choix visuel dans le composer arrive au lot suivant (cf. `docs/spec-wildcards.md`).
 
 ## Où sont les fichiers
 
@@ -142,6 +149,7 @@ Les miniatures et le choix visuel dans le composer arrivent dans les lots suivan
 ~/Documents/ai-influence-app/media/<compte>/
 ├── <persona>/<jour>/        résultats générés
 ├── sans-persona/<jour>/
+├── miniatures/<catégorie>/   miniatures de la bibliothèque
 └── references/<persona>/    images importées (références, avatars)
 ```
 

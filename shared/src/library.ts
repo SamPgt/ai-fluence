@@ -16,14 +16,51 @@ export interface LibraryZoneDef {
    * mais possible pour quelques exceptions (poses) ; `none` = jamais (lieux, objets, lumières).
    */
   gender: 'ask' | 'optional' | 'none';
+  /**
+   * Prompt anglais des miniatures : `{option}` = le fragment de l'option, `{subject}` = une personne tirée
+   * au hasard (« a young East Asian woman in her twenties »). Remplaçable par catégorie.
+   */
+  thumbnailTemplate: string;
 }
 
 export const LIBRARY_ZONES: LibraryZoneDef[] = [
-  { id: 'character', label: 'Personnage', hint: 'Coiffures, couleurs de cheveux, yeux, peau, morphologie…', gender: 'ask' },
-  { id: 'outfit', label: 'Tenue', hint: 'Hauts, robes, chaussures, accessoires…', gender: 'ask' },
-  { id: 'action', label: 'Pose & action', hint: 'Poses, expressions, activités…', gender: 'optional' },
-  { id: 'place', label: 'Lieu & décor', hint: 'Pièces, mobilier, objets, moments de la journée…', gender: 'none' },
-  { id: 'photo', label: 'Photo & ambiance', hint: 'Cadrages, lumières, rendus…', gender: 'none' },
+  {
+    id: 'character',
+    label: 'Personnage',
+    hint: 'Coiffures, couleurs de cheveux, yeux, peau, morphologie…',
+    gender: 'ask',
+    thumbnailTemplate:
+      'Head and shoulders studio portrait photo of {subject} with {option}, wearing a plain grey t-shirt, plain light grey background, soft even lighting, sharp focus, realistic photo.',
+  },
+  {
+    id: 'outfit',
+    label: 'Tenue',
+    hint: 'Hauts, robes, chaussures, accessoires…',
+    gender: 'ask',
+    thumbnailTemplate:
+      'Full body studio photo of {subject} wearing {option}, standing, plain light grey background, soft even lighting, realistic photo.',
+  },
+  {
+    id: 'action',
+    label: 'Pose & action',
+    hint: 'Poses, expressions, activités…',
+    gender: 'optional',
+    thumbnailTemplate: 'Photo of {subject}, {option}, simple neutral background, natural light, realistic photo.',
+  },
+  {
+    id: 'place',
+    label: 'Lieu & décor',
+    hint: 'Pièces, mobilier, objets, moments de la journée…',
+    gender: 'none',
+    thumbnailTemplate: 'Wide photo of {option}, no people, natural light, realistic interior photography.',
+  },
+  {
+    id: 'photo',
+    label: 'Photo & ambiance',
+    hint: 'Cadrages, lumières, rendus…',
+    gender: 'none',
+    thumbnailTemplate: 'Photo of {subject} sitting at a café table, {option}, realistic photo.',
+  },
 ];
 
 export function getZone(id: LibraryZone): LibraryZoneDef {

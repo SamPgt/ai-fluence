@@ -10,7 +10,16 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, Gender, LibraryZone, ModelProvider, PersonaLora, TaskKind } from '@ai-fluence/shared';
+import type {
+  GenerationContext,
+  Gender,
+  LibraryZone,
+  ModelProvider,
+  PersonaLora,
+  TaskKind,
+  ThumbnailGender,
+  ThumbnailStatus,
+} from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -161,7 +170,8 @@ export const assets = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'set null' }),
     generationId: uuid('generation_id').references(() => generations.id, { onDelete: 'set null' }),
-    kind: text('kind').$type<'upload' | 'output'>().notNull(),
+    /** `thumbnail` : miniature d'une option de la bibliothèque (hors galerie). */
+    kind: text('kind').$type<'upload' | 'output' | 'thumbnail'>().notNull(),
     mediaType: text('media_type').$type<'image' | 'video'>().notNull(),
     mime: text('mime').notNull(),
     /** Chemin absolu du fichier sur le disque. */
@@ -255,4 +265,26 @@ export const libraryOptions = pgTable(
     index('library_options_category_idx').on(t.categoryId, t.position),
     uniqueIndex('library_options_category_fragment_idx').on(t.categoryId, t.fragment),
   ],
+);
+
+/** Miniature d'une option : une par version (femme, homme, ou `any` pour une catégorie sans genre). */
+export const libraryThumbnails = pgTable(
+  'library_thumbnails',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    optionId: uuid('option_id')
+      .notNull()
+      .references(() => libraryOptions.id, { onDelete: 'cascade' }),
+    gender: text('gender').$type<ThumbnailGender>().notNull(),
+    status: text('status').$type<ThumbnailStatus>().notNull().default('queued'),
+    /** Image prête ; conservée pendant une régénération, remplacée quand la nouvelle est prête. */
+    assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'set null' }),
+    comfyPromptId: text('comfy_prompt_id'),
+    /** Prompt envoyé (pour comprendre une miniature ratée). */
+    prompt: text('prompt').notNull().default(''),
+    error: text('error'),
+    durationMs: integer('duration_ms'),
+    updatedAt: updatedAt(),
+  },
+  t => [uniqueIndex('library_thumbnails_option_gender_idx').on(t.optionId, t.gender), index('library_thumbnails_status_idx').on(t.status)],
 );

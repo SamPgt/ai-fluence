@@ -7,6 +7,14 @@ import { db } from '../db/index.js';
 import { libraryCategories, libraryOptions } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { slug } from '../services/settings.service.js';
+import {
+  cancelCategoryThumbnails,
+  cancelCategoryThumbnailsUnchecked,
+  cancelOptionThumbnails,
+  generateCategoryThumbnails,
+  listThumbnails,
+  regenerateOptionThumbnail,
+} from '../services/thumbnail.service.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -172,6 +180,7 @@ const libraryRoutes = new Hono<AppEnv>()
   })
   .delete('/categories/:id', idParam, async c => {
     const { id } = c.req.valid('param');
+    if (await ownedCategory(c.get('user').id, id)) await cancelCategoryThumbnailsUnchecked(id);
     await db.delete(libraryCategories).where(and(eq(libraryCategories.id, id), eq(libraryCategories.userId, c.get('user').id)));
     return c.json({ ok: true });
   })
@@ -239,6 +248,31 @@ const libraryRoutes = new Hono<AppEnv>()
       return c.json({ result: { added, duplicates: lines.length - added, ignored } satisfies LibraryImportResult });
     },
   )
+  // ── Miniatures ──
+  .get('/categories/:id/thumbnails', idParam, async c => {
+    return c.json({ thumbnails: await listThumbnails(c.get('user').id, c.req.valid('param').id) });
+  })
+  /** Génère les miniatures manquantes (ou toutes) de la catégorie, en local, l'une après l'autre. */
+  .post(
+    '/categories/:id/thumbnails',
+    idParam,
+    zValidator('json', z.object({ mode: z.enum(['missing', 'all']).default('missing') })),
+    async c => {
+      const queued = await generateCategoryThumbnails(c.get('user').id, c.req.valid('param').id, c.req.valid('json').mode);
+      return c.json({ queued });
+    },
+  )
+  .post('/categories/:id/thumbnails/cancel', idParam, async c => {
+    return c.json({ cancelled: await cancelCategoryThumbnails(c.get('user').id, c.req.valid('param').id) });
+  })
+  .post(
+    '/options/:id/thumbnails',
+    idParam,
+    zValidator('json', z.object({ gender: z.enum(['female', 'male', 'any']).optional() })),
+    async c => {
+      return c.json({ queued: await regenerateOptionThumbnail(c.get('user').id, c.req.valid('param').id, c.req.valid('json').gender) });
+    },
+  )
   .patch('/options/:id', idParam, zValidator('json', optionUpdate), async c => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
@@ -257,6 +291,7 @@ const libraryRoutes = new Hono<AppEnv>()
   .delete('/options/:id', idParam, async c => {
     const { id } = c.req.valid('param');
     if (!(await ownedOption(c.get('user').id, id))) return c.json({ error: 'Option introuvable.' }, 404);
+    await cancelOptionThumbnails(id);
     await db.delete(libraryOptions).where(eq(libraryOptions.id, id));
     return c.json({ ok: true });
   });

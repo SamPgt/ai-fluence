@@ -183,7 +183,9 @@ export function buildGraph(
   for (const [key, prop] of Object.entries(props)) {
     if (values[key] === undefined && prop.default !== undefined) values[key] = prop.default;
   }
-  if (endpoint.slots.width && endpoint.slots.height) Object.assign(values, sizeFor(String(values.aspect_ratio ?? '9:16')));
+  // Taille imposée (miniatures), sinon déduite des proportions.
+  const fixedSize = typeof input.width === 'number' && typeof input.height === 'number';
+  if (endpoint.slots.width && endpoint.slots.height && !fixedSize) Object.assign(values, sizeFor(String(values.aspect_ratio ?? '9:16')));
 
   for (const [key, slot] of Object.entries(endpoint.slots)) {
     const value = values[key];

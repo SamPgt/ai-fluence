@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, FileUp, ImageIcon, Library, Loader2, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Check, FileUp, ImageIcon, Library, Loader2, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { LIBRARY_ZONES, getZone, type Gender, type LibraryCategory, type LibraryOption, type LibraryZone } from '@ai-fluence/shared'
+import {
+  LIBRARY_ZONES,
+  getZone,
+  type Gender,
+  type LibraryCategory,
+  type LibraryOption,
+  type LibraryThumbnail,
+  type LibraryZone,
+  type ThumbnailGender,
+} from '@ai-fluence/shared'
 
 import { libraryApi } from '@/lib/api'
-import { libraryCategoriesQuery, libraryOptionsQuery, qk } from '@/lib/queries'
+import { libraryCategoriesQuery, libraryOptionsQuery, libraryThumbnailsQuery, qk } from '@/lib/queries'
+import { formatDuration } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -16,6 +26,7 @@ import { InlineEdit } from '@/components/ui/inline-edit'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 
 export const Route = createFileRoute('/_app/bibliotheque')({
   component: LibraryPage,
@@ -279,6 +290,37 @@ function CategoryPanel({
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   useEffect(() => setLimit(PAGE_SIZE), [search])
 
+  // Miniatures : une par option (et par version femme / homme dans une catégorie genrée).
+  const { data: thumbnails = [] } = useQuery(libraryThumbnailsQuery(category.id))
+  const [preview, setPreview] = useState<Gender>('female')
+  const thumbByKey = useMemo(() => new Map(thumbnails.map((t) => [`${t.optionId}:${t.gender}`, t])), [thumbnails])
+  /** Version affichée d'une option : la sienne si elle est réservée à un genre, sinon celle de l'aperçu. */
+  const shownGender = (o: LibraryOption): ThumbnailGender => (!category.gendered ? 'any' : (o.gender ?? preview))
+  const refreshThumbnails = () => queryClient.invalidateQueries({ queryKey: qk.libraryThumbnails(category.id) })
+  const generate = useMutation({
+    mutationFn: (mode: 'missing' | 'all') => libraryApi.generateThumbnails(category.id, mode),
+    onSuccess: ({ queued }) => {
+      refreshThumbnails()
+      if (!queued) toast.info('Toutes les miniatures existent déjà.')
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+  const cancel = useMutation({
+    mutationFn: () => libraryApi.cancelThumbnails(category.id),
+    onSuccess: refreshThumbnails,
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  // Compteurs : versions attendues (2 pour une option « les deux » d'une catégorie genrée) et versions prêtes.
+  const expected = options.reduce((n, o) => n + (category.gendered && !o.gender ? 2 : 1), 0)
+  const ready = thumbnails.filter((t) => t.status === 'ready' || (t.url && t.status !== 'failed')).length
+  const pending = thumbnails.filter((t) => t.status === 'queued' || t.status === 'running')
+  const durations = thumbnails.map((t) => t.durationMs).filter((d): d is number => d !== null)
+  const avgMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
+  const [showTemplate, setShowTemplate] = useState(false)
+  const [template, setTemplate] = useState(category.thumbnailTemplate)
+  const defaultTemplate = getZone(category.zone).thumbnailTemplate
+
   const update = useMutation({
     mutationFn: (body: Parameters<typeof libraryApi.updateCategory>[1]) => libraryApi.updateCategory(category.id, body),
     onSuccess: onChanged,
@@ -379,6 +421,106 @@ function CategoryPanel({
         </div>
       </div>
 
+      {/* Miniatures */}
+      {options.length > 0 && (
+        <div className="space-y-2 rounded-xl border border-border/40 bg-card/50 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <span className="font-medium">Miniatures</span>
+            <span className="text-muted-foreground tabular-nums">
+              {ready} / {expected} prêtes
+            </span>
+            {pending.length > 0 ? (
+              <>
+                <span className="h-1 w-32 overflow-hidden rounded-full bg-secondary">
+                  <span className="block h-full rounded-full bg-brand transition-[width]" style={{ width: `${(ready / expected) * 100}%` }} />
+                </span>
+                <span className="text-muted-foreground tabular-nums">
+                  {pending.length} en file{avgMs !== null && ` · reste ≈ ${formatDuration(avgMs * pending.length)}`}
+                </span>
+                <Button variant="ghost" size="sm" className="ml-auto h-7" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
+                  Annuler
+                </Button>
+              </>
+            ) : (
+              <div className="ml-auto flex items-center gap-2">
+                {category.gendered && (
+                  <div className="flex h-7 items-center rounded-md border border-input p-0.5 text-[11px]" title="Version affichée">
+                    {(['female', 'male'] as const).map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setPreview(g)}
+                        className={cn(
+                          'h-full rounded px-2 transition-colors',
+                          preview === g ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {GENDER_LABEL[g]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" onClick={() => setShowTemplate((v) => !v)}>
+                  Gabarit
+                </Button>
+                {ready > 0 && (
+                  <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" disabled={generate.isPending} onClick={() => generate.mutate('all')}>
+                    Tout régénérer
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  className="h-7 gap-1.5"
+                  disabled={generate.isPending || ready >= expected}
+                  onClick={() => generate.mutate('missing')}
+                  title="Générées en local par ComfyUI, l'une après l'autre, en basse résolution"
+                >
+                  {generate.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {ready >= expected ? 'Miniatures à jour' : `Générer les ${expected - ready} miniatures manquantes`}
+                </Button>
+              </div>
+            )}
+          </div>
+          {showTemplate && (
+            <div className="space-y-1.5 pt-1">
+              <Textarea
+                rows={2}
+                value={template || defaultTemplate}
+                onChange={(e) => setTemplate(e.target.value)}
+                className="font-mono text-[11px]"
+              />
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                <span className="flex-1">
+                  <code>{'{option}'}</code> : le fragment de l'option · <code>{'{subject}'}</code> : une personne tirée au hasard (version
+                  femme / homme selon la miniature). S'applique aux prochaines miniatures.
+                </span>
+                {category.thumbnailTemplate && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => {
+                      setTemplate('')
+                      update.mutate({ thumbnailTemplate: '' })
+                    }}
+                  >
+                    Gabarit par défaut
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  className="h-7"
+                  disabled={(template || defaultTemplate) === (category.thumbnailTemplate || defaultTemplate)}
+                  onClick={() => update.mutate({ thumbnailTemplate: template.trim() === defaultTemplate ? '' : template.trim() })}
+                >
+                  Enregistrer
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Ajout et import */}
       <div className="flex flex-wrap items-center gap-2">
         <form
@@ -453,7 +595,15 @@ function CategoryPanel({
         <>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
             {filtered.slice(0, limit).map((o) => (
-              <OptionCard key={o.id} option={o} gendered={category.gendered} onChanged={onChanged} />
+              <OptionCard
+                key={o.id}
+                option={o}
+                gendered={category.gendered}
+                thumbnail={thumbByKey.get(`${o.id}:${shownGender(o)}`) ?? null}
+                thumbnailGender={shownGender(o)}
+                onChanged={onChanged}
+                onThumbnailQueued={refreshThumbnails}
+              />
             ))}
           </div>
           {filtered.length > limit && (
@@ -478,7 +628,21 @@ function CategoryPanel({
   )
 }
 
-function OptionCard({ option, gendered, onChanged }: { option: LibraryOption; gendered: boolean; onChanged: () => void }) {
+function OptionCard({
+  option,
+  gendered,
+  thumbnail,
+  thumbnailGender,
+  onChanged,
+  onThumbnailQueued,
+}: {
+  option: LibraryOption
+  gendered: boolean
+  thumbnail: LibraryThumbnail | null
+  thumbnailGender: ThumbnailGender
+  onChanged: () => void
+  onThumbnailQueued: () => void
+}) {
   const [editing, setEditing] = useState(false)
   const [label, setLabel] = useState(option.label ?? '')
   const [fragment, setFragment] = useState(option.fragment)
@@ -498,12 +662,35 @@ function OptionCard({ option, gendered, onChanged }: { option: LibraryOption; ge
     onSuccess: onChanged,
     onError: (e) => toast.error((e as Error).message),
   })
+  const regenerate = useMutation({
+    mutationFn: () => libraryApi.regenerateThumbnail(option.id, thumbnailGender),
+    onSuccess: onThumbnailQueued,
+    onError: (e) => toast.error((e as Error).message),
+  })
+  const busy = thumbnail?.status === 'queued' || thumbnail?.status === 'running'
 
   return (
     <div className="group overflow-hidden rounded-xl border border-border/40 bg-card">
-      {/* Miniature : générée au lot 2 */}
-      <div className="relative flex aspect-square items-center justify-center bg-secondary/40">
-        <ImageIcon className="h-5 w-5 text-muted-foreground/50" />
+      {/* Miniature (l'ancienne reste affichée pendant une régénération) */}
+      <div className="relative flex aspect-[4/5] items-center justify-center bg-secondary/40">
+        {thumbnail?.url ? (
+          <img src={thumbnail.url} alt={option.label ?? option.fragment} loading="lazy" className={cn('h-full w-full object-cover', busy && 'opacity-40')} />
+        ) : thumbnail?.status === 'failed' ? (
+          <AlertTriangle className="h-5 w-5 text-destructive-foreground" />
+        ) : !busy ? (
+          <ImageIcon className="h-5 w-5 text-muted-foreground/50" />
+        ) : null}
+        {busy && (
+          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+            {thumbnail.status === 'running' ? <Loader2 className="h-4 w-4 animate-spin text-brand" /> : null}
+            {thumbnail.status === 'running' ? 'En cours' : 'En file'}
+          </span>
+        )}
+        {thumbnail?.status === 'failed' && (
+          <span className="absolute inset-x-1.5 bottom-1.5 line-clamp-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white" title={thumbnail.error ?? undefined}>
+            {thumbnail.error ?? 'Échec'}
+          </span>
+        )}
         {gendered && option.gender && (
           <span
             className="absolute top-1.5 left-1.5 rounded bg-black/60 px-1.5 text-[10px] font-semibold text-white"
@@ -514,6 +701,14 @@ function OptionCard({ option, gendered, onChanged }: { option: LibraryOption; ge
         )}
         {!editing && (
           <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <button
+              onClick={() => regenerate.mutate()}
+              disabled={busy || regenerate.isPending}
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 disabled:opacity-40"
+              title={thumbnail?.url ? 'Régénérer la miniature' : 'Générer la miniature'}
+            >
+              <RefreshCw className="h-3 w-3" />
+            </button>
             <button
               onClick={() => setEditing(true)}
               className="flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"

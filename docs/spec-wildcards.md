@@ -301,7 +301,7 @@ Ouvert :
 |---|---|---|
 | **0. Séries ×N** | Générer N images avec la même demande (file ComfyUI séquentielle en local, N tâches SpicyAPI), en un bloc dans le fil, progression et annulation | ✅ fait |
 | **1. Bibliothèque** | Catégories et options en base (FR / EN, catégorie genrée ou non), import d'un fichier wildcard dans une catégorie, ajout et édition à la main, page « Bibliothèque ». Genre du persona. | ✅ fait (import `.txt` ; `.yaml` / `.zip` à caler sur un fichier réel) |
-| **2. Miniatures** | Gabarit de miniature par catégorie, génération locale des miniatures manquantes (basse résolution, progression), régénération, versions femme / homme | à faire |
+| **2. Miniatures** | Gabarit de miniature par catégorie, génération locale des miniatures manquantes (basse résolution, progression), régénération, versions femme / homme | ✅ fait |
 | **3. Sélecteur visuel et bulles** | Composer : « + Trait » → catégorie → grille de miniatures → bulle ; assemblage en langage naturel accordé au genre ; aperçu du prompt | à faire |
 | **4. Créateur de personnage** | Fiche d'identité avec le même sélecteur, 🎲 / 🔒, lots de variantes, Grille / Comparer, image de référence, images master, « Garder ce personnage » | à faire |
 | **5. Lieux** | Fiche du lieu, variantes, images master, rattachement au personnage | à faire |

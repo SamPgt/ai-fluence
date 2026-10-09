@@ -118,7 +118,7 @@ export function ComfyStatus() {
             onClick={() => (canStop ? stop.mutate() : start.mutate())}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
-            {canStop ? 'Arrêter ComfyUI' : busy ? STATE_LABEL[status.state] : 'Démarrer ComfyUI'}
+            {canStop ? 'Arrêter ComfyUI' : busy ? STATE_LABEL[status.state] : status.state === 'error' ? 'Relancer ComfyUI' : 'Démarrer ComfyUI'}
           </Button>
         )}
       </PopoverContent>
