@@ -28,7 +28,9 @@ export interface LocalEndpoint {
   /** Nœud `SaveImage` dont on récupère les images. */
   outputNode: string;
   /** Où écrire chaque valeur de l'`input`. `width`/`height` viennent de `aspect_ratio`. */
-  slots: Partial<Record<'prompt' | 'negative_prompt' | 'seed' | 'steps' | 'strength' | 'width' | 'height' | 'image' | 'model', Slot>>;
+  slots: Partial<
+    Record<'prompt' | 'negative_prompt' | 'seed' | 'steps' | 'strength' | 'width' | 'height' | 'image' | 'model' | 'precision', Slot>
+  >;
   /**
    * Paramètre `model` : fichier au choix parmi ceux installés dans ComfyUI (liste lue en direct).
    * `match` filtre les fichiers compatibles avec le workflow.
@@ -86,6 +88,13 @@ const Z_IMAGE_COMMON: InputSchema['properties'] = {
     default: 'low quality, bad anatomy, extra digits, missing digits, extra limbs, missing limbs',
   },
   steps: { type: 'integer', default: 8, minimum: 4, maximum: 20 },
+  /**
+   * Précision des poids au chargement. fp8 par défaut : comparatif sur RTX 3060 (2026-10-09), même graine,
+   * images identiques à l'œil, même vitesse (~3,55 s/étape), pic de VRAM 7,5–9,2 Go au lieu de 11,8 Go.
+   * Sans cette marge, ComfyUI s'est figé en pleine série. `default` = pleine précision, au choix.
+   * Sans effet sur un modèle déjà enregistré en fp8 (CyberRealistic…).
+   */
+  precision: { type: 'string', enum: ['fp8_e4m3fn', 'default'], default: 'fp8_e4m3fn' },
   seed: { type: 'integer', minimum: 0, maximum: MAX_SEED },
 };
 
@@ -95,6 +104,7 @@ const Z_IMAGE_SLOTS = {
   seed: ['70', 'seed'],
   steps: ['70', 'steps'],
   model: ['66', 'unet_name'],
+  precision: ['66', 'weight_dtype'],
 } satisfies LocalEndpoint['slots'];
 
 /** Z-Image : tous les fichiers de `diffusion_models` dont le nom évoque Z-Image (Turbo, finetunes…). */

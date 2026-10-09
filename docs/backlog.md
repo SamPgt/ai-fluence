@@ -27,7 +27,6 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 ## Local (ComfyUI)
 
 - **Upscale local** (pour les images générées en local uniquement ; SpicyAPI garde son upscaler) : 4xUltrasharp et le upscaler Z-Image sont installés. Ces modèles font toujours ×4 : appliquer le modèle sur l'image **d'origine**, puis réduire le résultat à la taille visée (×2 max, ≈ 1728×3072), plutôt que réduire l'image avant (on ne perd pas de détail en entrée ; ComfyUI traite l'upscale par tuiles, la VRAM suit). Pas de 4K/8K en local.
-- **VRAM et fp8 (prioritaire)** : le modèle Z-Image en pleine précision (11,7 Go) remplit la VRAM de la RTX 3060 (~3,9 s/étape). Avec Chrome, VS Code, l'app Claude… ouverts, ComfyUI a fini par se figer en pleine série (2026-10-09). Tester `weight_dtype: fp8_e4m3fn` sur le chargeur (~6 Go) : plus de marge, sans doute plus rapide ; comparer la qualité avant de l'activer par défaut.
 - **Vidéo locale** : Wan 2.2 (5B ou GGUF) possible mais lent sur 12 Go ; à évaluer.
 - **Commande `comfy` hors PATH** : le `.env` local préfixe la commande de démarrage ; ajouter `%APPDATA%\Python\Python314\Scripts` au PATH utilisateur simplifierait.
 

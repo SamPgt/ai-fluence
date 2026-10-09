@@ -106,6 +106,8 @@ Les fichiers installés dans ComfyUI sont lus en direct :
 
 **Visage (ReActor)** : avec un modèle local, chaque image jointe porte une pastille **Départ** ou **Visage** (clic pour changer). L'image « Départ » est retravaillée (image → image) ; l'image « Visage » donne son visage au résultat, via [ReActor](https://github.com/Gourieff/ComfyUI-ReActor) ajouté en fin de workflow. Par défaut, la 1re image est l'image de départ et la 2e le visage ; un visage seul donne texte → image + visage. Seul le visage est remplacé : cheveux, silhouette et tenue viennent du prompt. Le paramètre « Restauration du visage » (CodeFormer, GFPGAN…) affine le résultat. Sans ReActor dans ComfyUI, les pastilles n'apparaissent pas. Avec un modèle SpicyAPI, toutes les images restent des références, comme avant.
 
+**Précision** (paramètres ⚙️) : **fp8 par défaut**, pleine précision au choix. Sur une RTX 3060 12 Go, à graine identique, les images sont identiques à l'œil et la vitesse est la même, mais le pic de VRAM passe de 11,8 Go à 7,5–9,2 Go : assez de marge pour que ComfyUI ne sature pas quand d'autres applications utilisent la carte. Sans effet sur un modèle déjà enregistré en fp8.
+
 Un fichier ajouté dans ComfyUI apparaît dans l'app au rafraîchissement du catalogue. Le temps de calcul de chaque génération locale est affiché sous le résultat.
 
 Ajouter un workflow :
