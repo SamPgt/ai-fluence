@@ -425,7 +425,13 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       </div>
       )}
 
-      <MediaViewer asset={viewing} onClose={() => setViewing(null)} />
+      <MediaViewer
+        asset={viewing}
+        onClose={() => setViewing(null)}
+        // Les images de la demande (toute la série ×N) : flèches pour comparer sans quitter le plein écran.
+        assets={generations.flatMap((x) => x.outputs)}
+        onNavigate={setViewing}
+      />
       <UpscaleDialog asset={upscaling} threadId={g.threadId} onClose={() => setUpscaling(null)} />
       <ConfirmDialog
         open={deleting !== null}

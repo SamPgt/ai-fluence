@@ -1277,7 +1277,20 @@ function OptionCard({
           }}
         >
           <Input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Libellé (FR)" className="h-7 text-xs" />
-          <Input value={fragment} onChange={(e) => setFragment(e.target.value)} placeholder="Fragment (EN)" className="h-7 font-mono text-[11px]" />
+          {/* Sur plusieurs lignes : un fragment se lit en entier sans faire défiler. */}
+          <Textarea
+            value={fragment}
+            onChange={(e) => setFragment(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                e.currentTarget.form?.requestSubmit()
+              }
+            }}
+            placeholder="Fragment (EN)"
+            rows={3}
+            className="min-h-0 resize-none px-2 py-1 font-mono text-[11px] leading-snug"
+          />
           {gendered && <GenderSelect value={gender} onChange={setGender} />}
           <div className="flex justify-end gap-1">
             <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditing(false)} aria-label="Annuler">
@@ -1291,7 +1304,9 @@ function OptionCard({
       ) : (
         <button
           onClick={(e) => (selecting ? onToggle(e.shiftKey) : setEditing(true))}
-          className="block w-full space-y-0.5 p-2 text-left" title={option.source ? `Importé de ${option.source}` : undefined}>
+          className="block w-full space-y-0.5 p-2 text-left"
+          title={[option.label, option.fragment].filter(Boolean).join('\n')}
+        >
           <span className="flex items-center gap-1.5 text-[13px] font-medium">
             <span className="truncate">{option.label ?? option.fragment}</span>
             {!option.label && <span className="shrink-0 rounded bg-secondary px-1 text-[9px] font-semibold text-muted-foreground">EN</span>}

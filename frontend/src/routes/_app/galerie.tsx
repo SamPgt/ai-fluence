@@ -187,6 +187,8 @@ function GalleryPage() {
       <MediaViewer
         asset={viewing?.asset ?? null}
         onClose={() => setViewing(null)}
+        assets={items.map((i) => i.asset)}
+        onNavigate={(asset) => setViewing({ asset, prompt: items.find((i) => i.asset.id === asset.id)?.generation?.prompt ?? '' })}
       />
       <ConfirmDialog
         open={deleting !== null}

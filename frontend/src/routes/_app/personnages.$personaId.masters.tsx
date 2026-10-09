@@ -252,7 +252,13 @@ function Masters({ persona }: { persona: Persona }) {
           </section>
         </div>
       </div>
-      <MediaViewer asset={viewing} onClose={() => setViewing(null)} />
+      <MediaViewer
+        asset={viewing}
+        onClose={() => setViewing(null)}
+        // Les images du lot affiché, puis les masters (le panneau de gauche).
+        assets={[...lot.flatMap((g) => g.outputs), ...masters.map((m) => m.asset)].filter((a, i, all) => all.findIndex((b) => b.id === a.id) === i)}
+        onNavigate={setViewing}
+      />
     </>
   )
 }
