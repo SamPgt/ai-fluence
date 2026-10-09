@@ -10,6 +10,10 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 - **Traduire les libellés** des packs importés en français.
 - **Exécution locale** : Ollama est installé sur le poste ; brancher un modèle texte local en plus de ceux de SpicyAPI, pour que tout le parcours puisse rester local.
 
+## Prompts
+
+- **« Smartphone photo » pris au pied de la lettre** : avec Z-Image, `amateur smartphone photo of…` fait apparaître un téléphone dans l'image (2 images sur 3 lors d'un test). Pour le bloc « Photo » des wildcards : décrire l'effet (`candid snapshot, slightly tilted framing, natural phone-camera look`) plutôt que l'appareil, et ajouter `smartphone, phone in frame, hands holding phone` au prompt négatif.
+
 ## Cohérence du personnage
 
 - **Face model ReActor** : construire un modèle de visage à partir de plusieurs photos du persona (nœuds `ReActorBuildFaceModel` / `ReActorSaveFaceModel`), plus fiable qu'une seule image.

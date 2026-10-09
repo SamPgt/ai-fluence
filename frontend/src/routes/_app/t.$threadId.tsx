@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
+import type { Generation } from '@ai-fluence/shared'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 
@@ -27,6 +28,17 @@ function ThreadPage() {
   const persona = personas.find((p) => p.id === data?.thread.personaId) ?? null
   const bottomRef = useRef<HTMLDivElement>(null)
   const count = data?.generations.length ?? 0
+
+  // Une série (demande ×N) s'affiche en un seul bloc : ses générations sont regroupées.
+  const groups = useMemo(() => {
+    const out: Generation[][] = []
+    for (const g of data?.generations ?? []) {
+      const last = out.at(-1)
+      if (g.batchId && last?.[0].batchId === g.batchId) last.push(g)
+      else out.push([g])
+    }
+    return out
+  }, [data?.generations])
 
   // Défile en bas à l'ouverture et à chaque nouvelle génération.
   useEffect(() => {
@@ -81,14 +93,16 @@ function ThreadPage() {
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-8 px-4 py-6">
+        <div className="mx-auto max-w-4xl space-y-8 px-4 py-6">
           {isLoading && (
             <div className="flex justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           )}
           {error && <p className="py-20 text-center text-sm text-muted-foreground">{(error as Error).message}</p>}
-          {data?.generations.map((g) => <GenerationItem key={g.id} generation={g} />)}
+          {groups.map((group) => (
+            <GenerationItem key={group[0].id} generations={group} />
+          ))}
           <div ref={bottomRef} />
         </div>
       </div>

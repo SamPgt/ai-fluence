@@ -18,6 +18,8 @@ export interface ComposerState {
    */
   faceChoice: 'auto' | 'none' | string
   refMode: VideoRefMode
+  /** Série : nombre d'images générées avec la même demande (reste choisi après l'envoi). */
+  count: number
   /** Contextes activés (restent actifs après l'envoi). */
   contextIds: string[]
   /** Incrémenté pour demander le focus du champ texte. */
@@ -31,6 +33,7 @@ export const composerStore = new Store<ComposerState>({
   attachments: [],
   faceChoice: 'auto',
   refMode: 'start-frame',
+  count: 1,
   contextIds: [],
   focusTick: 0,
 })
@@ -58,6 +61,7 @@ export const composer = {
     })),
   setFace: (faceChoice: ComposerState['faceChoice']) => composerStore.setState((s) => ({ ...s, faceChoice })),
   setRefMode: (refMode: VideoRefMode) => composerStore.setState((s) => ({ ...s, refMode })),
+  setCount: (count: number) => composerStore.setState((s) => ({ ...s, count })),
   toggleContext: (id: string) =>
     composerStore.setState((s) => ({
       ...s,
@@ -65,7 +69,7 @@ export const composer = {
     })),
   clearAfterSend: () => composerStore.setState((s) => ({ ...s, prompt: '', attachments: [], faceChoice: 'auto' })),
   /** Pré-remplit le composer (Relancer, Éditer, Animer). */
-  load: (patch: Partial<Pick<ComposerState, 'family' | 'prompt' | 'attachments' | 'refMode' | 'contextIds'>> & {
+  load: (patch: Partial<Pick<ComposerState, 'family' | 'prompt' | 'attachments' | 'refMode' | 'contextIds' | 'count'>> & {
     params?: Record<string, unknown>
     /** Image « visage » de la demande rechargée (null : aucune). */
     faceId?: string | null
@@ -76,6 +80,7 @@ export const composer = {
       ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
       ...(patch.attachments ? { attachments: patch.attachments, faceChoice: patch.faceId ?? (patch.faceId === null ? 'none' : 'auto') } : {}),
       ...(patch.refMode ? { refMode: patch.refMode } : {}),
+      ...(patch.count ? { count: patch.count } : {}),
       ...(patch.contextIds ? { contextIds: patch.contextIds } : {}),
       ...(patch.params && (patch.family ?? s.family)
         ? { paramsByFamily: { ...s.paramsByFamily, [(patch.family ?? s.family)!]: patch.params } }

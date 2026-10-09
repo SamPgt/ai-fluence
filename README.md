@@ -11,6 +11,7 @@ Toutes les générations passent par [SpicyAPI](https://spicyapi.ai), qui donne 
 ## Fonctionnalités
 
 - **Fil de génération** : chaque demande (prompt, références, modèle, paramètres) et son résultat restent dans un fil, renommable et épinglable, avec une recherche (⌘K).
+- **Séries ×1 / ×4 / ×8** : la même demande générée N fois, chaque image avec sa propre graine, affichées en grille dans le fil. En local, les images sont générées l'une après l'autre (file ComfyUI), avec progression, temps restant estimé et « Annuler le reste ».
 - **16 modèles choisis** pour l'usage, classés par badge :
   - `LORA` : accepte une LoRA de personnage (Qwen Image 2512, Z-Image Turbo, FLUX.1 Dev, MiniMax H3, Wan 2.2, LTX 2.3) ;
   - `REF` : garde la cohérence grâce à des images de référence (Seedream 5.0 Pro, Seedance 2.5, Wan 3.0, HappyHorse…) ;

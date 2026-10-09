@@ -1,7 +1,7 @@
 # Spec fonctionnelle : wildcards, créateur de personnage, compositeur de scène
 
 > Branche `feat/comfyui`. Vision produit de cette branche, indépendante de `main`.
-> Statut : brouillon v1, à valider avant développement.
+> Statut : v1.1, mise à jour avec les maquettes Claude Design (personnage, images master, lieux, scène).
 
 ## 1. Objectif
 
@@ -185,7 +185,15 @@ Une fois l'image de référence choisie (« Choisir comme image de référence �
 ### 8.4 Historique et comparaison
 
 - Chaque génération de variantes forme un **lot** (Lot 1, Lot 2…), conservé avec son tirage.
-- La zone des variantes bascule entre **Grille** (images, traits au survol) et **Comparer** (tableau : une colonne par image, une ligne par trait, les traits qui varient mis en évidence).
+- La zone des variantes bascule entre **Grille** (images, traits tirés sous chaque vignette, panneau de l'image sélectionnée) et **Comparer** (tableau : une colonne par image, une ligne par trait, les traits qui varient en couleur de marque, les traits fixes en gris).
+- En mode Comparer, **un clic sur une case reprend ce trait seul** dans la fiche.
+- Pendant la génération d'un lot : vignettes « En file · n », image en cours avec chrono, barre de progression, temps restant estimé à partir des durées réelles des images déjà terminées, et « Annuler le lot ».
+
+### 8.5 Diversité des images master
+
+- L'image de référence compte comme **première master**.
+- Chaque préréglage de variations correspond à un **axe** : Angles, Expressions, Lumières, Tenues (personnage) ; Angles de la pièce, Moments de la journée, Détails, Avec / sans personnage (lieu).
+- Le panneau « Images master » affiche le total (« 12 / 20 recommandées ») et une **barre par axe**, pour voir ce qui manque au jeu d'entraînement.
 
 ## 9. Parcours B : composer une scène
 
@@ -217,7 +225,11 @@ Valable partout dans l'app, pas seulement avec les wildcards : le composer propo
 
 ### 9.5 Lieux récurrents
 
-Un lieu se crée comme un personnage (§ 8) : fiche du bloc Décor (type de pièce, style, éléments clés, palette, lumière, moment), variantes, image de référence, images master. Il est rattaché à un ou plusieurs personnages et se choisit dans le panneau Scène.
+Un lieu se crée comme un personnage (§ 8) : fiche, variantes (aperçu neutre : plan large, sans personnage), image de référence, images master. Il est rattaché à un ou plusieurs personnages (un même lieu peut servir à Léa et à Victoria) et se choisit dans le panneau Scène.
+
+**Emplacements de la fiche d'un lieu** : type de pièce, style déco, éléments clés (ex. setup gaming double écran), mobilier, palette, fenêtre et lumière naturelle, désordre.
+
+**Le moment de la journée n'appartient pas au lieu** : la chambre de Léa doit pouvoir apparaître de jour comme de nuit. Le moment et l'éclairage relèvent de la scène (bloc Décor du panneau Scène). Les images master d'un lieu, elles, couvrent plusieurs moments (préréglage « Moments de la journée »).
 
 **Cohérence d'un lieu** : c'est plus difficile que pour un visage (pas d'équivalent de ReActor pour une pièce). Leviers :
 - la fiche du lieu injectée à l'identique dans chaque prompt (base) ;
@@ -230,6 +242,15 @@ Un lieu se crée comme un personnage (§ 8) : fiche du bloc Décor (type de piè
 Choisir visuellement est plus rapide que lire. Une option peut avoir une vignette :
 - importée avec le pack si elle existe ;
 - ou **générée par l'app en local**, une fois pour toutes, avec un prompt neutre isolant l'option (ex. un portrait pour une coiffure). Lancement par catégorie, en tâche de fond.
+
+### 9.7 Page du personnage
+
+Le persona devient une page à onglets : **Fiche** (identité), **Images master**, **Lieux** (cartes avec nombre de masters, personnages rattachés, « Utiliser dans une scène » ; « Créer un lieu », « Rattacher un lieu existant »), **Scènes** enregistrées, **LoRA**. Action « Nouveau fil avec … » en en-tête.
+
+### 9.8 Séries dans le fil
+
+- Une série (×N) s'affiche comme **un seul bloc** dans le fil : la demande, puis la grille des N images, chacune avec ses valeurs tirées en légende.
+- Le composer affiche les pilules **Scène**, **Lieu** et **Visage**, et un sélecteur **×1 / ×4 / ×8** à côté du bouton d'envoi.
 
 ## 10. Intégration avec l'existant
 
@@ -267,7 +288,7 @@ Voir `backlog.md` : polissage du prompt assemblé par un modèle texte, conversi
 |---|---|---|
 | **1. Moteur** | Résolution `__…__` et `{…}` dans le texte libre, graine de tirage, tirage enregistré, aperçu du prompt résolu | Les packs Civitai sont utilisables tout de suite, à la main |
 | **2. Import** | Import .txt / .yaml / .zip, détection du style, rattachement aux emplacements, gestion de la bibliothèque | Bibliothèque alimentée |
-| **0. Séries ×N** | Générer N images avec la même demande (file ComfyUI séquentielle en local, N tâches SpicyAPI) | Utile tout de suite, prérequis des lots |
+| **0. Séries ×N** | Générer N images avec la même demande (file ComfyUI séquentielle en local, N tâches SpicyAPI), affichées en un bloc dans le fil, progression et annulation | Utile tout de suite, prérequis des lots |
 | **3. Créateur de personnage** | Fiche Identité, 🎲 / 🔒, lots de variantes, Grille / Comparer, image de référence, images master, « Garder ce personnage » | Usage 1 |
 | **4. Lieux** | Fiche Décor, variantes, images master d'un lieu, rattachement au personnage | Cohérence du décor |
 | **5. Compositeur de scène** | Panneau Scène (personnage + lieu + tenue + action + photo), séries, scènes et looks enregistrés, migration des contextes | Usage 2 |

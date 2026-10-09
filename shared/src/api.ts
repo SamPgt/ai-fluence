@@ -210,6 +210,9 @@ export interface Generation {
   references: Asset[];
   /** Image « visage » appliquée au résultat (ReActor). */
   face: Asset | null;
+  /** Série : les générations d'une même demande ×N partagent ce `batchId`. */
+  batchId: string | null;
+  batchIndex: number;
   /** Contextes utilisés (instantané au moment de la génération). */
   contexts: GenerationContext[];
   lorasApplied: number;
@@ -239,6 +242,8 @@ export interface GenerationRequest {
   referenceAssetIds: string[];
   /** Image dont le visage est appliqué au résultat (modèles avec `supportsFace`). */
   faceAssetId?: string | null;
+  /** Série : nombre d'images à générer avec cette demande (1 par défaut). Chacune a sa propre graine. */
+  count?: number;
   /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
   contextIds?: string[];
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
@@ -262,6 +267,8 @@ export interface QuoteResponse {
   expiresAt: string;
   dropped: number;
   lorasApplied: number;
+  /** Nombre d'images de la série ; `estimatedCost` et `maxCharge` sont des totaux. */
+  count: number;
 }
 
 export interface CreateGenerationResponse {

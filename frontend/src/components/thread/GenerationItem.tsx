@@ -59,7 +59,26 @@ function ActionButton({ onClick, title, children }: { onClick: () => void; title
   )
 }
 
-export function GenerationItem({ generation: g }: { generation: Generation }) {
+const isPending = (g: Generation) => g.status === 'queued' || g.status === 'running'
+
+/** Rafraîchit le composant chaque seconde tant que `active` (chronos, temps restant). */
+function useTick(active: boolean) {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => tick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [active])
+}
+
+/**
+ * Une demande et son résultat. `generations` : une seule génération, ou toutes celles d'une série (×N),
+ * qui partagent la même demande et s'affichent en grille.
+ */
+export function GenerationItem({ generations }: { generations: Generation[] }) {
+  const g = generations[0]
+  const series = generations.length > 1
+  const anyPending = generations.some(isPending)
   const queryClient = useQueryClient()
   const [viewing, setViewing] = useState<Asset | null>(null)
   const [upscaling, setUpscaling] = useState<Asset | null>(null)
@@ -82,6 +101,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       referenceAssetIds: [...g.references, ...(g.face && !keepFace ? [g.face] : [])].map((r) => r.id),
       faceAssetId: keepFace ? g.face!.id : null,
       contextIds: g.contexts.map((c) => c.id),
+      count: generations.length,
     }
   }
   const { data: catalog } = useQuery(catalogQuery())
@@ -102,9 +122,16 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
   })
 
   // Suppression : retire de l'app (fil, galerie), les fichiers restent sur le disque.
+  const removeGenerations = async (ids: string[]) => {
+    const results = await Promise.allSettled(ids.map((id) => generationsApi.remove(id)))
+    const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+    if (failed) throw failed.reason
+  }
   const remove = useMutation({
-    mutationFn: (target: NonNullable<typeof deleting>) =>
-      target.kind === 'generation' ? generationsApi.remove(g.id) : assetsApi.remove(target.asset.id),
+    mutationFn: async (target: NonNullable<typeof deleting>) => {
+      if (target.kind === 'generation') await removeGenerations(generations.map((m) => m.id))
+      else await assetsApi.remove(target.asset.id)
+    },
     onSuccess: () => {
       setDeleting(null)
       queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) })
@@ -136,12 +163,48 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       faceId: g.face?.id ?? null,
       refMode: g.refMode,
       contextIds: g.contexts.map((c) => c.id),
+      count: generations.length,
       params,
     })
   }
   const edit = (asset: Asset) => composer.load({ family: pickFamily('image', 'image-to-image'), prompt: '', attachments: [asset] })
   const animate = (asset: Asset) =>
     composer.load({ family: pickFamily('video', 'image-to-video'), prompt: '', attachments: [asset], refMode: 'start-frame' })
+
+  const outputActions = (asset: Asset) => (
+    <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      {asset.mediaType === 'image' && (
+        <>
+          <ActionButton onClick={() => edit(asset)} title="Éditer (image → image)">
+            <Pencil className="h-3.5 w-3.5" />
+          </ActionButton>
+          <ActionButton onClick={() => animate(asset)} title="Animer (image → vidéo)">
+            <Clapperboard className="h-3.5 w-3.5" />
+          </ActionButton>
+        </>
+      )}
+      {!isUpscale && settings?.hasApiKey && (
+        <ActionButton onClick={() => setUpscaling(asset)} title="Upscale">
+          <ImageUpscale className="h-3.5 w-3.5" />
+        </ActionButton>
+      )}
+      {persona && (
+        <ActionButton onClick={() => toReference.mutate(asset)} title={`Ajouter aux références de ${persona.name}`}>
+          <BookmarkPlus className="h-3.5 w-3.5" />
+        </ActionButton>
+      )}
+      <a
+        href={`${asset.url}?download=1`}
+        title="Télécharger"
+        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition hover:bg-black/80"
+      >
+        <Download className="h-3.5 w-3.5" />
+      </a>
+      <ActionButton onClick={() => setDeleting({ kind: 'asset', asset })} title="Supprimer ce résultat">
+        <Trash2 className="h-3.5 w-3.5" />
+      </ActionButton>
+    </div>
+  )
 
   return (
     <div className="space-y-3">
@@ -254,6 +317,17 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       </div>
 
       {/* Résultat */}
+      {series && (
+        <SeriesResults
+          generations={generations}
+          outputActions={outputActions}
+          onView={setViewing}
+          onCancelRest={(ids) => removeGenerations(ids).then(() => {
+            queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) })
+          }).catch((e) => toast.error((e as Error).message))}
+        />
+      )}
+      {!series && (
       <div className="flex justify-start">
         <div className="w-full max-w-[85%] space-y-2">
           {pending && (
@@ -296,38 +370,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                       <img src={asset.url} alt={g.prompt} className="w-full object-contain" loading="lazy" />
                     </button>
                   )}
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                    {asset.mediaType === 'image' && (
-                      <>
-                        <ActionButton onClick={() => edit(asset)} title="Éditer (image → image)">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </ActionButton>
-                        <ActionButton onClick={() => animate(asset)} title="Animer (image → vidéo)">
-                          <Clapperboard className="h-3.5 w-3.5" />
-                        </ActionButton>
-                      </>
-                    )}
-                    {!isUpscale && settings?.hasApiKey && (
-                      <ActionButton onClick={() => setUpscaling(asset)} title="Upscale">
-                        <ImageUpscale className="h-3.5 w-3.5" />
-                      </ActionButton>
-                    )}
-                    {persona && (
-                      <ActionButton onClick={() => toReference.mutate(asset)} title={`Ajouter aux références de ${persona.name}`}>
-                        <BookmarkPlus className="h-3.5 w-3.5" />
-                      </ActionButton>
-                    )}
-                    <a
-                      href={`${asset.url}?download=1`}
-                      title="Télécharger"
-                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition hover:bg-black/80"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                    </a>
-                    <ActionButton onClick={() => setDeleting({ kind: 'asset', asset })} title="Supprimer ce résultat">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </ActionButton>
-                  </div>
+                  {outputActions(asset)}
                 </div>
               ))}
             </div>
@@ -360,6 +403,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
           )}
         </div>
       </div>
+      )}
 
       <MediaViewer asset={viewing} onClose={() => setViewing(null)} />
       <UpscaleDialog asset={upscaling} threadId={g.threadId} onClose={() => setUpscaling(null)} />
@@ -370,14 +414,138 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
         description={
           deleting?.kind === 'asset'
             ? 'Il sera retiré du fil et de la galerie. Le fichier reste dans ton dossier local.'
-            : pending && g.provider === 'comfy'
-              ? 'La génération en cours sera annulée dans ComfyUI. La demande sera retirée du fil.'
-              : 'Le prompt et ses résultats seront retirés du fil et de la galerie. Les fichiers restent dans ton dossier local.'
+            : anyPending && g.provider === 'comfy'
+              ? `${series ? 'Les images en attente seront annulées' : 'La génération en cours sera annulée'} dans ComfyUI. La demande sera retirée du fil.`
+              : `Le prompt et ${series ? `les ${generations.length} images de la série` : 'ses résultats'} seront retirés du fil et de la galerie. Les fichiers restent dans ton dossier local.`
         }
         pending={remove.isPending}
         onConfirm={() => deleting && remove.mutate(deleting)}
       />
       <RelaunchDialog request={relaunch} onClose={() => setRelaunch(null)} />
+    </div>
+  )
+}
+
+/** Grille d'une série (×N) : progression, temps restant estimé, une case par image. */
+function SeriesResults({
+  generations,
+  outputActions,
+  onView,
+  onCancelRest,
+}: {
+  generations: Generation[]
+  outputActions: (asset: Asset) => React.ReactNode
+  onView: (asset: Asset) => void
+  onCancelRest: (ids: string[]) => void
+}) {
+  const pending = generations.filter(isPending)
+  useTick(pending.length > 0)
+  const done = generations.filter((m) => !isPending(m))
+  const local = generations[0].provider === 'comfy'
+
+  // Temps restant : durée moyenne des images terminées × images restantes, moins le temps déjà passé sur l'image en cours.
+  const durations = done.map((m) => m.durationMs).filter((d): d is number => d !== null)
+  const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
+  const runningSince = (m: Generation) => {
+    const previous = generations.filter((x) => x.batchIndex < m.batchIndex && x.completedAt).map((x) => x.completedAt!)
+    return previous.sort().at(-1) ?? m.createdAt
+  }
+  const running = generations.find((m) => m.status === 'running')
+  const remainingMs =
+    avg !== null && pending.length
+      ? Math.max(0, avg * pending.length - (running && local ? Date.now() - new Date(runningSince(running)).getTime() : 0))
+      : null
+  const queued = generations.filter((m) => m.status === 'queued')
+  const cost = generations.reduce((sum, m) => sum + Number(m.cost ?? 0), 0)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="font-medium text-foreground">Série · {generations.length} images</span>
+        {pending.length > 0 ? (
+          <>
+            <span className="tabular-nums">
+              {done.length} / {generations.length} terminées
+              {remainingMs !== null && ` · reste ≈ ${formatDuration(remainingMs)}`}
+            </span>
+            <span className="h-1 w-24 overflow-hidden rounded-full bg-secondary">
+              <span
+                className="block h-full rounded-full bg-brand transition-[width]"
+                style={{ width: `${(done.length / generations.length) * 100}%` }}
+              />
+            </span>
+            {local && (
+              <button
+                onClick={() => onCancelRest(pending.map((m) => m.id))}
+                className="ml-auto rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+                title="Annule dans ComfyUI les images pas encore générées"
+              >
+                Annuler le reste
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <span>· {timeAgo(generations[0].createdAt)}</span>
+            {durations.length > 0 && (
+              <span title={local ? 'Temps de calcul total sur ton GPU' : 'Cumul des durées'}>
+                · {formatDuration(durations.reduce((a, b) => a + b, 0))}
+              </span>
+            )}
+            <span className="ml-auto pr-1 tabular-nums">{local ? 'Local' : formatUsd(cost)}</span>
+          </>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {generations.map((m) => {
+          const asset = m.outputs[0]
+          return (
+            <div key={m.id} className="space-y-1">
+              {m.status === 'succeeded' && asset ? (
+                <div className="group relative aspect-[3/4] overflow-hidden rounded-xl border border-border/40 bg-black/20">
+                  {asset.mediaType === 'video' ? (
+                    <video src={asset.url} controls loop playsInline preload="metadata" className="h-full w-full object-cover" />
+                  ) : (
+                    <button onClick={() => onView(asset)} className="block h-full w-full">
+                      <img src={asset.url} alt={m.prompt} className="h-full w-full object-cover" loading="lazy" />
+                    </button>
+                  )}
+                  {outputActions(asset)}
+                </div>
+              ) : m.status === 'running' ? (
+                <div className="flex aspect-[3/4] flex-col items-center justify-center gap-2 rounded-xl border border-border/50 bg-muted/30 text-xs text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin text-brand" />
+                  <span className="tabular-nums">
+                    En cours · <Elapsed since={local ? runningSince(m) : m.createdAt} />
+                  </span>
+                </div>
+              ) : m.status === 'queued' ? (
+                <div className="flex aspect-[3/4] items-center justify-center rounded-xl border border-dashed border-border/60 text-xs text-muted-foreground">
+                  En file · {queued.indexOf(m) + 1}
+                </div>
+              ) : m.status === 'failed' ? (
+                <div
+                  className="flex aspect-[3/4] flex-col items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-center text-xs"
+                  title={m.errorMessage ?? undefined}
+                >
+                  <AlertTriangle className="h-4 w-4 text-destructive-foreground" />
+                  <span className="line-clamp-4">{m.errorMessage ?? 'La génération a échoué.'}</span>
+                </div>
+              ) : (
+                <div className="flex aspect-[3/4] items-center justify-center rounded-xl border border-border/40 text-xs text-muted-foreground italic">
+                  Résultat supprimé
+                </div>
+              )}
+              <div className="truncate px-0.5 text-[10px] text-muted-foreground tabular-nums">
+                #{m.batchIndex + 1}
+                {m.seed !== null && ` · seed ${m.seed}`}
+                {m.durationMs !== null && ` · ${formatDuration(m.durationMs)}`}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

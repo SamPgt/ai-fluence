@@ -119,6 +119,9 @@ export const generations = pgTable(
     referenceAssetIds: jsonb('reference_asset_ids').$type<string[]>().notNull().default([]),
     /** Image dont le visage est appliqué au résultat (ReActor, local). */
     faceAssetId: uuid('face_asset_id'),
+    /** Série (demande ×N) : générations sœurs et position dans la série. */
+    batchId: uuid('batch_id'),
+    batchIndex: integer('batch_index').notNull().default(0),
     lorasApplied: integer('loras_applied').notNull().default(0),
     /** Contextes activés à l'envoi (instantané : reste lisible si le contexte est modifié ou supprimé). */
     contexts: jsonb('contexts').$type<GenerationContext[]>().notNull().default([]),

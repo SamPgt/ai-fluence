@@ -221,20 +221,14 @@ async function quoteFor(p: Prepared): Promise<QuoteLike> {
   return callSpicy(() => client.quoteTask({ model: p.modelId, input: p.input }));
 }
 
+/** Montant décimal (chaîne SpicyAPI) multiplié par le nombre d'images d'une série. */
+function times(amount: string, count: number): string {
+  return count === 1 ? amount : String(Number((Number(amount) * count).toFixed(6)));
+}
+
 export async function quoteGeneration(user: SessionUser, req: GenerationRequest): Promise<QuoteResponse> {
   const p = await prepare(user, req);
-  const quote = await quoteFor(p);
-  return {
-    task: p.task,
-    modelId: p.modelId,
-    estimatedCost: quote.estimatedCost,
-    maxCharge: quote.maxCharge,
-    quantity: quote.quantity,
-    unit: quote.unit,
-    expiresAt: quote.expiresAt,
-    dropped: p.dropped,
-    lorasApplied: p.lorasApplied,
-  };
+  return toQuoteResponse(p, await quoteFor(p), req.count ?? 1);
 }
 
 export class PriceChangedError extends Error {
@@ -247,43 +241,53 @@ export async function createGeneration(
   user: SessionUser,
   req: GenerationRequest,
 ): Promise<CreateGenerationResponse> {
+  const count = req.count ?? 1;
   const p = await prepare(user, req);
   const quote = await quoteFor(p);
 
-  // Le devis affiché au clic vaut confirmation ; s'il a augmenté entre-temps, on redemande.
-  if (req.expectedCost !== undefined && Number(quote.estimatedCost) > Number(req.expectedCost) + 1e-9) {
-    throw new PriceChangedError({
-      task: p.task,
-      modelId: p.modelId,
-      estimatedCost: quote.estimatedCost,
-      maxCharge: quote.maxCharge,
-      quantity: quote.quantity,
-      unit: quote.unit,
-      expiresAt: quote.expiresAt,
-      dropped: p.dropped,
-      lorasApplied: p.lorasApplied,
-    });
+  // Le devis affiché au clic (total de la série) vaut confirmation ; s'il a augmenté entre-temps, on redemande.
+  const total = times(quote.estimatedCost, count);
+  if (req.expectedCost !== undefined && Number(total) > Number(req.expectedCost) + 1e-9) {
+    throw new PriceChangedError(toQuoteResponse(p, quote, count));
   }
 
-  return launch(user, p, quote, {
-    threadId: req.threadId ?? null,
-    personaId: p.persona?.id ?? null,
-    family: req.family,
-    prompt: req.prompt,
-    refMode: req.refMode ?? 'start-frame',
-    params: req.params ?? {},
-  });
+  // Série : N générations sœurs, chacune avec sa graine. En local, ComfyUI les exécute l'une après
+  // l'autre (sa file est séquentielle) ; côté SpicyAPI, ce sont N tâches.
+  const batchId = count > 1 ? randomUUID() : null;
+  let threadId = req.threadId ?? null;
+  let first: CreateGenerationResponse | null = null;
+  for (let i = 0; i < count; i++) {
+    // Seed fixé par l'utilisateur : décalé d'une image à l'autre, sinon la série donnerait N fois la même image.
+    const params = { ...req.params };
+    if (i > 0 && typeof params.seed === 'number') params.seed = (params.seed + i) % MAX_SEED;
+    const pi = i === 0 ? p : await prepare(user, { ...req, params });
+    const qi = i === 0 ? quote : await quoteFor(pi);
+    const res = await launch(user, pi, qi, {
+      threadId,
+      personaId: pi.persona?.id ?? null,
+      family: req.family,
+      prompt: req.prompt,
+      refMode: req.refMode ?? 'start-frame',
+      params: i === 0 ? (req.params ?? {}) : params,
+      batchId,
+      batchIndex: i,
+    });
+    threadId = res.thread.id;
+    first ??= res;
+  }
+  return first!;
 }
 
 type Quote = Awaited<ReturnType<SpicyClient['quoteTask']>>;
 type QuoteLike = Pick<Quote, 'quoteId' | 'estimatedCost' | 'maxCharge' | 'quantity' | 'unit' | 'expiresAt'>;
 
-function toQuoteResponse(p: Prepared, quote: QuoteLike): QuoteResponse {
+function toQuoteResponse(p: Prepared, quote: QuoteLike, count = 1): QuoteResponse {
   return {
+    count,
     task: p.task,
     modelId: p.modelId,
-    estimatedCost: quote.estimatedCost,
-    maxCharge: quote.maxCharge,
+    estimatedCost: times(quote.estimatedCost, count),
+    maxCharge: times(quote.maxCharge, count),
     quantity: quote.quantity,
     unit: quote.unit,
     expiresAt: quote.expiresAt,
@@ -304,6 +308,8 @@ async function launch(
     prompt: string;
     refMode: 'start-frame' | 'reference';
     params: Record<string, unknown>;
+    batchId?: string | null;
+    batchIndex?: number;
   },
 ): Promise<CreateGenerationResponse> {
   // Fil : existant (vérifié) ou créé à partir du prompt.
@@ -341,6 +347,8 @@ async function launch(
       input: p.input,
       referenceAssetIds: p.references.map(r => r.id),
       faceAssetId: p.face?.id ?? null,
+      batchId: meta.batchId ?? null,
+      batchIndex: meta.batchIndex ?? 0,
       contexts: p.contexts,
       lorasApplied: p.lorasApplied,
       idempotencyKey,

@@ -49,6 +49,9 @@ function useDebounced<T>(value: T, ms: number): T {
   return v
 }
 
+/** Tailles de série proposées dans le composer. */
+const SERIES_SIZES = [1, 4, 8]
+
 interface ComposerProps {
   threadId?: string
   personaId: string | null
@@ -152,6 +155,7 @@ export function Composer({
         referenceAssetIds: inputs.map((a) => a.id),
         faceAssetId: faceId,
         contextIds: activeContextIds,
+        count: state.count,
       }
     : null
 
@@ -299,7 +303,7 @@ export function Composer({
   return (
     <div className="shrink-0 px-4 pt-2 pb-5">
       <div
-        className="mx-auto max-w-3xl"
+        className="mx-auto max-w-4xl"
         onDragOver={(e) => {
           e.preventDefault()
           setDragging(true)
@@ -511,6 +515,26 @@ export function Composer({
               </button>
             </div>
 
+            {/* Série : nombre d'images générées avec cette demande (l'une après l'autre en local). */}
+            <div
+              className="flex h-8 shrink-0 items-center rounded-full border border-border/60 bg-background/40 p-0.5 text-[11px]"
+              title={isLocal ? 'Nombre d’images, générées l’une après l’autre sur ton GPU' : 'Nombre d’images à générer'}
+            >
+              {SERIES_SIZES.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => composer.setCount(n)}
+                  className={cn(
+                    'h-full rounded-full px-2.5 tabular-nums transition-colors',
+                    state.count === n ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  ×{n}
+                </button>
+              ))}
+            </div>
+
             {/* Générer : prix à gauche du bouton, détail au survol. */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -535,8 +559,10 @@ export function Composer({
                     className="h-9 w-9 rounded-full brand-gradient brand-shadow hover:opacity-90"
                     aria-label={
                       quoteIsCurrent && quote.data && !isLocal
-                        ? `Générer pour ${formatUsd(quote.data.estimatedCost)}`
-                        : 'Générer'
+                        ? `Générer ${state.count > 1 ? `${state.count} images ` : ''}pour ${formatUsd(quote.data.estimatedCost)}`
+                        : state.count > 1
+                          ? `Générer ${state.count} images`
+                          : 'Générer'
                     }
                   >
                     {create.isPending ? (
@@ -551,6 +577,7 @@ export function Composer({
                 <TooltipContent side="top" align="end" className="text-xs">
                   <div>
                     {TASK_LABEL[task]} · {family.label}
+                    {state.count > 1 && ` · série de ${state.count}`}
                   </div>
                   {isLocal && <div className="opacity-70">Sur ton GPU via ComfyUI, gratuit</div>}
                   {quoteIsCurrent && quote.data && !isLocal && (
