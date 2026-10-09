@@ -5,6 +5,8 @@ import {
   AlertTriangle,
   Check,
   CornerDownRight,
+  Eye,
+  EyeOff,
   FileUp,
   FolderInput,
   ImageIcon,
@@ -15,6 +17,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Star,
   Trash2,
   X,
 } from 'lucide-react'
@@ -343,8 +346,9 @@ function CategoryPanel({
   })
 
   // Compteurs : versions attendues (2 pour une option « les deux » d'une catégorie genrée) et versions prêtes.
-  const expected = options.reduce((n, o) => n + (category.gendered && !o.gender ? 2 : 1), 0)
-  const ready = thumbnails.filter((t) => t.status === 'ready' || (t.url && t.status !== 'failed')).length
+  const shownOptionIds = useMemo(() => new Set(options.filter((o) => !o.hidden).map((o) => o.id)), [options])
+  const expected = options.reduce((n, o) => n + (o.hidden ? 0 : category.gendered && !o.gender ? 2 : 1), 0)
+  const ready = thumbnails.filter((t) => shownOptionIds.has(t.optionId) && (t.status === 'ready' || (t.url && t.status !== 'failed'))).length
   const pending = thumbnails.filter((t) => t.status === 'queued' || t.status === 'running')
   const durations = thumbnails.map((t) => t.durationMs).filter((d): d is number => d !== null)
   const avgMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
@@ -393,11 +397,19 @@ function CategoryPanel({
     onError: (e) => toast.error((e as Error).message),
   })
 
+  // Vue : options visibles (sans les masquées), favorites, ou masquées.
+  const [view, setView] = useState<'visible' | 'favorites' | 'hidden'>('visible')
+  const counts = {
+    visible: options.filter((o) => !o.hidden).length,
+    favorites: options.filter((o) => o.favorite && !o.hidden).length,
+    hidden: options.filter((o) => o.hidden).length,
+  }
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return options
-    return options.filter((o) => o.fragment.toLowerCase().includes(q) || o.label?.toLowerCase().includes(q))
-  }, [options, search])
+    return options
+      .filter((o) => (view === 'hidden' ? o.hidden : !o.hidden && (view === 'visible' || o.favorite)))
+      .filter((o) => !q || o.fragment.toLowerCase().includes(q) || o.label?.toLowerCase().includes(q))
+  }, [options, search, view])
   const untranslated = options.filter((o) => !o.label).length
 
   // Sous-catégories : deux niveaux au plus.
@@ -441,6 +453,16 @@ function CategoryPanel({
     queryClient.invalidateQueries({ queryKey: ['library', 'options'] })
     queryClient.invalidateQueries({ queryKey: ['library', 'thumbnails'] })
   }
+  const flag = useMutation({
+    mutationFn: (flags: { favorite?: boolean; hidden?: boolean }) => libraryApi.flagOptions([...selection], flags),
+    onSuccess: (_, flags) => {
+      clearSelection()
+      onChanged()
+      if (flags.hidden !== undefined) toast.success(flags.hidden ? 'Masquées : hors du sélecteur et des tirages' : 'Réaffichées')
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+  const selectionAllFavorite = options.filter((o) => selection.has(o.id)).every((o) => o.favorite)
   const bulkDelete = useMutation({
     mutationFn: () => libraryApi.removeOptions([...selection]),
     onSuccess: ({ deleted }) => {
@@ -709,6 +731,27 @@ function CategoryPanel({
       {/* Recherche et sélection */}
       {options.length > 0 && (
         <div className="sticky top-0 z-10 -mx-6 flex flex-wrap items-center gap-2 bg-background/95 px-6 py-2 backdrop-blur">
+          <div className="flex h-8 items-center rounded-md border border-input p-0.5 text-[11px]">
+            {(
+              [
+                ['visible', 'Toutes'],
+                ['favorites', '★ Favoris'],
+                ['hidden', 'Masquées'],
+              ] as const
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => {
+                  setView(v)
+                  clearSelection()
+                }}
+                className={cn('h-full rounded px-2.5 tabular-nums transition-colors', view === v ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                {label} · {counts[v]}
+              </button>
+            ))}
+          </div>
           {options.length > 12 && (
             <div className="relative w-full max-w-sm">
               <Search className="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -725,6 +768,14 @@ function CategoryPanel({
               )}
               <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" onClick={clearSelection}>
                 Désélectionner
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5" disabled={flag.isPending} onClick={() => flag.mutate({ favorite: !selectionAllFavorite })}>
+                <Star className={cn('h-3.5 w-3.5', !selectionAllFavorite && 'text-amber-400')} />
+                {selectionAllFavorite ? 'Retirer des favoris' : 'Favoris'}
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5" disabled={flag.isPending} onClick={() => flag.mutate({ hidden: view !== 'hidden' })}>
+                {view === 'hidden' ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                {view === 'hidden' ? 'Réafficher' : 'Masquer'}
               </Button>
               <Button size="sm" className="h-7 gap-1.5" onClick={() => setMoving(true)}>
                 <FolderInput className="h-3.5 w-3.5" /> Déplacer vers…
@@ -749,6 +800,16 @@ function CategoryPanel({
       ) : options.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           Aucune option. Ajoute-en une au-dessus, ou importe un fichier wildcard (une option par ligne).
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {search.trim()
+            ? 'Aucun résultat.'
+            : view === 'favorites'
+              ? 'Aucun favori : ⭐ sur une carte (ou sur une sélection) pour garder tes options préférées sous la main.'
+              : view === 'hidden'
+                ? 'Aucune option masquée. Masquer retire une option du sélecteur et des tirages sans la supprimer.'
+                : 'Toutes les options sont masquées.'}
         </p>
       ) : (
         <>
@@ -961,9 +1022,20 @@ function OptionCard({
     onError: (e) => toast.error((e as Error).message),
   })
   const busy = thumbnail?.status === 'queued' || thumbnail?.status === 'running'
+  const flag = useMutation({
+    mutationFn: (flags: { favorite?: boolean; hidden?: boolean }) => libraryApi.updateOption(option.id, flags),
+    onSuccess: onChanged,
+    onError: (e) => toast.error((e as Error).message),
+  })
 
   return (
-    <div className={cn('group overflow-hidden rounded-xl border bg-card', selected ? 'border-brand ring-1 ring-brand' : 'border-border/40')}>
+    <div
+      className={cn(
+        'group overflow-hidden rounded-xl border bg-card',
+        selected ? 'border-brand ring-1 ring-brand' : 'border-border/40',
+        option.hidden && !selected && 'opacity-60',
+      )}
+    >
       {/* Miniature (l'ancienne reste affichée pendant une régénération) */}
       <div className="relative flex aspect-[4/5] items-center justify-center bg-secondary/40">
         {thumbnail?.url ? (
@@ -1007,8 +1079,31 @@ function OptionCard({
             {option.gender === 'female' ? 'F' : 'H'}
           </span>
         )}
+        {/* Favori : toujours visible quand il est actif */}
+        {!selecting && (
+          <button
+            onClick={() => flag.mutate({ favorite: !option.favorite })}
+            className={cn(
+              'absolute right-1.5 bottom-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 transition-opacity',
+              option.favorite ? 'text-amber-400 opacity-100' : 'text-white opacity-0 group-hover:opacity-100 hover:text-amber-300',
+            )}
+            title={option.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+          >
+            <Star className={cn('h-3 w-3', option.favorite && 'fill-current')} />
+          </button>
+        )}
+        {option.hidden && (
+          <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[11px] font-semibold text-white drop-shadow">Masquée</span>
+        )}
         {!editing && !selecting && (
           <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <button
+              onClick={() => flag.mutate({ hidden: !option.hidden })}
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+              title={option.hidden ? 'Réafficher' : 'Masquer (hors du sélecteur et des tirages, sans supprimer)'}
+            >
+              {option.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+            </button>
             <button
               onClick={() => regenerate.mutate()}
               disabled={busy || regenerate.isPending}

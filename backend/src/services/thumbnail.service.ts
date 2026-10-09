@@ -127,7 +127,12 @@ async function queueThumbnail(category: CategoryRow, option: OptionRow, gender: 
 export async function generateCategoryThumbnails(userId: string, categoryId: string, mode: 'missing' | 'all'): Promise<number> {
   const category = await ownedCategory(userId, categoryId);
   await requireComfy();
-  const options = await db.select().from(libraryOptions).where(eq(libraryOptions.categoryId, categoryId)).orderBy(libraryOptions.position);
+  // Les options masquées n'ont pas besoin de miniature.
+  const options = await db
+    .select()
+    .from(libraryOptions)
+    .where(and(eq(libraryOptions.categoryId, categoryId), eq(libraryOptions.hidden, false)))
+    .orderBy(libraryOptions.position);
   const existing = new Map((await thumbnailsOfCategory(categoryId)).map(t => [`${t.optionId}:${t.gender}`, t]));
 
   let queued = 0;

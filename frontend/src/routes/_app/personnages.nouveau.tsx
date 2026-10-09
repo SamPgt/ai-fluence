@@ -133,7 +133,22 @@ function Creator({
   const thumbQueries = useQueries({ queries: sheetCategories.map((c) => libraryThumbnailsQuery(c.id)) })
   const optionsOf = (categoryId: string): LibraryOption[] => {
     const i = sheetCategories.findIndex((c) => c.id === categoryId)
-    return (optionQueries[i]?.data ?? []).filter((o) => !o.gender || o.gender === draft.gender)
+    return (optionQueries[i]?.data ?? []).filter((o) => !o.hidden && (!o.gender || o.gender === draft.gender))
+  }
+  /** Options parmi lesquelles tirer : la sélection, les favoris, ou toute la liste (repli si vide). */
+  const drawPoolOf = (slot: CharacterSlot): LibraryOption[] => {
+    const all = optionsOf(slot.categoryId)
+    const from = slot.drawFrom ?? (slot.pool.length ? 'pool' : 'all')
+    const pool =
+      from === 'pool' ? all.filter((o) => slot.pool.includes(o.id)) : from === 'favorites' ? all.filter((o) => o.favorite) : all
+    return pool.length ? pool : all
+  }
+  const drawLabel = (slot: CharacterSlot): string => {
+    const all = optionsOf(slot.categoryId)
+    const from = slot.drawFrom ?? (slot.pool.length ? 'pool' : 'all')
+    if (from === 'favorites') return `Parmi mes favoris (${all.filter((o) => o.favorite).length})`
+    if (from === 'pool') return `${all.filter((o) => slot.pool.includes(o.id)).length} sur ${all.length}`
+    return `Toute la liste (${all.length})`
   }
   const thumbOf = (categoryId: string, optionId: string): string | null => {
     const i = sheetCategories.findIndex((c) => c.id === categoryId)
@@ -151,6 +166,7 @@ function Creator({
   const [lotSize, setLotSize] = useState(8)
   const [editingPreview, setEditingPreview] = useState(false)
   const [picker, setPicker] = useState<string | null>(null)
+  const pickerSlot = picker ? slotOf(picker) : null
 
   // Lots : une série = un lot ; le plus récent est affiché par défaut.
   const lots = useMemo(() => groupLots(thread?.generations ?? []), [thread?.generations])
@@ -169,8 +185,7 @@ function Creator({
           const slot = slotOf(c.id)
           if (slot.mode === 'chosen' && slot.optionId) return [slot.optionId]
           if (slot.mode === 'random') {
-            const pool = optionsOf(c.id).filter((o) => !slot.pool.length || slot.pool.includes(o.id))
-            const pick = draw(pool)
+            const pick = draw(drawPoolOf(slot))
             return pick ? [pick.id] : []
           }
           return []
@@ -324,7 +339,7 @@ function Creator({
                   <button
                     onClick={() => setPicker(c.id)}
                     className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-accent"
-                    title="Choisir dans la grille"
+                    title={slot.mode === 'random' ? 'Choisir parmi quoi tirer (sélection, favoris)' : 'Choisir dans la grille'}
                   >
                     {slot.mode === 'chosen' && option ? (
                       <>
@@ -337,7 +352,7 @@ function Creator({
                     ) : slot.mode === 'random' ? (
                       <span className="flex items-center gap-1.5 text-[13px]">
                         <span className="rounded border border-brand/40 bg-brand/10 px-1.5 text-[10px] font-medium text-brand">Aléatoire</span>
-                        {slot.pool.length ? `${slot.pool.length} sur ${optionsOf(c.id).length}` : `Toute la liste (${optionsOf(c.id).length})`}
+                        {drawLabel(slot)}
                       </span>
                     ) : (
                       <span className="text-[13px] text-muted-foreground">Vide</span>
@@ -478,7 +493,16 @@ function Creator({
 
       <TraitPicker
         open={picker !== null}
-        title="Choisir un trait"
+        title={pickerSlot?.mode === 'random' ? 'Tirer au hasard parmi…' : 'Choisir un trait'}
+        pool={
+          pickerSlot?.mode === 'random'
+            ? {
+                drawFrom: pickerSlot.drawFrom ?? (pickerSlot.pool.length ? 'pool' : 'all'),
+                ids: pickerSlot.pool,
+                onChange: (drawFrom, ids) => setSlot({ ...pickerSlot, drawFrom, pool: ids }),
+              }
+            : undefined
+        }
         categoryIds={picker ? [picker] : undefined}
         initialCategoryId={picker}
         gender={draft.gender}

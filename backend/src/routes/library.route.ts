@@ -59,6 +59,8 @@ function toOption(row: OptionRow): LibraryOption {
     tags: row.tags,
     weight: row.weight,
     source: row.source,
+    favorite: row.favorite,
+    hidden: row.hidden,
   };
 }
 
@@ -161,6 +163,8 @@ const optionFields = z.object({
   gender: z.enum(['female', 'male']).nullable(),
   tags: z.array(z.string().trim().min(1).max(30)).max(20),
   weight: z.number().min(0).max(100),
+  favorite: z.boolean(),
+  hidden: z.boolean(),
 });
 const optionCreate = optionFields.partial().required({ fragment: true });
 const optionUpdate = optionFields.partial();
@@ -370,6 +374,30 @@ const libraryRoutes = new Hono<AppEnv>()
       return c.json({
         result: { moved: moving.length, duplicates: rows.length - moving.length - alreadyThere } satisfies LibraryMoveResult,
       });
+    },
+  )
+  /** Favori ou masquage de plusieurs options d'un coup. */
+  .post(
+    '/options/flag',
+    zValidator(
+      'json',
+      z
+        .object({ optionIds: z.array(z.uuid()).min(1).max(5000), favorite: z.boolean().optional(), hidden: z.boolean().optional() })
+        .refine(b => b.favorite !== undefined || b.hidden !== undefined),
+    ),
+    async c => {
+      const { optionIds, favorite, hidden } = c.req.valid('json');
+      const owned = db
+        .select({ id: libraryOptions.id })
+        .from(libraryOptions)
+        .innerJoin(libraryCategories, eq(libraryCategories.id, libraryOptions.categoryId))
+        .where(and(inArray(libraryOptions.id, optionIds), eq(libraryCategories.userId, c.get('user').id)));
+      const rows = await db
+        .update(libraryOptions)
+        .set({ ...(favorite !== undefined ? { favorite } : {}), ...(hidden !== undefined ? { hidden } : {}) })
+        .where(inArray(libraryOptions.id, owned))
+        .returning({ id: libraryOptions.id });
+      return c.json({ updated: rows.length });
     },
   )
   /** Supprime plusieurs options d'un coup (et leurs miniatures en attente). */

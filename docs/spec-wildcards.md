@@ -314,9 +314,9 @@ Ouvert :
 | **2. Miniatures** | Gabarit de miniature par catégorie, génération locale des miniatures manquantes (basse résolution, progression), régénération, versions femme / homme | ✅ fait |
 | **3. Sélecteur visuel et bulles** | Composer : « + Trait » → catégorie → grille de miniatures → bulle ; assemblage en langage naturel accordé au genre ; aperçu du prompt | ✅ fait |
 | **1b. Découpage de la bibliothèque** | Sélection multiple (Maj+clic, résultats d'une recherche), « Déplacer vers… » une catégorie ou une nouvelle sous-catégorie, suppression en masse, sous-catégories sur deux niveaux | ✅ fait |
-| **1c. Tri de la bibliothèque** | ⭐ favoris (filtre du sélecteur, tirage « parmi mes favoris »), masquer une option (hors sélecteur et tirages, récupérable), sélection de tirage « 3 sur 48 » | à faire |
+| **1c. Tri de la bibliothèque** | ⭐ favoris (filtre du sélecteur, tirage « parmi mes favoris »), masquer une option (hors sélecteur et tirages, récupérable), sélection de tirage « 3 sur 48 » | ✅ fait |
 | **1d. Découpage automatique** | Proposition de sous-catégories par mots-clés (puis par modèle texte), validée avant application | à faire |
-| **4a. Créateur de personnage** | Fiche d'identité avec le même sélecteur, 🎲 / 🔒, lots de variantes, Grille / Comparer, « Garder ce personnage » (avatar, référence, fiche d'identité en bulles) | ✅ fait (sélection de tirage « 3 sur 48 » à venir) |
+| **4a. Créateur de personnage** | Fiche d'identité avec le même sélecteur, 🎲 / 🔒, lots de variantes, Grille / Comparer, « Garder ce personnage » (avatar, référence, fiche d'identité en bulles) | ✅ fait (sélection de tirage « 3 sur 48 » : lot 1c) |
 | **4b. Images master** | Variations proches de l'image de référence, étoiles, diversité par axe, préparation d'un dataset de LoRA | ✅ fait (export du dataset à venir) |
 | **5. Lieux** | Fiche du lieu, variantes, images master, rattachement au personnage | à faire |
 | **6. Compositeur de scène** | Panneau Scène (personnage + lieu + tenue + action + photo), scènes et looks enregistrés, aléatoire et syntaxe `__…__` / `{…}` | à faire |

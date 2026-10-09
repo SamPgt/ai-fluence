@@ -279,6 +279,10 @@ export const libraryOptions = pgTable(
     gender: text('gender').$type<Gender>(),
     /** Probabilité relative lors d'un tirage au hasard. */
     weight: real('weight').notNull().default(1),
+    /** Favorite : filtre du sélecteur, tirage « parmi mes favoris ». */
+    favorite: boolean('favorite').notNull().default(false),
+    /** Masquée : hors du sélecteur et des tirages, sans être supprimée (récupérable). */
+    hidden: boolean('hidden').notNull().default(false),
     /** Fichier d'origine (import) ; vide pour une option ajoutée à la main. */
     source: text('source').notNull().default(''),
     position: integer('position').notNull().default(0),

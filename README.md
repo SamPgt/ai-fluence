@@ -135,6 +135,7 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
 - Une option réservée à un genre (**F** / **H**) n'aura que sa miniature, et ne sera proposée qu'aux personnages du même genre (réglé dans les paramètres du persona).
 - Ajouter, modifier ou supprimer une option à la main ; déplacer une catégorie vers une autre zone.
 - **Découper une grosse catégorie** : coche des cartes (Maj+clic pour une plage, ou « Sélectionner les N résultats » après une recherche comme `dress`), puis **Déplacer vers…** une catégorie existante ou une **nouvelle sous-catégorie** (« Vêtements › Robes »). Les miniatures suivent. **Supprimer** en masse ce qui ne sert pas.
+- **Trier sans supprimer** : ⭐ **favori** (sur la carte ou sur une sélection) et **masquer** (hors du sélecteur, des tirages et des miniatures à générer, récupérable dans la vue « Masquées »). Le sélecteur de traits montre les favoris en premier, avec un filtre ★.
 - **Sous-catégories** : deux niveaux au plus. Une sous-catégorie suit la zone de sa catégorie et hérite de son genre, de sa tournure et de son gabarit de miniatures. Chaque sous-catégorie est un trait à part (une bulle « Hauts » et une bulle « Bas » peuvent coexister) : découpe plutôt en pièces complémentaires. Supprimer une catégorie fait remonter ses sous-catégories au premier niveau.
 - Chaque catégorie a un nom technique (`__coupe_de_cheveux__`) pour la syntaxe des wildcards.
 
@@ -156,7 +157,7 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
 
 Le **+** de la barre de gauche ouvre le créateur (la création rapide d'un persona reste accessible en haut à droite).
 
-- **Fiche d'identité** : une ligne par catégorie de la zone *Personnage* de la bibliothèque. Pour chaque trait : choisir dans la grille de miniatures, 🎲 aléatoire (tiré pour chaque variante), vider (le modèle décide), 🔒 verrouiller. « Tout aléatoire » passe en aléatoire tous les traits non verrouillés.
+- **Fiche d'identité** : une ligne par catégorie de la zone *Personnage* de la bibliothèque. Pour chaque trait : choisir dans la grille de miniatures, 🎲 aléatoire (tiré pour chaque variante ; un clic sur la ligne choisit parmi quoi tirer : toute la liste, mes favoris, ou ma sélection « 3 sur 48 »), vider (le modèle décide), 🔒 verrouiller. « Tout aléatoire » passe en aléatoire tous les traits non verrouillés.
 - **Départ** : « Vierge » ou « Aléatoire complet » démarrent une nouvelle création ; la création en cours est reprise à chaque ouverture.
 - **Genre** (Femme / Homme), **modèle** et **taille du lot** (4, 8, 12), puis « Générer N variantes ». Chaque variante fait son propre tirage ; en local, elles arrivent une par une, avec la progression et « Annuler le lot ».
 - **Variantes** : historique des lots (rien n'est supprimé), vue **Grille** (traits tirés sous chaque image) ou **Comparer** (une colonne par image, une ligne par trait, en couleur ce qui varie ; clic sur une case pour reprendre ce trait seul).

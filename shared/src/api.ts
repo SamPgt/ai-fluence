@@ -388,6 +388,10 @@ export interface LibraryOption {
   tags: string[];
   weight: number;
   source: string;
+  /** Favorite : filtre du sélecteur, tirage « parmi mes favoris ». */
+  favorite: boolean;
+  /** Masquée : hors du sélecteur et des tirages (récupérable). */
+  hidden: boolean;
 }
 
 /** Version d'une miniature : femme, homme, ou unique (catégorie sans genre). */
@@ -425,6 +429,8 @@ export interface CharacterSlot {
   mode: 'chosen' | 'random' | 'empty';
   optionId: string | null;
   pool: string[];
+  /** Tirage aléatoire : toute la liste, les favoris de la catégorie, ou la sélection `pool`. */
+  drawFrom?: 'all' | 'favorites' | 'pool';
   locked: boolean;
 }
 

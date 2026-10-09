@@ -115,7 +115,7 @@ export const comfyApi = {
 
 type LibraryCategoryInput = Pick<LibraryCategory, 'label'> &
   Partial<Pick<LibraryCategory, 'key' | 'description' | 'zone' | 'gendered' | 'thumbnailTemplate' | 'phrase' | 'parentId'>>
-type LibraryOptionInput = Pick<LibraryOption, 'fragment'> & Partial<Pick<LibraryOption, 'label' | 'gender' | 'tags' | 'weight'>>
+type LibraryOptionInput = Pick<LibraryOption, 'fragment'> & Partial<Pick<LibraryOption, 'label' | 'gender' | 'tags' | 'weight' | 'favorite' | 'hidden'>>
 
 export const libraryApi = {
   categories: () => apiFetch<{ categories: LibraryCategory[] }>('/library/categories'),
@@ -137,6 +137,8 @@ export const libraryApi = {
   removeOption: (id: string) => apiFetch<{ ok: true }>(`/library/options/${id}`, { method: 'DELETE' }),
   moveOptions: (optionIds: string[], categoryId: string) =>
     apiFetch<{ result: LibraryMoveResult }>('/library/options/move', { method: 'POST', body: { optionIds, categoryId } }),
+  flagOptions: (optionIds: string[], flags: { favorite?: boolean; hidden?: boolean }) =>
+    apiFetch<{ updated: number }>('/library/options/flag', { method: 'POST', body: { optionIds, ...flags } }),
   removeOptions: (optionIds: string[]) =>
     apiFetch<{ deleted: number }>('/library/options/delete', { method: 'POST', body: { optionIds } }),
   thumbnails: (categoryId: string) => apiFetch<{ thumbnails: LibraryThumbnail[] }>(`/library/categories/${categoryId}/thumbnails`),

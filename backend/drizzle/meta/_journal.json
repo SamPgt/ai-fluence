@@ -120,6 +120,13 @@
       "when": 1791573182795,
       "tag": "0016_library_subcategories",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791573798381,
+      "tag": "0017_library_favorites",
+      "breakpoints": true
     }
   ]
 }

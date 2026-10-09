@@ -74,6 +74,7 @@ const slotSchema = z.object({
   mode: z.enum(['chosen', 'random', 'empty']),
   optionId: z.uuid().nullable(),
   pool: z.array(z.uuid()).max(500),
+  drawFrom: z.enum(['all', 'favorites', 'pool']).optional(),
   locked: z.boolean(),
 });
 
