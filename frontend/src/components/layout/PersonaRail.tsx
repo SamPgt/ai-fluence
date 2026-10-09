@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Images,
   LayoutGrid,
+  Library,
   LogOut,
   Plus,
   Settings,
@@ -174,6 +175,20 @@ export function PersonaRail({ user }: { user: User }) {
           </span>
         </Bubble>
       </div>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/bibliotheque"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            activeProps={{ className: 'bg-accent text-foreground' }}
+            aria-label="Bibliothèque"
+          >
+            <Library className="h-5 w-5" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">Bibliothèque</TooltipContent>
+      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>

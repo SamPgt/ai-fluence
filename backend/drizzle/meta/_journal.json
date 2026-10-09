@@ -64,6 +64,27 @@
       "when": 1791493779468,
       "tag": "0008_generation_batch",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791554678649,
+      "tag": "0009_library",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791557081392,
+      "tag": "0010_library_option_gender",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791557298537,
+      "tag": "0011_library_zone",
+      "breakpoints": true
     }
   ]
 }

@@ -115,6 +115,27 @@ Ajouter un workflow :
 
 > Windows : `comfy launch --background` relance la commande `comfy`, qui doit être dans le PATH. Si `comfy` n'est pas reconnu dans un terminal, ajoute le dossier `Scripts` de Python au PATH, ou préfixe la commande : `set "PATH=%APPDATA%\Python\Python314\Scripts;%PATH%" && python -m comfy_cli launch --background`.
 
+## Bibliothèque (wildcards)
+
+Icône « Bibliothèque » dans la barre de gauche. Des **catégories** (coupe de cheveux, pièces, lumières…) regroupent des **options** : un fragment de prompt en anglais pour le modèle (`a short bowl cut`) et un libellé en français pour toi (« Coupe au bol », badge **EN** tant qu'il manque).
+
+Les catégories sont rangées par **zone**, la partie du prompt qu'elles alimentent :
+
+| Zone | Exemples | Genre des options |
+| --- | --- | --- |
+| Personnage | coiffures, couleurs de cheveux, yeux, peau | demandé à l'import (femme / homme / les deux) |
+| Tenue | hauts, robes, chaussures, accessoires | demandé à l'import |
+| Pose & action | poses, expressions, activités | pas demandé ; possible pour quelques exceptions |
+| Lieu & décor | pièces, mobilier, objets, moments de la journée | jamais |
+| Photo & ambiance | cadrages, lumières, rendus | jamais |
+
+- **Importer un fichier wildcard** dans une zone (`.txt`, une option par ligne ; lignes vides et commentaires `#` / `//` ignorés, doublons écartés) : il devient une catégorie de cette zone. On peut aussi importer dans une catégorie existante.
+- Une option réservée à un genre (**F** / **H**) n'aura que sa miniature, et ne sera proposée qu'aux personnages du même genre (réglé dans les paramètres du persona).
+- Ajouter, modifier ou supprimer une option à la main ; déplacer une catégorie vers une autre zone.
+- Chaque catégorie a un nom technique (`__coupe_de_cheveux__`) pour la syntaxe des wildcards.
+
+Les miniatures et le choix visuel dans le composer arrivent dans les lots suivants (cf. `docs/spec-wildcards.md`).
+
 ## Où sont les fichiers
 
 ```

@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { catalogApi, comfyApi, personasApi, presetsApi, settingsApi, threadsApi } from './api'
+import { catalogApi, comfyApi, libraryApi, personasApi, presetsApi, settingsApi, threadsApi } from './api'
 
 export const qk = {
   catalog: ['catalog'] as const,
@@ -7,6 +7,8 @@ export const qk = {
   balance: ['balance'] as const,
   credits: ['credits'] as const,
   comfy: ['comfy'] as const,
+  libraryCategories: ['library', 'categories'] as const,
+  libraryOptions: (categoryId: string) => ['library', 'options', categoryId] as const,
   personas: ['personas'] as const,
   presets: ['presets'] as const,
   threads: (personaId: string | null) => ['threads', personaId ?? 'all'] as const,
@@ -49,6 +51,20 @@ export const comfyStatusQuery = () =>
       return s.state === 'starting' || s.state === 'stopping' ? 1500 : 15_000
     },
     retry: false,
+  })
+
+export const libraryCategoriesQuery = () =>
+  queryOptions({
+    queryKey: qk.libraryCategories,
+    queryFn: () => libraryApi.categories().then((r) => r.categories),
+    staleTime: 60_000,
+  })
+
+export const libraryOptionsQuery = (categoryId: string) =>
+  queryOptions({
+    queryKey: qk.libraryOptions(categoryId),
+    queryFn: () => libraryApi.options(categoryId).then((r) => r.options),
+    staleTime: 60_000,
   })
 
 export const personasQuery = () =>

@@ -1,7 +1,7 @@
 # Spec fonctionnelle : wildcards, créateur de personnage, compositeur de scène
 
 > Branche `feat/comfyui`. Vision produit de cette branche, indépendante de `main`.
-> Statut : v1.1, mise à jour avec les maquettes Claude Design (personnage, images master, lieux, scène).
+> Statut : v1.2. Priorité au **choix visuel** (bibliothèque, miniatures, bulles), cf. § 2 et § 14.
 
 ## 1. Objectif
 
@@ -14,6 +14,9 @@ La même brique sert à deux usages :
 
 ## 2. Principes
 
+- **Choisir visuellement.** On ne connaît pas par cœur le nom des coupes de cheveux : chaque option a une **miniature** qui la montre, et on choisit dans une grille d'images. C'est le cœur de l'outil ; la syntaxe des wildcards (`__…__`) n'est qu'un mécanisme sous le capot.
+- **Un choix = une bulle.** L'option choisie apparaît comme une bulle au-dessus du champ de texte du composer (libellé français, fragment anglais au survol, clic pour changer).
+- **Langage naturel.** Les fragments sont des groupes nominaux (`a short bowl cut`), assemblés en phrase par un gabarit accordé au genre du personnage (« a woman with a short bowl cut, light olive skin… »), pas en liste de mots-clés : c'est ce qu'attendent Flux, Z-Image, Qwen.
 - **Choisir, pas écrire.** Le texte libre reste possible, mais n'est plus nécessaire.
 - **Deux faces par option** : un libellé en français pour l'utilisateur, un fragment de prompt en anglais pour le modèle. Le jargon (objectifs, éclairages, termes techniques) est caché dans les fragments.
 - **Aléatoire maîtrisé** : chaque emplacement peut être choisi, tiré au hasard (dans toute la liste ou une sélection) ou laissé vide. Un cadenas protège ce qui plaît.
@@ -237,11 +240,14 @@ Un lieu se crée comme un personnage (§ 8) : fiche, variantes (aperçu neutre :
 - modèles **à références multiples** (SpicyAPI : Seedream, Nano Banana, Qwen Edit, Kling O3…) qui combinent personnage + lieu ;
 - en local, des modèles d'édition par référence (Qwen-Image-Edit, Flux Kontext) sont possibles mais lourds pour 12 Go de VRAM : à évaluer.
 
-### 9.6 Vignettes des options
+### 9.6 Miniatures des options
 
-Choisir visuellement est plus rapide que lire. Une option peut avoir une vignette :
-- importée avec le pack si elle existe ;
-- ou **générée par l'app en local**, une fois pour toutes, avec un prompt neutre isolant l'option (ex. un portrait pour une coiffure). Lancement par catégorie, en tâche de fond.
+Choisir visuellement est plus rapide que lire : chaque option a une miniature.
+
+- **Gabarit de miniature par catégorie** : un prompt neutre où l'option est insérée, avec un cadrage constant (ex. coiffures : portrait tête et épaules, fond gris uni, lumière douce ; couleur de peau : gros plan du visage). Modifiable.
+- **Modèles variés** : la personne de la miniature change d'une option à l'autre (âge, origine tirés au hasard) pour montrer l'option, pas une personne.
+- **Par genre** : une catégorie peut être « genrée » (coiffures, tenues…). Chaque option y est réservée aux femmes, aux hommes, ou aux deux (choisi à l'import du fichier, modifiable par option). Une option « les deux » a une miniature femme et une homme ; une option réservée n'a que la sienne. Le sélecteur ne montre que les options et miniatures du genre du personnage. Les catégories sans genre (lieux, objets, ambiances) n'ont qu'une miniature par option.
+- **Génération depuis la bibliothèque** : « Générer les miniatures manquantes » sur une catégorie, en local, en basse résolution (rapide), avec la progression à l'écran (pas en tâche de fond cachée). « Régénérer » sur une miniature ratée.
 
 ### 9.7 Page du personnage
 
@@ -275,21 +281,28 @@ Le persona devient une page à onglets : **Fiche** (identité), **Images master*
 
 Voir `backlog.md` : polissage du prompt assemblé par un modèle texte, conversion tags → phrases, génération de nouvelles catégories par un modèle texte, traduction automatique des libellés, règles d'incompatibilité entre options, partage de packs entre comptes.
 
-## 13. Questions ouvertes
+## 13. Décisions et questions ouvertes
 
-1. **Bibliothèque de départ** : l'app embarque-t-elle un petit pack « influenceur » de base (FR/EN, quelques centaines d'options), en plus des imports Civitai ? Recommandé : oui, sinon l'outil est vide au premier lancement.
-2. **Libellés FR des packs importés** : on affiche le fragment anglais en attendant une traduction (manuelle ou automatique, cf. backlog) ?
-3. **Emplacements par défaut** : la liste du § 4.1 convient-elle, ou faut-il l'adapter au type de contenu visé (lifestyle, mode, fitness…) ?
-4. **Créer un personnage** : page dédiée (recommandé) ou extension de l'écran persona actuel ?
+Décidé :
+- **Pas de pack de démarrage** : la bibliothèque est alimentée par l'import de wildcards (Civitai ou autre). Le format exact sera calé sur un premier fichier réel.
+- **Bulles au-dessus du champ de texte**, pas mélangées au texte.
+- **Miniatures par genre** : seule la version du genre du personnage est montrée.
+- **Genre du personnage** : nouveau paramètre du persona (femme / homme). ⚠️ Divergence avec `main`, où le persona n'a pas de genre.
+- **Zones de la bibliothèque** : chaque catégorie appartient à une zone (Personnage, Tenue, Pose & action, Lieu & décor, Photo & ambiance), qui correspond aux blocs du § 4.1. L'import se fait dans une zone. Le genre est demandé à l'import pour Personnage et Tenue, facultatif pour Pose & action (quelques exceptions), absent pour Lieu & décor et Photo & ambiance.
+
+Ouvert :
+1. **Libellés FR des options importées** : saisie à la main, ou traduction automatique (cf. backlog) ; en attendant, le fragment anglais est affiché avec un badge EN.
+2. **Emplacements par défaut** : la liste du § 4.1 convient-elle, ou faut-il l'adapter au type de contenu visé (lifestyle, mode, fitness…) ?
+3. **Créer un personnage** : page dédiée (recommandé) ou extension de l'écran persona actuel ?
 
 ## 14. Découpage proposé
 
-| Lot | Contenu | Valeur |
+| Lot | Contenu | Statut |
 |---|---|---|
-| **1. Moteur** | Résolution `__…__` et `{…}` dans le texte libre, graine de tirage, tirage enregistré, aperçu du prompt résolu | Les packs Civitai sont utilisables tout de suite, à la main |
-| **2. Import** | Import .txt / .yaml / .zip, détection du style, rattachement aux emplacements, gestion de la bibliothèque | Bibliothèque alimentée |
-| **0. Séries ×N** | Générer N images avec la même demande (file ComfyUI séquentielle en local, N tâches SpicyAPI), affichées en un bloc dans le fil, progression et annulation | Utile tout de suite, prérequis des lots |
-| **3. Créateur de personnage** | Fiche Identité, 🎲 / 🔒, lots de variantes, Grille / Comparer, image de référence, images master, « Garder ce personnage » | Usage 1 |
-| **4. Lieux** | Fiche Décor, variantes, images master d'un lieu, rattachement au personnage | Cohérence du décor |
-| **5. Compositeur de scène** | Panneau Scène (personnage + lieu + tenue + action + photo), séries, scènes et looks enregistrés, migration des contextes | Usage 2 |
-| **6. Confort** | Vignettes générées en local, favoris, export d'un dataset de LoRA | Choix visuel, entraînement |
+| **0. Séries ×N** | Générer N images avec la même demande (file ComfyUI séquentielle en local, N tâches SpicyAPI), en un bloc dans le fil, progression et annulation | ✅ fait |
+| **1. Bibliothèque** | Catégories et options en base (FR / EN, catégorie genrée ou non), import d'un fichier wildcard dans une catégorie, ajout et édition à la main, page « Bibliothèque ». Genre du persona. | ✅ fait (import `.txt` ; `.yaml` / `.zip` à caler sur un fichier réel) |
+| **2. Miniatures** | Gabarit de miniature par catégorie, génération locale des miniatures manquantes (basse résolution, progression), régénération, versions femme / homme | à faire |
+| **3. Sélecteur visuel et bulles** | Composer : « + Trait » → catégorie → grille de miniatures → bulle ; assemblage en langage naturel accordé au genre ; aperçu du prompt | à faire |
+| **4. Créateur de personnage** | Fiche d'identité avec le même sélecteur, 🎲 / 🔒, lots de variantes, Grille / Comparer, image de référence, images master, « Garder ce personnage » | à faire |
+| **5. Lieux** | Fiche du lieu, variantes, images master, rattachement au personnage | à faire |
+| **6. Compositeur de scène** | Panneau Scène (personnage + lieu + tenue + action + photo), scènes et looks enregistrés, aléatoire et syntaxe `__…__` / `{…}` | à faire |

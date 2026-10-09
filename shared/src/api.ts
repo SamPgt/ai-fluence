@@ -4,6 +4,7 @@
  */
 import type { InputSchema, VideoRefMode } from './input';
 import type { MediaKind, ModelBadge, ModelProvider, TaskKind } from './models';
+import type { LibraryZone } from './library';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -146,10 +147,14 @@ export interface PersonaLora {
   noise?: 'high' | 'low' | 'both';
 }
 
+export type Gender = 'female' | 'male';
+
 export interface Persona {
   id: string;
   name: string;
   kind: 'influencer' | 'art';
+  /** Genre du personnage (null : non précisé). */
+  gender: Gender | null;
   color: string;
   avatarAssetId: string | null;
   avatarUrl: string | null;
@@ -319,4 +324,43 @@ export interface EnhancePromptResponse {
 export interface ApiError {
   error: string;
   code?: string;
+}
+
+// ── Bibliothèque (wildcards) ──────────────────────────────────
+
+export interface LibraryCategory {
+  id: string;
+  /** Nom technique (`cheveux_coupe`). */
+  key: string;
+  label: string;
+  description: string;
+  /** Partie du prompt à laquelle appartient la catégorie (Personnage, Lieu & décor…). */
+  zone: LibraryZone;
+  /** Miniatures en version femme et homme (zones Personnage, Tenue, Pose & action). */
+  gendered: boolean;
+  thumbnailTemplate: string;
+  optionCount: number;
+  createdAt: string;
+}
+
+export interface LibraryOption {
+  id: string;
+  categoryId: string;
+  /** Fragment anglais envoyé au modèle. */
+  fragment: string;
+  /** Libellé français ; null si non traduit. */
+  label: string | null;
+  /** Réservée à un genre ; null = pour les deux. */
+  gender: Gender | null;
+  tags: string[];
+  weight: number;
+  source: string;
+}
+
+export interface LibraryImportResult {
+  added: number;
+  /** Lignes déjà présentes dans la catégorie. */
+  duplicates: number;
+  /** Lignes vides ou commentaires. */
+  ignored: number;
 }

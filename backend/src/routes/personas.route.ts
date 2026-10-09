@@ -21,6 +21,8 @@ const loraSchema = z.object({
 const personaSchema = z.object({
   name: z.string().trim().min(1).max(40),
   kind: z.enum(['influencer', 'art']).default('influencer'),
+  // Sans valeur par défaut : une mise à jour partielle ne doit pas l'effacer.
+  gender: z.enum(['female', 'male']).nullable().optional(),
   color: z.string().regex(/^#[0-9a-f]{6}$/i).default('#8b5cf6'),
   avatarAssetId: z.uuid().nullable().default(null),
   description: z.string().max(2000).default(''),
@@ -67,7 +69,12 @@ const personasRoutes = new Hono<AppEnv>()
   })
   .patch('/:id', zValidator('json', personaSchema.partial()), async c => {
     const user = c.get('user');
-    const body = c.req.valid('json');
+    // Avec Zod 4, `.partial()` applique les valeurs par défaut aux champs absents : sans ce filtre,
+    // renommer un persona remettrait à zéro son type, sa couleur, sa description… On ne garde que les champs envoyés.
+    const sent = new Set(Object.keys((await c.req.json()) as object));
+    const body = Object.fromEntries(Object.entries(c.req.valid('json')).filter(([key]) => sent.has(key))) as ReturnType<
+      typeof c.req.valid<'json'>
+    >;
     if (!(await assertAvatar(user.id, body.avatarAssetId))) return c.json({ error: 'Avatar introuvable.' }, 400);
     const { loras, ...rest } = body;
     const [row] = await db

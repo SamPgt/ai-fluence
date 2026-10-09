@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Camera, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { MODEL_FAMILIES, type MediaKind, type Persona, type PersonaLora } from '@ai-fluence/shared'
+import { MODEL_FAMILIES, type Gender, type MediaKind, type Persona, type PersonaLora } from '@ai-fluence/shared'
 
 import { assetsApi, personasApi } from '@/lib/api'
 import { catalogQuery, personasQuery, qk } from '@/lib/queries'
@@ -65,6 +65,7 @@ function PersonaEditor({ persona }: { persona: Persona }) {
       personasApi.update(persona.id, {
         name: draft.name,
         kind: draft.kind,
+        gender: draft.gender,
         color: draft.color,
         avatarAssetId: draft.avatarAssetId,
         description: draft.description,
@@ -147,6 +148,17 @@ function PersonaEditor({ persona }: { persona: Persona }) {
                     <SelectContent>
                       <SelectItem value="influencer">Influenceur</SelectItem>
                       <SelectItem value="art">Page art</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {/* Genre : accorde le prompt et choisit les miniatures (version femme ou homme) de la bibliothèque. */}
+                  <Select value={draft.gender ?? '__none'} onValueChange={(v) => set('gender', v === '__none' ? null : (v as Gender))}>
+                    <SelectTrigger size="sm" title="Genre du personnage">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="female">Femme</SelectItem>
+                      <SelectItem value="male">Homme</SelectItem>
+                      <SelectItem value="__none">Genre non précisé</SelectItem>
                     </SelectContent>
                   </Select>
                   <div className="flex gap-1.5">

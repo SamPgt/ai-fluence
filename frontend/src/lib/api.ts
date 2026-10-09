@@ -12,7 +12,11 @@ import type {
   EnhancePromptRequest,
   EnhancePromptResponse,
   Generation,
+  Gender,
   GenerationRequest,
+  LibraryCategory,
+  LibraryImportResult,
+  LibraryOption,
   LoginRequest,
   Persona,
   PersonaInput,
@@ -101,6 +105,30 @@ export const comfyApi = {
   status: () => apiFetch<{ status: ComfyStatus }>('/comfy/status'),
   start: () => apiFetch<{ status: ComfyStatus }>('/comfy/start', { method: 'POST' }),
   stop: () => apiFetch<{ status: ComfyStatus }>('/comfy/stop', { method: 'POST' }),
+}
+
+type LibraryCategoryInput = Pick<LibraryCategory, 'label'> &
+  Partial<Pick<LibraryCategory, 'key' | 'description' | 'zone' | 'gendered' | 'thumbnailTemplate'>>
+type LibraryOptionInput = Pick<LibraryOption, 'fragment'> & Partial<Pick<LibraryOption, 'label' | 'gender' | 'tags' | 'weight'>>
+
+export const libraryApi = {
+  categories: () => apiFetch<{ categories: LibraryCategory[] }>('/library/categories'),
+  createCategory: (body: LibraryCategoryInput) =>
+    apiFetch<{ category: LibraryCategory }>('/library/categories', { method: 'POST', body }),
+  updateCategory: (id: string, body: Partial<LibraryCategoryInput>) =>
+    apiFetch<{ category: LibraryCategory }>(`/library/categories/${id}`, { method: 'PATCH', body }),
+  removeCategory: (id: string) => apiFetch<{ ok: true }>(`/library/categories/${id}`, { method: 'DELETE' }),
+  options: (categoryId: string) => apiFetch<{ options: LibraryOption[] }>(`/library/categories/${categoryId}/options`),
+  addOption: (categoryId: string, body: LibraryOptionInput) =>
+    apiFetch<{ option: LibraryOption }>(`/library/categories/${categoryId}/options`, { method: 'POST', body }),
+  importText: (categoryId: string, text: string, source: string, gender: Gender | null = null) =>
+    apiFetch<{ result: LibraryImportResult }>(`/library/categories/${categoryId}/import`, {
+      method: 'POST',
+      body: { text, source, gender },
+    }),
+  updateOption: (id: string, body: Partial<LibraryOptionInput>) =>
+    apiFetch<{ option: LibraryOption }>(`/library/options/${id}`, { method: 'PATCH', body }),
+  removeOption: (id: string) => apiFetch<{ ok: true }>(`/library/options/${id}`, { method: 'DELETE' }),
 }
 
 export const catalogApi = {

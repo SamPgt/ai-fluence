@@ -13,6 +13,7 @@ import generationsRoutes from './routes/generations.route.js';
 import presetsRoutes from './routes/presets.route.js';
 import promptsRoutes from './routes/prompts.route.js';
 import comfyRoutes from './routes/comfy.route.js';
+import libraryRoutes from './routes/library.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -48,7 +49,8 @@ const app = new Hono<AppEnv>()
   .route('/generations', generationsRoutes)
   .route('/presets', presetsRoutes)
   .route('/prompts', promptsRoutes)
-  .route('/comfy', comfyRoutes);
+  .route('/comfy', comfyRoutes)
+  .route('/library', libraryRoutes);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {

@@ -1,0 +1,1 @@
+ALTER TABLE "library_options" ADD COLUMN "gender" text;

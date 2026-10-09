@@ -7,9 +7,10 @@ import {
   real,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, ModelProvider, PersonaLora, TaskKind } from '@ai-fluence/shared';
+import type { GenerationContext, Gender, LibraryZone, ModelProvider, PersonaLora, TaskKind } from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -64,6 +65,8 @@ export const personas = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     kind: text('kind').$type<'influencer' | 'art'>().notNull().default('influencer'),
+    /** Genre du personnage : accorde le prompt et choisit les miniatures de la bibliothèque. */
+    gender: text('gender').$type<Gender>(),
     color: text('color').notNull().default('#8b5cf6'),
     avatarAssetId: uuid('avatar_asset_id'),
     description: text('description').notNull().default(''),
@@ -197,4 +200,59 @@ export const promptPresets = pgTable(
     createdAt: createdAt(),
   },
   t => [index('prompt_presets_user_idx').on(t.userId)],
+);
+
+// ── Bibliothèque (wildcards) ─────────────────────────────────
+
+/** Une catégorie d'options (« Coupe de cheveux »), alimentée à la main ou par import de wildcards. */
+export const libraryCategories = pgTable(
+  'library_categories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** Nom technique, unique par compte (`cheveux_coupe`, utilisable en `__cheveux_coupe__`). */
+    key: text('key').notNull(),
+    label: text('label').notNull(),
+    description: text('description').notNull().default(''),
+    /** Partie du prompt : Personnage, Tenue, Pose & action, Lieu & décor, Photo & ambiance. */
+    zone: text('zone').$type<LibraryZone>().notNull().default('character'),
+    /** Options montrées en version femme ou homme selon le personnage (coiffures, tenues…). */
+    gendered: boolean('gendered').notNull().default(false),
+    /** Prompt anglais des miniatures, `{option}` remplacé par le fragment. Vide = gabarit par défaut. */
+    thumbnailTemplate: text('thumbnail_template').notNull().default(''),
+    position: integer('position').notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  t => [uniqueIndex('library_categories_user_key_idx').on(t.userId, t.key)],
+);
+
+/** Une option : libellé français pour l'utilisateur, fragment anglais pour le modèle. */
+export const libraryOptions = pgTable(
+  'library_options',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => libraryCategories.id, { onDelete: 'cascade' }),
+    /** Fragment de prompt anglais, en langage naturel (`a short bowl cut`). */
+    fragment: text('fragment').notNull(),
+    /** Libellé français ; null tant qu'il n'est pas traduit (le fragment est affiché avec un badge EN). */
+    label: text('label'),
+    tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    /** Option réservée à un genre (pack « coiffures femme ») ; null = pour les deux. */
+    gender: text('gender').$type<Gender>(),
+    /** Probabilité relative lors d'un tirage au hasard. */
+    weight: real('weight').notNull().default(1),
+    /** Fichier d'origine (import) ; vide pour une option ajoutée à la main. */
+    source: text('source').notNull().default(''),
+    position: integer('position').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  t => [
+    index('library_options_category_idx').on(t.categoryId, t.position),
+    uniqueIndex('library_options_category_fragment_idx').on(t.categoryId, t.fragment),
+  ],
 );
