@@ -19,6 +19,7 @@ import {
   Sparkles,
   Star,
   Trash2,
+  Wand2,
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -26,6 +27,8 @@ import {
   LIBRARY_ZONES,
   getZone,
   orderCategories,
+  SPLIT_RULES,
+  suggestSplit,
   type Gender,
   type LibraryCategory,
   type LibraryOption,
@@ -429,6 +432,8 @@ function CategoryPanel({
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const [anchor, setAnchor] = useState<string | null>(null)
   const [moving, setMoving] = useState(false)
+  const [splitting, setSplitting] = useState(false)
+  const canSplit = Boolean(SPLIT_RULES[category.zone]) && !category.parentId && options.length >= 10
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   const toggleOption = (id: string, range: boolean) => {
     setSelection((prev) => {
@@ -523,6 +528,17 @@ function CategoryPanel({
           {!category.parentId && (
             <Button variant="outline" size="sm" className="gap-1.5" disabled={addChild.isPending} onClick={() => addChild.mutate()}>
               <Plus className="h-3.5 w-3.5" /> Sous-catégorie
+            </Button>
+          )}
+          {canSplit && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setSplitting(true)}
+              title="Ranger les options en sous-catégories (robes, hauts, bas…) d'après leurs mots-clés"
+            >
+              <Wand2 className="h-3.5 w-3.5" /> Proposer un découpage
             </Button>
           )}
           <Select value={category.zone} disabled={Boolean(category.parentId)} onValueChange={(zone) => update.mutate({ zone: zone as LibraryZone })}>
@@ -870,6 +886,18 @@ function CategoryPanel({
         pending={bulkDelete.isPending}
         onConfirm={() => bulkDelete.mutate()}
       />
+      {splitting && (
+        <SplitDialog
+          category={category}
+          categories={categories}
+          options={options}
+          onClose={() => setSplitting(false)}
+          onDone={() => {
+            setSplitting(false)
+            afterBulk()
+          }}
+        />
+      )}
       <MoveDialog
         open={moving}
         category={category}
@@ -883,6 +911,117 @@ function CategoryPanel({
         }}
       />
     </div>
+  )
+}
+
+/**
+ * Découpage automatique : sous-catégories proposées d'après les mots-clés des fragments, à valider.
+ * Un groupe dont le nom existe déjà en sous-catégorie y est fusionné.
+ */
+function SplitDialog({
+  category,
+  categories,
+  options,
+  onClose,
+  onDone,
+}: {
+  category: LibraryCategory
+  categories: LibraryCategory[]
+  options: LibraryOption[]
+  onClose: () => void
+  onDone: () => void
+}) {
+  const proposal = useMemo(() => suggestSplit(category.zone, options), [category.zone, options])
+  const byId = useMemo(() => new Map(options.map((o) => [o.id, o])), [options])
+  const children = categories.filter((c) => c.parentId === category.id)
+  const [groups, setGroups] = useState(() => proposal.groups.map((g) => ({ ...g, include: true })))
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [progress, setProgress] = useState<string | null>(null)
+  const included = groups.filter((g) => g.include && g.label.trim())
+  const total = included.reduce((n, g) => n + g.optionIds.length, 0)
+  const existingOf = (label: string) => children.find((c) => c.label.trim().toLowerCase() === label.trim().toLowerCase())
+
+  const apply = useMutation({
+    mutationFn: async () => {
+      let moved = 0
+      for (const g of included) {
+        setProgress(g.label)
+        const id = existingOf(g.label)?.id ?? (await libraryApi.createCategory({ label: g.label.trim(), parentId: category.id })).category.id
+        moved += (await libraryApi.moveOptions(g.optionIds, id)).result.moved
+      }
+      return moved
+    },
+    onSuccess: (moved) => {
+      toast.success(`${moved} option(s) rangée(s) en ${included.length} sous-catégorie(s)`)
+      onDone()
+    },
+    onError: (e) => {
+      setProgress(null)
+      toast.error((e as Error).message)
+    },
+  })
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && !apply.isPending && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Découper « {category.label} »</DialogTitle>
+          <DialogDescription>
+            Proposition d'après les mots-clés anglais des fragments (« sweater dress » va dans Robes, « dress shirt » dans Hauts).
+            Renomme ou décoche un groupe ; tu pourras corriger une option ensuite avec « Déplacer vers… ».
+          </DialogDescription>
+        </DialogHeader>
+        {groups.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucun mot-clé reconnu dans ces options.</p>
+        ) : (
+          <div className="max-h-[50vh] space-y-1.5 overflow-y-auto pr-1">
+            {groups.map((g, i) => {
+              const merge = existingOf(g.label)
+              const isOpen = expanded === g.label
+              const shown = isOpen ? g.optionIds : g.optionIds.slice(0, 5)
+              return (
+                <div key={i} className={cn('rounded-lg border border-border/40 px-3 py-2', !g.include && 'opacity-50')}>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={g.include}
+                      onCheckedChange={(include) => setGroups((gs) => gs.map((x, j) => (j === i ? { ...x, include } : x)))}
+                    />
+                    <Input
+                      value={g.label}
+                      onChange={(e) => setGroups((gs) => gs.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                      className="h-7 max-w-52 text-xs"
+                    />
+                    <span className="text-xs text-muted-foreground tabular-nums">{g.optionIds.length}</span>
+                    {merge && <span className="text-[11px] text-brand">fusion avec la sous-catégorie existante</span>}
+                  </div>
+                  <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                    {shown.map((id) => byId.get(id)?.fragment).join(' · ')}
+                    {g.optionIds.length > 5 && (
+                      <button className="ml-1.5 text-brand hover:underline" onClick={() => setExpanded(isOpen ? null : g.label)}>
+                        {isOpen ? 'réduire' : `+ ${g.optionIds.length - 5}`}
+                      </button>
+                    )}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {proposal.unmatched.length} option(s) sans mot-clé reconnu restent dans « {category.label} ».
+        </p>
+        <div className="flex items-center justify-end gap-2">
+          {progress && apply.isPending && <span className="mr-auto text-xs text-muted-foreground">Rangement : {progress}…</span>}
+          <Button variant="ghost" onClick={onClose} disabled={apply.isPending}>
+            Annuler
+          </Button>
+          <Button disabled={!total || apply.isPending} onClick={() => apply.mutate()}>
+            {apply.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Ranger {total} option(s) en {included.length} sous-catégorie(s)
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
