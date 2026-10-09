@@ -5,6 +5,7 @@ import app from './app.js';
 import { env } from './env.js';
 import { client, db } from './db/index.js';
 import { resumeWatchers } from './services/generation.service.js';
+import { schedulePurge } from './services/trash.service.js';
 
 async function main() {
   await db.execute(sql`select 1`);
@@ -18,6 +19,7 @@ async function main() {
   console.log(`🚀 API sur http://localhost:${env.API_PORT}`);
 
   await resumeWatchers();
+  schedulePurge();
 
   const shutdown = async () => {
     await client.end({ timeout: 2 });

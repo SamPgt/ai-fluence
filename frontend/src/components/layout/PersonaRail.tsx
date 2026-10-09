@@ -1,4 +1,22 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type Modifier,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -8,11 +26,12 @@ import {
   Plus,
   Settings,
   Settings2,
+  Trash2,
 } from 'lucide-react'
 import type { Persona, User } from '@ai-fluence/shared'
 
-import { authApi } from '@/lib/api'
-import { personasQuery } from '@/lib/queries'
+import { authApi, personasApi } from '@/lib/api'
+import { personasQuery, qk } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { SESSION_QUERY_KEY } from '@/server/auth'
 import { useUiPref } from '@/components/providers/ui-prefs'
@@ -75,6 +94,9 @@ function Bubble({
   )
 }
 
+/** Glisser uniquement de haut en bas, dans la barre. */
+const verticalOnly: Modifier = ({ transform }) => ({ ...transform, x: 0 })
+
 function PersonaBubble({
   persona,
   active,
@@ -84,25 +106,48 @@ function PersonaBubble({
   active: boolean
   onSelect: () => void
 }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: persona.id,
+  })
   return (
-    <Bubble
-      active={active}
-      label={persona.name}
-      onClick={onSelect}
-      action={
-        // Petit engrenage : paramétrage du persona.
-        <Link
-          to="/personas/$personaId"
-          params={{ personaId: persona.id }}
-          aria-label={`Paramétrer ${persona.name}`}
-          className="absolute -top-1 right-1.5 hidden h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground group-hover:flex hover:text-foreground"
-        >
-          <Settings2 className="h-3 w-3" />
-        </Link>
-      }
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn(
+        'relative w-full touch-none',
+        isDragging && 'z-10 opacity-80',
+      )}
+      {...attributes}
+      {...listeners}
+      // Les bulles restent des boutons : le conteneur ne doit pas prendre le focus.
+      tabIndex={-1}
     >
-      <PersonaAvatar persona={persona} size={44} />
-    </Bubble>
+      <Bubble
+        active={active}
+        label={persona.name}
+        onClick={onSelect}
+        action={
+          // Petit engrenage : paramétrage du persona.
+          <Link
+            to="/personas/$personaId"
+            params={{ personaId: persona.id }}
+            aria-label={`Paramétrer ${persona.name}`}
+            className="absolute -top-1 right-1.5 hidden h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground group-hover:flex hover:text-foreground"
+          >
+            <Settings2 className="h-3 w-3" />
+          </Link>
+        }
+      >
+        <PersonaAvatar persona={persona} size={44} />
+      </Bubble>
+    </div>
   )
 }
 
@@ -113,7 +158,29 @@ export function PersonaRail({ user }: { user: User }) {
   const [creating, setCreating] = useState(false)
   const { data: personas = [] } = useQuery(personasQuery())
 
+  // Glisser-déposer : 5 px de déplacement avant de démarrer, pour garder le clic.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
+  // Ignore le clic qui suit immédiatement un dépôt.
+  const droppedAt = useRef(0)
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    droppedAt.current = Date.now()
+    if (!over || active.id === over.id) return
+    const from = personas.findIndex((p) => p.id === active.id)
+    const to = personas.findIndex((p) => p.id === over.id)
+    const next = arrayMove(personas, from, to)
+    queryClient.setQueryData(qk.personas, next)
+    personasApi.reorder(next.map((p) => p.id)).catch(() => {
+      queryClient.invalidateQueries({ queryKey: qk.personas })
+    })
+  }
+
   const select = (id: string) => {
+    if (Date.now() - droppedAt.current < 150) return
     setPersonaId(id)
     navigate({ to: '/' })
   }
@@ -155,14 +222,26 @@ export function PersonaRail({ user }: { user: User }) {
       <div className="my-1 h-px w-8 bg-border" />
 
       <div className="flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto scrollbar-none pt-1">
-        {personas.map((p) => (
-          <PersonaBubble
-            key={p.id}
-            persona={p}
-            active={personaId === p.id}
-            onSelect={() => select(p.id)}
-          />
-        ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[verticalOnly]}
+          onDragEnd={onDragEnd}
+        >
+          <SortableContext
+            items={personas.map((p) => p.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {personas.map((p) => (
+              <PersonaBubble
+                key={p.id}
+                persona={p}
+                active={personaId === p.id}
+                onSelect={() => select(p.id)}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
         <Bubble
           active={false}
           label="Nouveau persona"
@@ -219,6 +298,12 @@ export function PersonaRail({ user }: { user: User }) {
             <Link to="/parametres" search={{ tab: 'account' }}>
               <Settings className="h-4 w-4" />
               Paramétrage
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link to="/corbeille">
+              <Trash2 className="h-4 w-4" />
+              Corbeille
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem

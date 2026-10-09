@@ -33,7 +33,6 @@ const LABELS: Record<string, string> = {
   aspect_ratio: 'Proportions',
   resolution: 'Résolution',
   duration_seconds: 'Durée',
-  num_outputs: "Nombre d'images",
   output_format: 'Fichier',
   seed: 'Seed',
   generate_audio: "Générer l'audio",
@@ -65,7 +64,7 @@ export function labelOf(key: string): string {
   )
 }
 
-function formatOption(key: string, v: unknown): string {
+export function formatOption(key: string, v: unknown): string {
   if (key === 'duration_seconds') return v === -1 ? 'Auto' : `${v} s`
   return String(v)
 }
@@ -89,13 +88,25 @@ interface FieldProps {
   compact?: boolean
 }
 
+/**
+ * Entier à petite plage (ex. durée 3 à 10 s) : proposé en menu déroulant,
+ * comme les autres réglages, plutôt qu'en champ numérique à flèches.
+ */
+function asChoices(prop: JsonSchemaProp): JsonSchemaProp {
+  if (prop.enum || prop.type !== 'integer') return prop
+  const { minimum: min, maximum: max } = prop
+  if (min === undefined || max === undefined || max - min > 30) return prop
+  return { ...prop, enum: Array.from({ length: max - min + 1 }, (_, i) => min + i) }
+}
+
 export function ParamField({
   name,
-  prop,
+  prop: raw,
   value,
   onChange,
   compact,
 }: FieldProps) {
+  const prop = asChoices(raw)
   const current = value ?? prop.default
 
   if (prop.enum) {
@@ -111,12 +122,12 @@ export function ParamField({
           size="sm"
           className={cn(
             compact &&
-              'h-8 rounded-full border-border/60 bg-background/40 px-3 text-xs',
+              'h-8 rounded-full border-border/60 bg-background/40 px-3 text-xs text-foreground hover:bg-accent dark:bg-background/40 dark:hover:bg-accent',
           )}
         >
           <SelectValue placeholder={labelOf(name)} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="max-h-[250px]">
           <SelectGroup>
             {/* Dans la barre, le bouton n'affiche que la valeur : le titre dit de quoi il s'agit. */}
             {compact && <SelectLabel>{labelOf(name)}</SelectLabel>}

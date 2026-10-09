@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { CONTEXT_BLOCK_MAX } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { toPersona } from '../services/serialize.js';
+import { trashPersona } from '../services/trash.service.js';
 import type { AppEnv } from '../types.js';
 
 const loraSchema = z.object({
@@ -18,8 +19,25 @@ const loraSchema = z.object({
   family: z.string().min(3),
   noise: z.enum(['high', 'low', 'both']).optional(),
   triggerWords: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
+  hiddenWords: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
   previewUrl: z.url({ protocol: /^https$/ }).optional(),
   sourceUrl: z.url({ protocol: /^https$/ }).optional(),
+  group: z
+    .object({
+      key: z.string().max(80),
+      available: z
+        .array(
+          z.object({
+            family: z.string().min(3),
+            files: z
+              .array(z.object({ url: z.url({ protocol: /^https$/ }), noise: z.enum(['high', 'low']).optional() }))
+              .max(4),
+            triggerWords: z.array(z.string().trim().min(1).max(60)).max(20),
+          }),
+        )
+        .max(10),
+    })
+    .optional(),
 });
 
 const contextBlockSchema = z.object({
@@ -59,7 +77,7 @@ const personasRoutes = new Hono<AppEnv>()
     const rows = await db
       .select({ p: personas, refs: refCount })
       .from(personas)
-      .where(eq(personas.userId, c.get('user').id))
+      .where(and(eq(personas.userId, c.get('user').id), isNull(personas.deletedAt)))
       .orderBy(asc(personas.position), asc(personas.createdAt));
     return c.json({ personas: rows.map(r => toPersona(r.p, r.refs)) });
   })
@@ -93,15 +111,29 @@ const personasRoutes = new Hono<AppEnv>()
         ...(contextBlocks ? { contextBlocks: withIds(contextBlocks) } : {}),
         updatedAt: new Date(),
       })
-      .where(and(eq(personas.id, c.req.param('id')), eq(personas.userId, user.id)))
+      .where(and(eq(personas.id, c.req.param('id')), eq(personas.userId, user.id), isNull(personas.deletedAt)))
       .returning();
     if (!row) return c.json({ error: 'Persona introuvable.' }, 404);
     const [{ refs }] = await db.select({ refs: refCount }).from(personas).where(eq(personas.id, row.id));
     return c.json({ persona: toPersona(row, refs) });
   })
+  /** Nouvel ordre des bulles (glisser-déposer) : la position suit l'ordre des ids. */
+  .put('/order', zValidator('json', z.object({ ids: z.array(z.uuid()).max(200) })), async c => {
+    const userId = c.get('user').id;
+    const { ids } = c.req.valid('json');
+    await db.transaction(async tx => {
+      for (const [position, id] of ids.entries()) {
+        await tx
+          .update(personas)
+          .set({ position })
+          .where(and(eq(personas.id, id), eq(personas.userId, userId)));
+      }
+    });
+    return c.json({ ok: true });
+  })
   .delete('/:id', async c => {
-    // Les fils et médias sont conservés (persona_id passe à null).
-    await db.delete(personas).where(and(eq(personas.id, c.req.param('id')), eq(personas.userId, c.get('user').id)));
+    // Corbeille : le persona et ses fils sont masqués 7 jours avant suppression définitive.
+    if (!(await trashPersona(c.get('user').id, c.req.param('id')))) return c.json({ error: 'Persona introuvable.' }, 404);
     return c.json({ ok: true });
   });
 

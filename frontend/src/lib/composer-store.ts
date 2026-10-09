@@ -13,10 +13,12 @@ export interface ComposerState {
   prompt: string
   attachments: Asset[]
   refMode: VideoRefMode
+  /** Série : nombre d'images générées avec la même demande (reste choisi après l'envoi). */
+  count: number
   /** Contextes activés (restent actifs après l'envoi). */
   contextIds: string[]
-  /** LoRA du persona cochées (aucune par défaut, 3 max envoyées). */
-  loraIds: string[]
+  /** LoRA du persona cochées, avec leurs mots déclencheurs choisis (aucune par défaut, 3 max). */
+  loras: Record<string, string[]>
   /** Incrémenté pour demander le focus du champ texte. */
   focusTick: number
 }
@@ -27,8 +29,9 @@ export const composerStore = new Store<ComposerState>({
   prompt: '',
   attachments: [],
   refMode: 'start-frame',
+  count: 1,
   contextIds: [],
-  loraIds: [],
+  loras: {},
   focusTick: 0,
 })
 
@@ -63,6 +66,7 @@ export const composer = {
       ...s,
       attachments: s.attachments.filter((a) => a.id !== id),
     })),
+  setCount: (count: number) => composerStore.setState((s) => ({ ...s, count })),
   setRefMode: (refMode: VideoRefMode) =>
     composerStore.setState((s) => ({ ...s, refMode })),
   toggleContext: (id: string) =>
@@ -72,13 +76,25 @@ export const composer = {
         ? s.contextIds.filter((x) => x !== id)
         : [...s.contextIds, id],
     })),
-  toggleLora: (id: string) =>
-    composerStore.setState((s) => ({
-      ...s,
-      loraIds: s.loraIds.includes(id)
-        ? s.loraIds.filter((x) => x !== id)
-        : [...s.loraIds, id],
-    })),
+  /** Coche ou décoche une LoRA. À l'ajout, `words` = mots pré-sélectionnés. */
+  toggleLora: (id: string, words: string[] = []) =>
+    composerStore.setState((s) => {
+      const loras = { ...s.loras }
+      if (id in loras) delete loras[id]
+      else loras[id] = words
+      return { ...s, loras }
+    }),
+  /** Choisit ou retire un mot déclencheur ; choisir un mot coche la LoRA. */
+  toggleLoraWord: (id: string, word: string, unloadWhenEmpty = false) =>
+    composerStore.setState((s) => {
+      const current = s.loras[id] ?? []
+      const words = current.includes(word)
+        ? current.filter((w) => w !== word)
+        : [...current, word]
+      const loras = { ...s.loras, [id]: words }
+      if (unloadWhenEmpty && words.length === 0) delete loras[id]
+      return { ...s, loras }
+    }),
   clearAfterSend: () =>
     composerStore.setState((s) => ({ ...s, prompt: '', attachments: [] })),
   /** Pré-remplit le composer (Relancer, Éditer, Animer). */
@@ -91,7 +107,8 @@ export const composer = {
         | 'attachments'
         | 'refMode'
         | 'contextIds'
-        | 'loraIds'
+        | 'loras'
+        | 'count'
       >
     > & {
       params?: Record<string, unknown>
@@ -104,7 +121,8 @@ export const composer = {
       ...(patch.attachments ? { attachments: patch.attachments } : {}),
       ...(patch.refMode ? { refMode: patch.refMode } : {}),
       ...(patch.contextIds ? { contextIds: patch.contextIds } : {}),
-      ...(patch.loraIds ? { loraIds: patch.loraIds } : {}),
+      ...(patch.loras ? { loras: patch.loras } : {}),
+      ...(patch.count ? { count: patch.count } : {}),
       ...(patch.params && (patch.family ?? s.family)
         ? {
             paramsByFamily: {

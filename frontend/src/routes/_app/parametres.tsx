@@ -82,7 +82,7 @@ function SettingsPage() {
         <span className="text-sm font-medium">Paramétrage</span>
       </PageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-6 py-6">
+        <div className="mx-auto max-w-[810px] px-6 py-6">
           <Tabs
             value={tab}
             onValueChange={(v) => navigate({ search: { tab: v as Tab } })}
@@ -94,7 +94,7 @@ function SettingsPage() {
               <TabsTrigger value="shortcuts">Raccourcis</TabsTrigger>
               <TabsTrigger value="credits">Crédits</TabsTrigger>
               <TabsTrigger value="storage">Stockage</TabsTrigger>
-              <TabsTrigger value="api-key">Clé API</TabsTrigger>
+              <TabsTrigger value="api-key">Clés API</TabsTrigger>
             </TabsList>
             <TabsContent value="api-key">
               <ApiKeyTab />
@@ -139,42 +139,99 @@ function useSettingsMutation<T>(
 function ApiKeyTab() {
   const queryClient = useQueryClient()
   const { data: settings } = useQuery(settingsQuery())
-  const [key, setKey] = useState('')
-  const [confirmRemove, setConfirmRemove] = useState(false)
-  const refreshAll = () => {
+  const refreshSpicy = () => {
     queryClient.invalidateQueries({ queryKey: qk.settings })
     queryClient.invalidateQueries({ queryKey: qk.catalog })
     queryClient.invalidateQueries({ queryKey: qk.balance })
   }
+  const refreshSettings = () =>
+    queryClient.invalidateQueries({ queryKey: qk.settings })
+
+  return (
+    <div className="space-y-5">
+      <ApiKeySection
+        title="SpicyAPI"
+        description="API de génération photos et vidéos."
+        hint={settings?.hasApiKey ? settings.apiKeyHint : null}
+        placeholder="sk-spicy-…"
+        consoleUrl="https://spicyapi.ai/console/keys"
+        consoleLabel="Créer une clé dans la console SpicyAPI"
+        removeDescription="Tu ne pourras plus générer tant que tu n’as pas ajouté une nouvelle clé."
+        onSave={settingsApi.setApiKey}
+        onRemove={settingsApi.removeApiKey}
+        onChanged={refreshSpicy}
+      />
+      <ApiKeySection
+        title="Fal"
+        description="Service d’entraînement de LoRA pour les modèles utilisés."
+        hint={settings?.hasFalKey ? settings.falKeyHint : null}
+        placeholder="Clé fal…"
+        consoleUrl="https://fal.ai/dashboard/keys"
+        consoleLabel="Créer une clé dans le tableau de bord fal"
+        removeDescription="Tu ne pourras plus entraîner de LoRA tant que tu n’as pas ajouté une nouvelle clé."
+        onSave={settingsApi.setFalKey}
+        onRemove={settingsApi.removeFalKey}
+        onChanged={refreshSettings}
+      />
+      <p className="px-1 text-xs text-muted-foreground">
+        Les clés sont vérifiées, puis stockées chiffrées en base. Elles ne
+        repartent jamais vers le navigateur.
+      </p>
+    </div>
+  )
+}
+
+/** Une clé à la fois : pour en changer, on supprime d'abord l'actuelle. */
+function ApiKeySection({
+  title,
+  description,
+  hint,
+  placeholder,
+  consoleUrl,
+  consoleLabel,
+  removeDescription,
+  onSave,
+  onRemove,
+  onChanged,
+}: {
+  title: string
+  description: string
+  hint: string | null
+  placeholder: string
+  consoleUrl: string
+  consoleLabel: string
+  removeDescription: string
+  onSave: (key: string) => Promise<unknown>
+  onRemove: () => Promise<unknown>
+  onChanged: () => void
+}) {
+  const [key, setKey] = useState('')
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const save = useMutation({
-    mutationFn: () => settingsApi.setApiKey(key.trim()),
+    mutationFn: () => onSave(key.trim()),
     onSuccess: () => {
       setKey('')
-      refreshAll()
+      onChanged()
       toast.success('Clé vérifiée et enregistrée')
     },
     onError: (e) => toast.error((e as Error).message),
   })
   const remove = useMutation({
-    mutationFn: () => settingsApi.removeApiKey(),
+    mutationFn: onRemove,
     onSuccess: () => {
       setConfirmRemove(false)
-      refreshAll()
+      onChanged()
       toast.success('Clé supprimée')
     },
   })
 
   return (
-    <Section
-      title="Clé API SpicyAPI"
-      description="La clé est vérifiée, puis stockée chiffrée en base. Elle ne repart jamais vers le navigateur."
-    >
-      {/* Une clé à la fois : pour en changer, on supprime d'abord l'actuelle. */}
-      {settings?.hasApiKey ? (
+    <Section title={title} description={description}>
+      {hint ? (
         <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2.5">
           <span className="flex items-center gap-2 font-mono text-sm">
             <KeyRound className="h-4 w-4 text-emerald-400" />
-            {settings.apiKeyHint}
+            {hint}
           </span>
           <Button
             variant="ghost"
@@ -197,9 +254,10 @@ function ApiKeyTab() {
             <Input
               type="password"
               autoComplete="off"
-              placeholder="sk-spicy-…"
+              placeholder={placeholder}
               value={key}
               onChange={(e) => setKey(e.target.value)}
+              aria-label={`Clé ${title}`}
             />
             <Button type="submit" disabled={!key.trim() || save.isPending}>
               {save.isPending ? (
@@ -210,21 +268,20 @@ function ApiKeyTab() {
             </Button>
           </form>
           <a
-            href="https://spicyapi.ai/console/keys"
+            href={consoleUrl}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
-            Créer une clé dans la console SpicyAPI{' '}
-            <ExternalLink className="h-3 w-3" />
+            {consoleLabel} <ExternalLink className="h-3 w-3" />
           </a>
         </>
       )}
       <ConfirmDialog
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
-        title="Supprimer la clé API ?"
-        description="Tu ne pourras plus générer tant que tu n’as pas ajouté une nouvelle clé."
+        title={`Supprimer la clé ${title} ?`}
+        description={removeDescription}
         pending={remove.isPending}
         onConfirm={() => remove.mutate()}
       />

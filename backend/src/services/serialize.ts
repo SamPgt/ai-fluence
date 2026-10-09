@@ -75,6 +75,8 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
     params: row.params,
     refMode: row.refMode,
     references,
+    batchId: row.batchId,
+    batchIndex: row.batchIndex,
     contexts: row.contexts,
     loras: row.loras,
     lorasApplied: row.lorasApplied,

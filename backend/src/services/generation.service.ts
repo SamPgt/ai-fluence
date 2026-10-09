@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { SpicyClient, TaskRecord } from '@spicyapi/sdk';
-import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { HTTPException } from 'hono/http-exception';
 import {
   buildInput,
@@ -79,7 +79,7 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     [persona] = await db
       .select()
       .from(personas)
-      .where(and(eq(personas.id, req.personaId), eq(personas.userId, user.id)))
+      .where(and(eq(personas.id, req.personaId), eq(personas.userId, user.id), isNull(personas.deletedAt)))
       .limit(1);
     if (!persona) throw new HTTPException(404, { message: 'Persona introuvable.' });
   }
@@ -125,22 +125,16 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     Promise.all(videos.map(a => ensureSpicyUri(client, a))),
   ]);
 
-  // Mots déclencheurs des LoRA appliquées, en tête de prompt (sans doublon).
+  // Mots déclencheurs choisis dans le composer, parmi ceux de chaque LoRA (jamais tous d'office).
+  const chosenWords = (l: (typeof personaLoras)[number]) =>
+    (req.loraWords?.[l.id] ?? []).filter(w => (l.triggerWords ?? []).includes(w) && !l.hiddenWords?.includes(w));
   // Si l'utilisateur l'a déjà écrit dans sa phrase, on ne le rajoute pas.
   const typed = req.prompt.toLowerCase();
-  const triggers = [
-    ...new Set(personaLoras.flatMap(l => l.triggerWords ?? []).map(w => w.trim()).filter(Boolean)),
-  ].filter(w => !typed.includes(w.toLowerCase()));
-  let finalPrompt = [triggers.join(', '), req.prompt.trim()].filter(Boolean).join(' ');
+  const triggers = [...new Set(personaLoras.flatMap(chosenWords).map(w => w.trim()).filter(Boolean))].filter(
+    w => !typed.includes(w.toLowerCase()),
+  );
 
-  // Contexte du persona : toujours envoyé, en lignes étiquetées (lisibles par les encodeurs texte).
-  const blocks = (persona?.contextBlocks ?? []).filter(b => b.text.trim());
-  if (blocks.length) {
-    const lines = blocks.map(b => `- ${b.title.trim() ? `${b.title.trim()}: ` : ''}${b.text.trim().replace(/\s+/g, ' ')}`);
-    finalPrompt = `${finalPrompt}${finalPrompt ? '\n\n' : ''}Persona context:\n${lines.join('\n')}`;
-  }
-
-  // Contextes activés : ajoutés à la fin, séparés du texte de l'utilisateur.
+  // Contextes activés (raccourcis).
   let contexts: GenerationContext[] = [];
   if (req.contextIds?.length) {
     const rows = await db
@@ -150,10 +144,34 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     const byId = new Map(rows.map(r => [r.id, r]));
     contexts = req.contextIds.map(id => byId.get(id)).filter((c): c is GenerationContext => Boolean(c));
   }
-  if (contexts.length) {
-    const details = `Additional details: ${contexts.map(c => c.text.trim()).join(', ')}`;
-    finalPrompt = finalPrompt ? `${finalPrompt}\n\n${details}` : details;
-  }
+
+  // Contexte du persona : toujours envoyé, en lignes étiquetées.
+  const blocks = (persona?.contextBlocks ?? []).filter(b => b.text.trim());
+
+  // Prompt structuré par ordre d'importance : la LoRA d'abord (le mot déclencheur
+  // agit mieux en tête), puis la demande, les raccourcis et le contexte général.
+  const oneLine = (t: string) => t.trim().replace(/\s+/g, ' ');
+  const sections: [string, string][] = [
+    ['Lora', triggers.join(', ')],
+    ['Prompt (important)', req.prompt.trim()],
+    [
+      'Détails',
+      contexts
+        .filter(c => c.text.trim())
+        .map(c => `${c.label.trim() ? `${c.label.trim()} : ` : ''}${oneLine(c.text)}`)
+        .join('\n'),
+    ],
+    [
+      'Contexte général',
+      blocks.map(b => `- ${b.title.trim() ? `${b.title.trim()} : ` : ''}${oneLine(b.text)}`).join('\n'),
+    ],
+  ];
+  const filled = sections.filter(([, body]) => body);
+  // Prompt seul : on l'envoie tel quel, sans titre.
+  const finalPrompt =
+    filled.length === 1 && filled[0][0] === 'Prompt (important)'
+      ? filled[0][1]
+      : filled.map(([title, body]) => `# ${title}\n${body}`).join('\n\n');
 
   const built = buildInput({
     schema: endpoint.schema,
@@ -173,7 +191,7 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
   return {
     client,
     contexts,
-    loras: personaLoras.map(l => ({ id: l.id, label: l.label, triggerWords: l.triggerWords ?? [] })),
+    loras: personaLoras.map(l => ({ id: l.id, label: l.label, triggerWords: chosenWords(l) })),
     task: resolution.task,
     modelId: endpoint.modelId,
     input: built.input,
@@ -185,20 +203,18 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
   };
 }
 
+/** Montant décimal (chaîne SpicyAPI) multiplié par le nombre d'images d'une série. */
+function times(amount: string, count: number): string {
+  return count === 1 ? amount : String(Number((Number(amount) * count).toFixed(6)));
+}
+
+/** Plus grande graine acceptée : on reste sous 2^31 pour tous les modèles. */
+const MAX_SEED = 2_147_483_647;
+
 export async function quoteGeneration(user: SessionUser, req: GenerationRequest): Promise<QuoteResponse> {
   const p = await prepare(user, req);
   const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
-  return {
-    task: p.task,
-    modelId: p.modelId,
-    estimatedCost: quote.estimatedCost,
-    maxCharge: quote.maxCharge,
-    quantity: quote.quantity,
-    unit: quote.unit,
-    expiresAt: quote.expiresAt,
-    dropped: p.dropped,
-    lorasApplied: p.lorasApplied,
-  };
+  return toQuoteResponse(p, quote, req.count ?? 1);
 }
 
 export class PriceChangedError extends Error {
@@ -211,42 +227,51 @@ export async function createGeneration(
   user: SessionUser,
   req: GenerationRequest,
 ): Promise<CreateGenerationResponse> {
+  const count = req.count ?? 1;
   const p = await prepare(user, req, true);
   const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
 
-  // Le devis affiché au clic vaut confirmation ; s'il a augmenté entre-temps, on redemande.
-  if (req.expectedCost !== undefined && Number(quote.estimatedCost) > Number(req.expectedCost) + 1e-9) {
-    throw new PriceChangedError({
-      task: p.task,
-      modelId: p.modelId,
-      estimatedCost: quote.estimatedCost,
-      maxCharge: quote.maxCharge,
-      quantity: quote.quantity,
-      unit: quote.unit,
-      expiresAt: quote.expiresAt,
-      dropped: p.dropped,
-      lorasApplied: p.lorasApplied,
-    });
+  // Le devis affiché au clic (total de la série) vaut confirmation ; s'il a augmenté entre-temps, on redemande.
+  const total = times(quote.estimatedCost, count);
+  if (req.expectedCost !== undefined && Number(total) > Number(req.expectedCost) + 1e-9) {
+    throw new PriceChangedError(toQuoteResponse(p, quote, count));
   }
 
-  return launch(user, p, quote, {
-    threadId: req.threadId ?? null,
-    personaId: p.persona?.id ?? null,
-    family: req.family,
-    prompt: req.prompt,
-    refMode: req.refMode ?? 'start-frame',
-    params: req.params ?? {},
-  });
+  // Série : N générations sœurs (N tâches SpicyAPI), chacune avec sa graine.
+  const batchId = count > 1 ? randomUUID() : null;
+  let threadId = req.threadId ?? null;
+  let first: CreateGenerationResponse | null = null;
+  for (let i = 0; i < count; i++) {
+    // Seed fixé par l'utilisateur : décalé d'une image à l'autre, sinon la série donnerait N fois la même image.
+    const params = { ...req.params };
+    if (i > 0 && typeof params.seed === 'number') params.seed = (params.seed + i) % MAX_SEED;
+    const pi = i === 0 ? p : await prepare(user, { ...req, params }, true);
+    const qi = i === 0 ? quote : await callSpicy(() => pi.client.quoteTask({ model: pi.modelId, input: pi.input }));
+    const res = await launch(user, pi, qi, {
+      threadId,
+      personaId: pi.persona?.id ?? null,
+      family: req.family,
+      prompt: req.prompt,
+      refMode: req.refMode ?? 'start-frame',
+      params: i === 0 ? (req.params ?? {}) : params,
+      batchId,
+      batchIndex: i,
+    });
+    threadId = res.thread.id;
+    first ??= res;
+  }
+  return first!;
 }
 
 type Quote = Awaited<ReturnType<SpicyClient['quoteTask']>>;
 
-function toQuoteResponse(p: Prepared, quote: Quote): QuoteResponse {
+function toQuoteResponse(p: Prepared, quote: Quote, count = 1): QuoteResponse {
   return {
+    count,
     task: p.task,
     modelId: p.modelId,
-    estimatedCost: quote.estimatedCost,
-    maxCharge: quote.maxCharge,
+    estimatedCost: times(quote.estimatedCost, count),
+    maxCharge: times(quote.maxCharge, count),
     quantity: quote.quantity,
     unit: quote.unit,
     expiresAt: quote.expiresAt,
@@ -267,6 +292,8 @@ async function launch(
     prompt: string;
     refMode: 'start-frame' | 'reference';
     params: Record<string, unknown>;
+    batchId?: string | null;
+    batchIndex?: number;
   },
 ): Promise<CreateGenerationResponse> {
   // Fil : existant (vérifié) ou créé à partir du prompt.
@@ -275,7 +302,7 @@ async function launch(
     [thread] = await db
       .select()
       .from(threads)
-      .where(and(eq(threads.id, meta.threadId), eq(threads.userId, user.id)))
+      .where(and(eq(threads.id, meta.threadId), eq(threads.userId, user.id), isNull(threads.deletedAt)))
       .limit(1);
     if (!thread) throw new HTTPException(404, { message: 'Fil introuvable.' });
   } else {
@@ -302,6 +329,8 @@ async function launch(
       params: meta.params,
       input: p.input,
       referenceAssetIds: p.references.map(r => r.id),
+      batchId: meta.batchId ?? null,
+      batchIndex: meta.batchIndex ?? 0,
       contexts: p.contexts,
       loras: p.loras,
       lorasApplied: p.lorasApplied,

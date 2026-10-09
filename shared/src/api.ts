@@ -36,6 +36,9 @@ export interface Settings {
   hasApiKey: boolean;
   /** Ex. `sk-spicy-••••1a2b`. Jamais la clé en clair. */
   apiKeyHint: string | null;
+  /** Clé fal (entraînement des LoRA). */
+  hasFalKey: boolean;
+  falKeyHint: string | null;
   mediaDir: string;
   defaultMediaDir: string;
   defaultImageFamily: string | null;
@@ -123,10 +126,26 @@ export interface PersonaLora {
   noise?: 'high' | 'low' | 'both';
   /** Mots déclencheurs de cette LoRA (aucun, un ou plusieurs). */
   triggerWords: string[];
+  /** Mots décochés dans la fiche : jamais proposés dans le composer. */
+  hiddenWords?: string[];
   /** Aperçu affiché dans la liste (LoRA importée depuis la bibliothèque). */
   previewUrl?: string;
   /** Page d'origine de la LoRA (Civitai). */
   sourceUrl?: string;
+  /**
+   * LoRA Civitai disponible pour plusieurs modèles : un fichier (une ligne) par
+   * modèle coché, toutes reliées par `key`. `available` liste les modèles possibles.
+   */
+  group?: PersonaLoraGroup;
+}
+
+export interface PersonaLoraGroup {
+  key: string;
+  available: {
+    family: string;
+    files: { url: string; noise?: 'high' | 'low' }[];
+    triggerWords: string[];
+  }[];
 }
 
 // ── Bibliothèque communautaire (Civitai) ─────────────────────
@@ -150,6 +169,16 @@ export interface CivitaiPreview {
   nsfw: boolean;
 }
 
+/** Fichier(s) d'une LoRA Civitai pour un de nos modèles. */
+export interface CivitaiVariant {
+  family: string;
+  baseModel: string;
+  versionId: number;
+  versionName: string;
+  triggerWords: string[];
+  files: CivitaiFile[];
+}
+
 export interface CivitaiLora {
   modelId: number;
   versionId: number;
@@ -166,6 +195,8 @@ export interface CivitaiLora {
   downloads: number;
   likes: number;
   nsfw: boolean;
+  /** Une entrée par modèle compatible (la première = champs ci-dessus). */
+  variants: CivitaiVariant[];
 }
 
 export interface CivitaiSearchResponse {
@@ -228,6 +259,7 @@ export interface GenerationContext {
 export interface GenerationLora {
   id: string;
   label: string;
+  /** Mots déclencheurs réellement envoyés. */
   triggerWords: string[];
 }
 
@@ -249,6 +281,9 @@ export interface Generation {
   params: Record<string, unknown>;
   refMode: VideoRefMode;
   references: Asset[];
+  /** Série : les générations d'une même demande ×N partagent ce `batchId`. */
+  batchId: string | null;
+  batchIndex: number;
   /** Contextes utilisés (instantané au moment de la génération). */
   contexts: GenerationContext[];
   /** LoRA du persona cochées à l'envoi. */
@@ -275,10 +310,14 @@ export interface GenerationRequest {
   prompt: string;
   params: Record<string, unknown>;
   referenceAssetIds: string[];
-  /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
+  /** Contextes activés : leur texte est ajouté au prompt, dans la section « # Détails ». */
   contextIds?: string[];
   /** LoRA du persona cochées (aucune si absent, 3 max). */
   loraIds?: string[];
+  /** Mots déclencheurs choisis pour chaque LoRA (id → mots). Seuls ceux-là vont dans le prompt. */
+  loraWords?: Record<string, string[]>;
+  /** Série : nombre d'images à générer avec cette demande (1 par défaut). Chacune a sa propre graine. */
+  count?: number;
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
   expectedCost?: string;
 }
@@ -300,6 +339,8 @@ export interface QuoteResponse {
   expiresAt: string;
   dropped: number;
   lorasApplied: number;
+  /** Nombre d'images de la série ; `estimatedCost` et `maxCharge` sont des totaux. */
+  count: number;
 }
 
 export interface CreateGenerationResponse {
@@ -352,4 +393,34 @@ export interface EnhancePromptResponse {
 export interface ApiError {
   error: string;
   code?: string;
+}
+
+// ── Corbeille ─────────────────────────────────────────────────
+
+export interface TrashedPersona {
+  id: string;
+  name: string;
+  color: string;
+  avatarUrl: string | null;
+  /** Fils partis à la corbeille avec ce persona. */
+  threadCount: number;
+  deletedAt: string;
+  /** Date de suppression définitive. */
+  purgeAt: string;
+}
+
+export interface TrashedThread {
+  id: string;
+  title: string;
+  personaName: string | null;
+  coverUrl: string | null;
+  deletedAt: string;
+  purgeAt: string;
+}
+
+export interface TrashResponse {
+  /** Durée de conservation, en jours. */
+  days: number;
+  personas: TrashedPersona[];
+  threads: TrashedThread[];
 }

@@ -3,7 +3,12 @@ import { Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Library, Loader2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Asset, ImageInputInfo, Persona } from '@ai-fluence/shared'
+import type {
+  Asset,
+  ImageInputInfo,
+  Persona,
+  VideoRefMode,
+} from '@ai-fluence/shared'
 
 import { assetsApi } from '@/lib/api'
 import { qk } from '@/lib/queries'
@@ -48,12 +53,15 @@ export function ReferencePicker({
   selectedIds,
   onToggle,
   info,
+  refMode,
 }: {
   persona: Persona
   selectedIds: string[]
   onToggle: (asset: Asset) => void
   /** Ce que le modèle choisi accepte comme images (max réel lu dans son schéma). */
   info: ImageInputInfo
+  /** Vidéo : usage des images (départ ou références), choisi sous la grille. */
+  refMode?: { value: VideoRefMode; onChange: (mode: VideoRefMode) => void }
 }) {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -106,7 +114,7 @@ export function ReferencePicker({
       <PopoverContent side="top" align="start" className="w-[340px] space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold">
-            Références de {persona.name}
+            Références
             {info.max > 0 && (
               <span className="ml-2 text-xs font-normal text-muted-foreground tabular-nums">
                 {selectedIds.length} / {info.max}
@@ -174,6 +182,30 @@ export function ReferencePicker({
             )}
           </button>
         </div>
+        {refMode && (
+          <div className="space-y-1.5 border-t border-border/60 pt-3">
+            <div className="text-[11px] font-medium text-muted-foreground">
+              Utiliser les images comme
+            </div>
+            <div className="flex h-8 items-center rounded-full border border-border/60 bg-background/40 p-0.5 text-[11px]">
+              {(['start-frame', 'reference'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => refMode.onChange(m)}
+                  className={cn(
+                    'h-full flex-1 rounded-full px-2.5 whitespace-nowrap transition-colors',
+                    refMode.value === m
+                      ? 'bg-accent text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {m === 'start-frame' ? 'Début / Fin' : 'Références'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {!isLoading && refs.length === 0 && (
           <p className="text-xs text-muted-foreground">
             Ajoute 3 à 5 photos du personnage : elles servent de référence aux

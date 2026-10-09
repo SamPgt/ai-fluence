@@ -13,12 +13,15 @@ import { apiKeyHint, encryptSecret } from '../lib/crypto.js';
 import { auth } from '../middleware/auth.js';
 import { defaultMediaDir, getSettingsRow, mediaDirOf, type SettingsRow } from '../services/settings.service.js';
 import { callSpicy, clientFor, clientForUser, invalidateCatalog } from '../services/spicy.service.js';
+import { verifyFalKey } from '../services/fal.service.js';
 import type { AppEnv, SessionUser } from '../types.js';
 
 function toSettings(user: SessionUser, row: SettingsRow): Settings {
   return {
     hasApiKey: Boolean(row.spicyApiKeyEnc),
     apiKeyHint: row.spicyApiKeyHint,
+    hasFalKey: Boolean(row.falApiKeyEnc),
+    falKeyHint: row.falApiKeyHint,
     mediaDir: mediaDirOf(user, row),
     defaultMediaDir: defaultMediaDir(user),
     defaultImageFamily: row.defaultImageFamily,
@@ -94,6 +97,29 @@ const settingsRoutes = new Hono<AppEnv>()
       .where(eq(userSettings.userId, user.id))
       .returning();
     invalidateCatalog(user.id);
+    return c.json({ settings: toSettings(user, row) });
+  })
+  .put('/fal-key', zValidator('json', z.object({ apiKey: z.string().trim().min(10).max(400) })), async c => {
+    const user = c.get('user');
+    const { apiKey } = c.req.valid('json');
+    // On vérifie la clé avant de l'enregistrer (appel gratuit).
+    await verifyFalKey(apiKey);
+    await getSettingsRow(user.id);
+    const [row] = await db
+      .update(userSettings)
+      .set({ falApiKeyEnc: encryptSecret(apiKey), falApiKeyHint: apiKeyHint(apiKey), updatedAt: new Date() })
+      .where(eq(userSettings.userId, user.id))
+      .returning();
+    return c.json({ settings: toSettings(user, row) });
+  })
+  .delete('/fal-key', async c => {
+    const user = c.get('user');
+    await getSettingsRow(user.id);
+    const [row] = await db
+      .update(userSettings)
+      .set({ falApiKeyEnc: null, falApiKeyHint: null, updatedAt: new Date() })
+      .where(eq(userSettings.userId, user.id))
+      .returning();
     return c.json({ settings: toSettings(user, row) });
   })
   .post('/open-media-dir', async c => {

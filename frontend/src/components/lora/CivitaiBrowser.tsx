@@ -13,9 +13,9 @@ import {
 import {
   CIVITAI_BASE_MODELS,
   getFamily,
+  MODEL_FAMILIES,
   type CivitaiLora,
   type CivitaiSort,
-  type PersonaLora,
 } from '@ai-fluence/shared'
 
 import { civitaiApi } from '@/lib/api'
@@ -29,11 +29,14 @@ import {
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
-const FAMILIES = Object.keys(CIVITAI_BASE_MODELS).map((id) => ({
-  id,
-  label: getFamily(id)?.label.replace(/ LoRA$/, '') ?? id,
-  media: getFamily(id)?.media ?? 'image',
-}))
+// Même ordre que partout ailleurs : par score décroissant.
+const FAMILIES = MODEL_FAMILIES.filter((f) => f.id in CIVITAI_BASE_MODELS).map(
+  (f) => ({
+    id: f.id,
+    label: f.label.replace(/ LoRA$/, ''),
+    media: f.media,
+  }),
+)
 
 const SORTS: { value: CivitaiSort; label: string }[] = [
   { value: 'Most Downloaded', label: 'Les plus téléchargées' },
@@ -45,24 +48,6 @@ const compact = new Intl.NumberFormat('fr-FR', {
   notation: 'compact',
   maximumFractionDigits: 1,
 })
-
-/** Transforme une LoRA Civitai en ligne(s) du persona (Wan 2.2 : une ligne par passe). */
-export function toPersonaLoras(item: CivitaiLora): PersonaLora[] {
-  return item.files.map((f) => ({
-    id: crypto.randomUUID(),
-    label: (f.noise
-      ? `${item.name} · ${f.noise.toUpperCase()}`
-      : item.name
-    ).slice(0, 60),
-    path: f.url,
-    scale: 1,
-    family: item.family,
-    ...(f.noise ? { noise: f.noise } : {}),
-    triggerWords: item.triggerWords,
-    ...(item.previews[0] ? { previewUrl: item.previews[0].url } : {}),
-    sourceUrl: item.pageUrl,
-  }))
-}
 
 export function CivitaiBrowser({
   open,
@@ -78,6 +63,7 @@ export function CivitaiBrowser({
   addedPaths: Set<string>
   /** Places restantes dans le persona. */
   remaining: number
+  /** Ajoute la LoRA pour tous ses modèles, ou la retire entièrement. */
   onAdd: (item: CivitaiLora) => void
   onRemove: (item: CivitaiLora) => void
 }) {
@@ -237,10 +223,12 @@ export function CivitaiBrowser({
                 <>
                   <Grid>
                     {items.map((item) => {
-                      const added = item.files.every((f) =>
-                        addedPaths.has(f.url),
+                      const added = item.variants.some((v) =>
+                        v.files.some((f) => addedPaths.has(f.url)),
                       )
-                      const full = !added && item.files.length > remaining
+                      // Au moins le premier modèle doit tenir dans les places restantes.
+                      const full =
+                        !added && item.variants[0].files.length > remaining
                       return (
                         <LoraCard
                           key={item.versionId}
@@ -328,6 +316,9 @@ function Empty({ children }: { children: React.ReactNode }) {
   )
 }
 
+const familyLabel = (id: string) =>
+  getFamily(id)?.label.replace(/ LoRA$/, '') ?? id
+
 function LoraCard({
   item,
   added,
@@ -343,6 +334,7 @@ function LoraCard({
 }) {
   const preview = item.previews[0]
   const videoRef = useRef<HTMLVideoElement>(null)
+  const multi = item.variants.length > 1
 
   return (
     <div
@@ -357,13 +349,7 @@ function LoraCard({
           onClick()
         }
       }}
-      title={
-        disabled
-          ? 'Le persona a déjà 12 LoRA.'
-          : added
-            ? 'Retirer du persona'
-            : 'Ajouter au persona'
-      }
+      aria-label={item.name}
       onMouseEnter={() => videoRef.current?.play().catch(() => {})}
       onMouseLeave={() => {
         const v = videoRef.current
@@ -403,7 +389,8 @@ function LoraCard({
       <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2">
         {showFamily ? (
           <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur">
-            {getFamily(item.family)?.label.replace(/ LoRA$/, '')}
+            {familyLabel(item.family)}
+            {multi && ` +${item.variants.length - 1}`}
           </span>
         ) : (
           <span />

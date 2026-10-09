@@ -12,6 +12,7 @@ import {
   type CivitaiPreview,
   type CivitaiSearchResponse,
   type CivitaiSort,
+  type CivitaiVariant,
 } from '@ai-fluence/shared';
 import { env } from '../env.js';
 
@@ -129,13 +130,20 @@ function toPreview(i: RawImage): CivitaiPreview {
   };
 }
 
-function toLora(m: RawModel, allowed: Set<string>, nsfw: boolean): CivitaiLora | null {
-  const versions = m.modelVersions.filter(
-    v => allowed.has(v.baseModel) && (v.availability ?? 'Public') === 'Public' && modelFile(v),
-  );
-  if (!versions.length) return null;
+// Les "mots déclencheurs" Civitai sont parfois des prompts entiers : on garde les courts.
+function shortTriggers(v: RawVersion): string[] {
+  return [
+    ...new Set(
+      (v.trainedWords ?? [])
+        .flatMap(w => w.split(','))
+        .map(w => w.trim())
+        .filter(w => w && w.length <= 60),
+    ),
+  ].slice(0, 5);
+}
 
-  const family = FAMILY_OF_BASE.get(versions[0].baseModel)!;
+/** Fichier(s) d'une famille : la version la plus récente, ou la paire HIGH + LOW pour Wan 2.2. */
+function toVariant(family: string, versions: RawVersion[]): CivitaiVariant {
   let main = versions[0];
   let files: CivitaiFile[] = [toFile(modelFile(main)!)];
 
@@ -153,37 +161,54 @@ function toLora(m: RawModel, allowed: Set<string>, nsfw: boolean): CivitaiLora |
     }
   }
 
+  return {
+    family,
+    baseModel: main.baseModel,
+    versionId: main.id,
+    versionName: main.name,
+    triggerWords: shortTriggers(main),
+    files,
+  };
+}
+
+function toLora(m: RawModel, allowed: Set<string>, nsfw: boolean): CivitaiLora | null {
+  const versions = m.modelVersions.filter(
+    v => allowed.has(v.baseModel) && (v.availability ?? 'Public') === 'Public' && modelFile(v),
+  );
+  if (!versions.length) return null;
+
+  // Une même LoRA Civitai publie souvent un fichier par modèle : une variante par famille.
+  const byFamily = new Map<string, RawVersion[]>();
+  for (const v of versions) {
+    const family = FAMILY_OF_BASE.get(v.baseModel)!;
+    byFamily.set(family, [...(byFamily.get(family) ?? []), v]);
+  }
+  const variants = [...byFamily].map(([family, vs]) => toVariant(family, vs));
+  const first = variants[0];
+  const main = versions.find(v => v.id === first.versionId)!;
+
   const previews: CivitaiPreview[] = main.images
     .map(toPreview)
     .filter(p => nsfw || !p.nsfw)
     .slice(0, 4);
   if (!previews.length && !nsfw) return null;
 
-  // Les "mots déclencheurs" Civitai sont parfois des prompts entiers : on garde les courts.
-  const triggerWords = [
-    ...new Set(
-      (main.trainedWords ?? [])
-        .flatMap(w => w.split(','))
-        .map(w => w.trim())
-        .filter(w => w && w.length <= 60),
-    ),
-  ].slice(0, 5);
-
   return {
     modelId: m.id,
-    versionId: main.id,
+    versionId: first.versionId,
     name: m.name.trim().slice(0, 60),
-    versionName: main.name,
+    versionName: first.versionName,
     creator: m.creator?.username ?? '',
-    pageUrl: `https://civitai.com/models/${m.id}?modelVersionId=${main.id}`,
-    family,
-    baseModel: main.baseModel,
-    triggerWords,
+    pageUrl: `https://civitai.com/models/${m.id}?modelVersionId=${first.versionId}`,
+    family: first.family,
+    baseModel: first.baseModel,
+    triggerWords: first.triggerWords,
     previews,
-    files,
+    files: first.files,
     downloads: m.stats?.downloadCount ?? 0,
     likes: m.stats?.thumbsUpCount ?? 0,
     nsfw: m.nsfw,
+    variants,
   };
 }
 

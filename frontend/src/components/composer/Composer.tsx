@@ -9,7 +9,6 @@ import { useSelector } from '@tanstack/react-store'
 import { ArrowUp, Film, ImagePlus, Info, Loader2, Wand2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
-  TASK_LABEL,
   imageInputInfo,
   resolveTask,
   schemaSupportsLoras,
@@ -28,14 +27,18 @@ import {
   qk,
   settingsQuery,
 } from '@/lib/queries'
-import { formatUnit, formatUsd } from '@/lib/format'
+import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ModelPicker } from './ModelPicker'
 import {
   ParamField,
@@ -44,7 +47,7 @@ import {
   editableFields,
   labelOf,
 } from './ParamFields'
-import { ContextChips, loraTitle } from './PresetChips'
+import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -55,6 +58,9 @@ function useDebounced<T>(value: T, ms: number): T {
   }, [value, ms])
   return v
 }
+
+/** Tailles de série proposées dans le composer. */
+const SERIES_SIZES = [1, 4, 8]
 
 interface ComposerProps {
   threadId?: string
@@ -129,18 +135,21 @@ export function Composer({
     ? (persona?.loras.filter((l) => l.family === state.family && l.path) ?? [])
     : []
   const activeLoras = personaLoras
-    .filter((l) => state.loraIds.includes(l.id))
+    .filter((l) => l.id in state.loras)
     .slice(0, MAX_LORAS_PER_GENERATION)
   // Nombre réel d'images acceptées par le modèle choisi (compteur « n / max »).
   const imageInfo = family
     ? imageInputInfo(family.media, family.tasks, state.refMode)
     : { max: 0, mode: 'none' as const }
-  const showRefToggle =
+  // Vidéo : le modèle sait animer une image de départ ET partir de références.
+  const canChooseRefMode = Boolean(
     family?.media === 'video' &&
-    counts.images > 0 &&
     counts.videos === 0 &&
     family.tasks['image-to-video'] &&
-    family.tasks['reference-to-video']
+    family.tasks['reference-to-video'],
+  )
+  // Sans persona (pas de menu « Réf. »), le choix reste dans la barre dès qu'une image est jointe.
+  const showRefToggle = canChooseRefMode && !persona && counts.images > 0
 
   // Contextes envoyés : ceux qui sont actifs ET proposés pour ce type de média.
   const activeContextIds = contexts
@@ -163,7 +172,12 @@ export function Composer({
         params,
         referenceAssetIds: state.attachments.map((a) => a.id),
         contextIds: activeContextIds,
+        // Séries ×N : photo uniquement.
+        count: family.media === 'image' ? state.count : 1,
         loraIds: activeLoras.map((l) => l.id),
+        loraWords: Object.fromEntries(
+          activeLoras.map((l) => [l.id, state.loras[l.id] ?? []]),
+        ),
       }
     : null
 
@@ -292,7 +306,7 @@ export function Composer({
   return (
     <div className="shrink-0 px-4 pt-2 pb-5">
       <div
-        className="mx-auto max-w-3xl"
+        className="mx-auto max-w-[810px]"
         onDragOver={(e) => {
           e.preventDefault()
           setDragging(true)
@@ -310,8 +324,9 @@ export function Composer({
           activeIds={state.contextIds}
           onToggle={composer.toggleContext}
           loras={personaLoras}
-          activeLoraIds={activeLoras.map((l) => l.id)}
+          activeLoras={state.loras}
           onToggleLora={composer.toggleLora}
+          onToggleLoraWord={composer.toggleLoraWord}
         />
 
         <div
@@ -426,6 +441,11 @@ export function Composer({
                 <ReferencePicker
                   persona={persona}
                   info={imageInfo}
+                  refMode={
+                    canChooseRefMode
+                      ? { value: state.refMode, onChange: composer.setRefMode }
+                      : undefined
+                  }
                   selectedIds={state.attachments.map((a) => a.id)}
                   onToggle={(a) =>
                     state.attachments.some((x) => x.id === a.id)
@@ -438,8 +458,17 @@ export function Composer({
                 families={families}
                 value={state.family}
                 onChange={composer.setFamily}
+                // Pastille seulement si ce persona a des LoRA pour ce modèle.
                 lora={
-                  supportsLoras ? { active: activeLoras.map(loraTitle) } : null
+                  personaLoras.length
+                    ? {
+                        active: activeLoras.flatMap((l) =>
+                          state.loras[l.id]?.length
+                            ? state.loras[l.id]
+                            : [l.label],
+                        ),
+                      }
+                    : null
                 }
               />
               {quickFields.map(([key, prop]) => (
@@ -455,6 +484,31 @@ export function Composer({
                   />
                 </div>
               ))}
+              {/* Série : nombre d'images générées avec cette demande (photo uniquement). */}
+              {family?.media === 'image' && (
+                <Select
+                  value={String(state.count)}
+                  onValueChange={(v) => composer.setCount(Number(v))}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    aria-label="Nombre d'images"
+                    className="h-8 rounded-full border-border/60 bg-background/40 px-3 text-xs text-foreground tabular-nums hover:bg-accent dark:bg-background/40 dark:hover:bg-accent"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Nombre d’images</SelectLabel>
+                      {SERIES_SIZES.map((n) => (
+                        <SelectItem key={n} value={String(n)}>
+                          {n}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
               <ParamsPopover
                 schema={schema}
                 values={params}
@@ -479,7 +533,7 @@ export function Composer({
                           : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
-                      {m === 'start-frame' ? 'Image de départ' : 'Références'}
+                      {m === 'start-frame' ? 'Début / Fin' : 'Références'}
                     </button>
                   ))}
                 </div>
@@ -504,56 +558,39 @@ export function Composer({
               </button>
             </div>
 
-            {/* Générer : prix à gauche du bouton, détail au survol. */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-xs text-foreground/80 tabular-nums">
-                    {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
-                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                    ) : quoteIsCurrent && quote.data ? (
-                      <>≈ {formatUsd(quote.data.estimatedCost)}</>
-                    ) : null}
-                  </span>
-                  <Button
-                    type="button"
-                    size="icon"
-                    onClick={send}
-                    disabled={
-                      !canQuote ||
-                      create.isPending ||
-                      !quoteIsCurrent ||
-                      !quote.data
-                    }
-                    className="h-9 w-9 rounded-full brand-gradient brand-shadow hover:opacity-90"
-                    aria-label={
-                      quoteIsCurrent && quote.data
-                        ? `Générer pour ${formatUsd(quote.data.estimatedCost)}`
-                        : 'Générer'
-                    }
-                  >
-                    {create.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <ArrowUp className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </TooltipTrigger>
-              {task && family && (
-                <TooltipContent side="top" align="end" className="text-xs">
-                  <div>
-                    {TASK_LABEL[task]} · {family.label}
-                  </div>
-                  {quoteIsCurrent && quote.data && (
-                    <div className="opacity-70">
-                      Maximum facturé {formatUsd(quote.data.maxCharge)} ·{' '}
-                      {formatUnit(quote.data.unit, quote.data.quantity)}
-                    </div>
-                  )}
-                </TooltipContent>
-              )}
-            </Tooltip>
+            {/* Générer : prix à gauche du bouton, sans infobulle. */}
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-xs text-foreground/80 tabular-nums">
+                {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                ) : quoteIsCurrent && quote.data ? (
+                  <>≈ {formatUsd(quote.data.estimatedCost)}</>
+                ) : null}
+              </span>
+              <Button
+                type="button"
+                size="icon"
+                onClick={send}
+                disabled={
+                  !canQuote ||
+                  create.isPending ||
+                  !quoteIsCurrent ||
+                  !quote.data
+                }
+                className="h-9 w-9 rounded-full brand-gradient brand-shadow hover:opacity-90"
+                aria-label={
+                  quoteIsCurrent && quote.data
+                    ? `Générer pour ${formatUsd(quote.data.estimatedCost)}`
+                    : 'Générer'
+                }
+              >
+                {create.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           </div>
         </div>
 

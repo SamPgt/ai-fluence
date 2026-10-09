@@ -46,6 +46,9 @@ export const userSettings = pgTable('user_settings', {
   /** Clé SpicyAPI chiffrée (AES-256-GCM, cf. lib/crypto). */
   spicyApiKeyEnc: text('spicy_api_key_enc'),
   spicyApiKeyHint: text('spicy_api_key_hint'),
+  /** Clé fal chiffrée : entraînement des LoRA. */
+  falApiKeyEnc: text('fal_api_key_enc'),
+  falApiKeyHint: text('fal_api_key_hint'),
   /** Dossier des médias ; null = dossier par défaut sous DATA_DIR. */
   mediaDir: text('media_dir'),
   defaultImageFamily: text('default_image_family'),
@@ -65,12 +68,14 @@ export const personas = pgTable(
     name: text('name').notNull(),
     color: text('color').notNull().default('#8b5cf6'),
     avatarAssetId: uuid('avatar_asset_id'),
-    /** Blocs de contexte (titre, texte, envoyé au prompt ou aide à la reformulation). */
+    /** Blocs de contexte (titre, texte), toujours envoyés au prompt. */
     contextBlocks: jsonb('context_blocks').$type<PersonaContextBlock[]>().notNull().default([]),
     loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
     defaultImageFamily: text('default_image_family'),
     defaultVideoFamily: text('default_video_family'),
     position: integer('position').notNull().default(0),
+    /** Corbeille : le persona, ses fils et ses médias sont masqués, puis supprimés après 7 jours. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -87,6 +92,8 @@ export const threads = pgTable(
     personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     isPinned: boolean('is_pinned').notNull().default(false),
+    /** Corbeille : masqué de l'app, supprimé pour de bon après 7 jours. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -117,6 +124,9 @@ export const generations = pgTable(
     lorasApplied: integer('loras_applied').notNull().default(0),
     /** Contextes activés à l'envoi (instantané : reste lisible si le contexte est modifié ou supprimé). */
     contexts: jsonb('contexts').$type<GenerationContext[]>().notNull().default([]),
+    /** Série (demande ×N) : générations sœurs et position dans la série. */
+    batchId: uuid('batch_id'),
+    batchIndex: integer('batch_index').notNull().default(0),
     /** LoRA cochées à l'envoi (instantané). */
     loras: jsonb('loras').$type<GenerationLora[]>().notNull().default([]),
     status: text('status').$type<'queued' | 'running' | 'succeeded' | 'failed'>().notNull().default('queued'),
@@ -157,6 +167,8 @@ export const assets = pgTable(
     durationSeconds: real('duration_seconds'),
     /** Fait partie de la bibliothèque de références du persona. */
     isReference: boolean('is_reference').notNull().default(false),
+    /** Ordre dans la bibliothèque de références (glisser-déposer). Vide : les plus récentes d'abord. */
+    referencePosition: integer('reference_position'),
     /** Copie uploadée chez SpicyAPI (valable 24 h). */
     spicyUri: text('spicy_uri'),
     spicyUriExpiresAt: timestamp('spicy_uri_expires_at', { withTimezone: true }),

@@ -37,7 +37,7 @@ export function ModelPicker({
   value: string | null
   onChange: (id: string) => void
   /** LoRA du persona appliquée sur ce modèle (affichée sur le bouton). */
-  /** Le modèle choisi accepte des LoRA : pastille violette. `active` = mots des LoRA cochées. */
+  /** Le persona a des LoRA pour ce modèle : pastille violette. `active` = mots des LoRA cochées. */
   lora?: { active: string[] } | null
 }) {
   const [open, setOpen] = useState(false)
@@ -63,7 +63,7 @@ export function ModelPicker({
               title={
                 lora.active.length
                   ? `LoRA active : ${lora.active.join(', ')}`
-                  : 'Modèle compatible LoRA'
+                  : 'LoRA disponibles pour ce persona'
               }
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400"
             />

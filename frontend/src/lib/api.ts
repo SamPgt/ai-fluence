@@ -23,6 +23,7 @@ import type {
   Settings,
   SignupRequest,
   Thread,
+  TrashResponse,
   ThreadDetailResponse,
   UpdateSettingsRequest,
   UpscaleRequest,
@@ -93,6 +94,9 @@ export const settingsApi = {
   setApiKey: (apiKey: string) =>
     apiFetch<{ settings: Settings }>('/settings/api-key', { method: 'PUT', body: { apiKey } }),
   removeApiKey: () => apiFetch<{ settings: Settings }>('/settings/api-key', { method: 'DELETE' }),
+  setFalKey: (apiKey: string) =>
+    apiFetch<{ settings: Settings }>('/settings/fal-key', { method: 'PUT', body: { apiKey } }),
+  removeFalKey: () => apiFetch<{ settings: Settings }>('/settings/fal-key', { method: 'DELETE' }),
   openMediaDir: () => apiFetch<{ ok: true }>('/settings/open-media-dir', { method: 'POST' }),
   balance: () => apiFetch<{ balance: Balance | null }>('/settings/balance'),
   credits: () => apiFetch<CreditsResponse>('/settings/credits'),
@@ -111,6 +115,8 @@ export const assetsApi = {
     return apiFetch<{ asset: Asset }>('/assets', { method: 'POST', body: form })
   },
   references: (personaId: string) => apiFetch<{ assets: Asset[] }>('/assets/references', { query: { personaId } }),
+  reorderReferences: (personaId: string, ids: string[]) =>
+    apiFetch<{ ok: true }>('/assets/references/order', { method: 'PUT', body: { personaId, ids } }),
   setReference: (assetId: string, personaId: string, isReference: boolean) =>
     apiFetch<{ asset: Asset }>(`/assets/${assetId}/reference`, { method: 'PATCH', body: { personaId, isReference } }),
   gallery: (query: { personaId?: string; media?: 'image' | 'video'; before?: string }) =>
@@ -127,12 +133,22 @@ export const personasApi = {
   update: (id: string, body: Partial<PersonaInput>) =>
     apiFetch<{ persona: Persona }>(`/personas/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/personas/${id}`, { method: 'DELETE' }),
+  reorder: (ids: string[]) => apiFetch<{ ok: true }>('/personas/order', { method: 'PUT', body: { ids } }),
 }
 
 export const civitaiApi = {
   status: () => apiFetch<{ enabled: boolean }>('/civitai/status'),
   search: (q: { family?: string; query?: string; sort: CivitaiSort; nsfw: boolean; cursor?: string }) =>
     apiFetch<CivitaiSearchResponse>('/civitai/search', { query: q }),
+}
+
+export const trashApi = {
+  list: () => apiFetch<TrashResponse>('/trash'),
+  restorePersona: (id: string) => apiFetch<{ ok: true }>(`/trash/personas/${id}/restore`, { method: 'POST' }),
+  restoreThread: (id: string) => apiFetch<{ ok: true }>(`/trash/threads/${id}/restore`, { method: 'POST' }),
+  purgePersona: (id: string) => apiFetch<unknown>(`/trash/personas/${id}`, { method: 'DELETE' }),
+  purgeThread: (id: string) => apiFetch<unknown>(`/trash/threads/${id}`, { method: 'DELETE' }),
+  empty: () => apiFetch<unknown>('/trash', { method: 'DELETE' }),
 }
 
 export const threadsApi = {

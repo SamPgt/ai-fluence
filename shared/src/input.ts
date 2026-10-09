@@ -48,6 +48,8 @@ export const COMPOSER_FIELDS = new Set([
   'multi_prompt',
   'analysis_task_id',
   'swap_targets',
+  // Le nombre d'images passe par le menu 1 / 4 / 8 du composer (séries), jamais par ce champ.
+  'num_outputs',
 ]);
 
 /** Mode d'utilisation des pièces jointes pour la vidéo. */
@@ -160,6 +162,8 @@ export function buildInput(args: BuildInputArgs): BuiltInput {
   let lorasApplied = 0;
 
   if (props.prompt && args.prompt.trim()) input.prompt = args.prompt.trim();
+  // Toujours une image par tâche : SpicyAPI facture à l'image, une série = N tâches.
+  if (props.num_outputs) input.num_outputs = 1;
 
   const images = [...args.images];
   const videos = [...args.videos];

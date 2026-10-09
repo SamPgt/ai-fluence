@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { assets, generations, personas } from '../db/schema.js';
@@ -84,9 +84,29 @@ export const assetsRoutes = new Hono<AppEnv>()
           eq(assets.isReference, true),
         ),
       )
-      .orderBy(desc(assets.createdAt));
+      // Ordre choisi par glisser-déposer ; les nouvelles (sans position) en premier.
+      .orderBy(sql`${assets.referencePosition} asc nulls first`, desc(assets.createdAt));
     return c.json({ assets: rows.map(toAsset) });
   })
+  /** Nouvel ordre de la bibliothèque de références d'un persona. */
+  .put(
+    '/references/order',
+    zValidator('json', z.object({ personaId: z.uuid(), ids: z.array(z.uuid()).max(500) })),
+    async c => {
+      const user = c.get('user');
+      const { personaId, ids } = c.req.valid('json');
+      if (!(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
+      await db.transaction(async tx => {
+        for (const [position, id] of ids.entries()) {
+          await tx
+            .update(assets)
+            .set({ referencePosition: position })
+            .where(and(eq(assets.id, id), eq(assets.userId, user.id), eq(assets.personaId, personaId)));
+        }
+      });
+      return c.json({ ok: true });
+    },
+  )
   /** Ajoute ou retire un média de la bibliothèque de références d'un persona. */
   .patch(
     '/:id/reference',
@@ -118,7 +138,12 @@ export const assetsRoutes = new Hono<AppEnv>()
     async c => {
       const user = c.get('user');
       const q = c.req.valid('query');
-      const where = [eq(assets.userId, user.id), eq(assets.kind, 'output')];
+      const where = [
+        eq(assets.userId, user.id),
+        eq(assets.kind, 'output'),
+        // Pas les résultats des fils à la corbeille.
+        sql`not exists (select 1 from generations g inner join threads t on t.id = g.thread_id where g.id = ${assets.generationId} and t.deleted_at is not null)`,
+      ];
       if (q.personaId) where.push(eq(assets.personaId, q.personaId));
       if (q.media) where.push(eq(assets.mediaType, q.media));
       if (q.before) where.push(lt(assets.createdAt, new Date(q.before)));

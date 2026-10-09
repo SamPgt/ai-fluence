@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, X } from 'lucide-react'
@@ -33,9 +33,10 @@ const MAX_VISIBLE = 5
 const TAG =
   'flex h-6 shrink-0 items-center rounded-[5px] border border-border/50 bg-muted/40 px-2 text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground'
 
-/** Nom court d'une LoRA : son mot déclencheur (souvent plus parlant que son nom). */
-export function loraTitle(l: PersonaLora): string {
-  return l.triggerWords[0] ?? (l.label || 'LoRA')
+/** Mots déclencheurs proposés dans le composer : ceux laissés cochés dans la fiche de la LoRA. */
+export function availableWords(l: PersonaLora): string[] {
+  const hidden = new Set(l.hiddenWords ?? [])
+  return l.triggerWords.filter((w) => !hidden.has(w))
 }
 
 /** Tags LoRA : violets, comme le badge LORA, pour les reconnaître d'un coup d'œil. */
@@ -54,8 +55,9 @@ export function ContextChips({
   activeIds,
   onToggle,
   loras = [],
-  activeLoraIds = [],
+  activeLoras: chosen = {},
   onToggleLora,
+  onToggleLoraWord,
 }: {
   media: MediaKind
   /** Persona du fil : ses raccourcis s'ajoutent à ceux disponibles partout. */
@@ -64,8 +66,14 @@ export function ContextChips({
   onToggle: (id: string) => void
   /** LoRA du persona compatibles avec le modèle choisi. */
   loras?: PersonaLora[]
-  activeLoraIds?: string[]
-  onToggleLora?: (id: string) => void
+  /** LoRA cochées → mots déclencheurs choisis. */
+  activeLoras?: Record<string, string[]>
+  onToggleLora?: (id: string, words?: string[]) => void
+  onToggleLoraWord?: (
+    id: string,
+    word: string,
+    unloadWhenEmpty?: boolean,
+  ) => void
 }) {
   const [open, setOpen] = useState(false)
   const { data: contexts = [] } = useQuery(presetsQuery())
@@ -78,7 +86,7 @@ export function ContextChips({
   const selected = available.filter((c) => activeIds.includes(c.id))
   const visible = selected.slice(0, MAX_VISIBLE)
   const hidden = selected.length - visible.length
-  const activeLoras = loras.filter((l) => activeLoraIds.includes(l.id))
+  const activeLoras = loras.filter((l) => l.id in chosen)
   const loraFull = activeLoras.length >= MAX_LORAS_PER_GENERATION
   const nothing = selected.length === 0 && activeLoras.length === 0
 
@@ -87,14 +95,28 @@ export function ContextChips({
       {/* Ancre fixe au début de la rangée : le menu ne bouge pas quand des tags s'ajoutent. */}
       <PopoverAnchor asChild>
         <div className="flex items-center gap-1 overflow-x-auto scrollbar-none pb-2 pl-[5px]">
-          {activeLoras.map((l) => (
-            <LoraTag
-              key={l.id}
-              lora={l}
-              onOpen={() => setOpen(true)}
-              onRemove={() => onToggleLora?.(l.id)}
-            />
-          ))}
+          {/* Un tag par mot déclencheur choisi ; une LoRA sans mot choisi garde un tag à son nom. */}
+          {activeLoras.flatMap((l) =>
+            chosen[l.id]?.length
+              ? chosen[l.id].map((w) => (
+                  <LoraTag
+                    key={`${l.id}-${w}`}
+                    text={w}
+                    title={l.label}
+                    onOpen={() => setOpen(true)}
+                    onRemove={() => onToggleLoraWord?.(l.id, w, true)}
+                  />
+                ))
+              : [
+                  <LoraTag
+                    key={l.id}
+                    text={l.label || 'LoRA'}
+                    title="LoRA chargée sans mot déclencheur"
+                    onOpen={() => setOpen(true)}
+                    onRemove={() => onToggleLora?.(l.id)}
+                  />,
+                ],
+          )}
           {visible.map((c) => (
             <ContextTag
               key={c.id}
@@ -144,36 +166,54 @@ export function ContextChips({
                 heading={`LoRA · ${activeLoras.length} / ${MAX_LORAS_PER_GENERATION}`}
               >
                 {loras.map((l) => {
-                  const checked = activeLoraIds.includes(l.id)
+                  const checked = l.id in chosen
                   const blocked = !checked && loraFull
+                  const words = availableWords(l)
                   return (
-                    <CommandItem
-                      key={l.id}
-                      value={`lora ${l.label} ${l.triggerWords.join(' ')}`}
-                      disabled={blocked}
-                      onSelect={() => onToggleLora?.(l.id)}
-                      className="gap-2"
-                      title={
-                        blocked
-                          ? `${MAX_LORAS_PER_GENERATION} LoRA maximum par génération`
-                          : undefined
-                      }
-                    >
-                      <CheckMark checked={checked} tone="lora" />
-                      <span className="min-w-0 flex-1">
-                        {/* Le mot déclencheur dit souvent mieux ce que fait la LoRA que son nom. */}
-                        <span className="block truncate text-[13px] text-violet-300">
-                          {l.triggerWords.length
-                            ? l.triggerWords.join(', ')
-                            : l.label || 'LoRA sans nom'}
+                    <Fragment key={l.id}>
+                      <CommandItem
+                        value={`lora ${l.id} ${l.label}`}
+                        disabled={blocked}
+                        onSelect={() => onToggleLora?.(l.id, words.slice(0, 1))}
+                        className="gap-2"
+                        title={
+                          blocked
+                            ? `${MAX_LORAS_PER_GENERATION} LoRA maximum par génération`
+                            : undefined
+                        }
+                      >
+                        <CheckMark checked={checked} tone="lora" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px]">
+                            {l.label || 'LoRA sans nom'}
+                          </span>
+                          {words.length === 0 && (
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              Sans mot déclencheur
+                            </span>
+                          )}
                         </span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
-                          {l.triggerWords.length
-                            ? l.label || 'LoRA sans nom'
-                            : 'Sans mot déclencheur'}
-                        </span>
-                      </span>
-                    </CommandItem>
+                      </CommandItem>
+                      {/* Mots déclencheurs : chacun se choisit séparément. */}
+                      {words.map((w) => (
+                        <CommandItem
+                          key={w}
+                          value={`lora ${l.id} ${l.label} ${w}`}
+                          disabled={blocked}
+                          onSelect={() => onToggleLoraWord?.(l.id, w)}
+                          className="gap-2 py-1.5 pl-8"
+                        >
+                          <CheckMark
+                            checked={chosen[l.id]?.includes(w) ?? false}
+                            tone="lora"
+                            className="h-3.5 w-3.5"
+                          />
+                          <span className="truncate font-mono text-[12px] text-violet-300">
+                            {w}
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </Fragment>
                   )
                 })}
               </CommandGroup>
@@ -257,31 +297,26 @@ function ContextTag({
 }
 
 function LoraTag({
-  lora,
+  text,
+  title,
   onOpen,
   onRemove,
 }: {
-  lora: PersonaLora
+  text: string
+  title: string
   onOpen: () => void
   onRemove: () => void
 }) {
   return (
-    <span
-      className={cn(LORA_TAG, 'group/tag gap-1 px-1.5')}
-      title={
-        lora.triggerWords.length
-          ? `Mot déclencheur : ${lora.triggerWords.join(', ')}`
-          : 'LoRA'
-      }
-    >
-      {/* Pastille violette, remplacée au survol par la croix qui retire la LoRA. */}
+    <span className={cn(LORA_TAG, 'group/tag gap-1 px-1.5')} title={title}>
+      {/* Pastille violette, remplacée au survol par la croix qui retire ce mot. */}
       <span className="flex h-4 w-4 items-center justify-center group-hover/tag:hidden">
         <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
       </span>
       <button
         type="button"
         onClick={onRemove}
-        aria-label={`Retirer ${lora.label || 'la LoRA'}`}
+        aria-label={`Retirer ${text}`}
         className="hidden h-4 w-4 items-center justify-center rounded-[3px] hover:bg-violet-500/20 group-hover/tag:flex"
       >
         <X className="h-3 w-3" />
@@ -291,7 +326,7 @@ function LoraTag({
         onClick={onOpen}
         className="max-w-40 truncate pr-0.5"
       >
-        {loraTitle(lora)}
+        {text}
       </button>
     </span>
   )

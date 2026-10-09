@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { SearchResult, ThreadDetailResponse } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
@@ -8,6 +8,7 @@ import { generations, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { loadGenerations } from '../services/generation.service.js';
 import { toThread } from '../services/serialize.js';
+import { trashThread } from '../services/trash.service.js';
 import type { AppEnv } from '../types.js';
 
 // Sous-requêtes avec noms qualifiés : Drizzle ne préfixe pas les colonnes dans `sql```.
@@ -21,7 +22,7 @@ const threadsRoutes = new Hono<AppEnv>()
   .use(auth)
   .get('/', zValidator('query', z.object({ personaId: z.string().optional() })), async c => {
     const { personaId } = c.req.valid('query');
-    const where = [eq(threads.userId, c.get('user').id)];
+    const where = [eq(threads.userId, c.get('user').id), isNull(threads.deletedAt)];
     if (personaId === 'none') where.push(sql`${threads.personaId} is null`);
     else if (personaId) where.push(eq(threads.personaId, personaId));
     const rows = await db
@@ -44,7 +45,11 @@ const threadsRoutes = new Hono<AppEnv>()
       .from(threads)
       .leftJoin(generations, and(eq(generations.threadId, threads.id), ilike(generations.prompt, pattern)))
       .where(
-        and(eq(threads.userId, c.get('user').id), or(ilike(threads.title, pattern), ilike(generations.prompt, pattern))),
+        and(
+          eq(threads.userId, c.get('user').id),
+          isNull(threads.deletedAt),
+          or(ilike(threads.title, pattern), ilike(generations.prompt, pattern)),
+        ),
       )
       .orderBy(threads.id)
       .limit(30);
@@ -58,7 +63,7 @@ const threadsRoutes = new Hono<AppEnv>()
     const [row] = await db
       .select({ t: threads, ...aggregates })
       .from(threads)
-      .where(and(eq(threads.id, c.req.param('id')), eq(threads.userId, user.id)))
+      .where(and(eq(threads.id, c.req.param('id')), eq(threads.userId, user.id), isNull(threads.deletedAt)))
       .limit(1);
     if (!row) return c.json({ error: 'Fil introuvable.' }, 404);
     const gens = await loadGenerations(user.id, { threadId: row.t.id });
@@ -78,15 +83,15 @@ const threadsRoutes = new Hono<AppEnv>()
       const [row] = await db
         .update(threads)
         .set(c.req.valid('json'))
-        .where(and(eq(threads.id, c.req.param('id')), eq(threads.userId, c.get('user').id)))
+        .where(and(eq(threads.id, c.req.param('id')), eq(threads.userId, c.get('user').id), isNull(threads.deletedAt)))
         .returning();
       if (!row) return c.json({ error: 'Fil introuvable.' }, 404);
       return c.json({ thread: toThread(row) });
     },
   )
   .delete('/:id', async c => {
-    // Les fichiers restent dans le dossier local, seules les entrées du fil sont supprimées.
-    await db.delete(threads).where(and(eq(threads.id, c.req.param('id')), eq(threads.userId, c.get('user').id)));
+    // Corbeille : le fil est masqué 7 jours avant suppression définitive.
+    if (!(await trashThread(c.get('user').id, c.req.param('id')))) return c.json({ error: 'Fil introuvable.' }, 404);
     return c.json({ ok: true });
   });
 

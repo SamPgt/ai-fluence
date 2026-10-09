@@ -32,9 +32,15 @@ export interface ModelFamilyDef {
   badges: ModelBadge[];
   /** Une phrase courte affichée sous le nom dans le dropdown. */
   hint: string;
+  /**
+   * Elo du classement Artificial Analysis (text-to-image pour la photo,
+   * text-to-video pour la vidéo). Sert uniquement à trier, jamais affiché.
+   * Les deux échelles sont distinctes : on ne compare que dans un même média.
+   */
+  score: number;
 }
 
-export const MODEL_FAMILIES: ModelFamilyDef[] = [
+const FAMILY_DEFS: ModelFamilyDef[] = [
   // ── PHOTO ────────────────────────────────────────────────
   {
     id: 'alibaba/qwen-image-2512-lora',
@@ -42,6 +48,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: ['REF', 'LORA'],
     hint: 'Ta LoRA de personnage, base Qwen-Image-2512',
+    score: 999, // Elo AA de Qwen Image Max 2512 (modèle le plus proche)
   },
   {
     id: 'alibaba/z-image-turbo-lora',
@@ -49,6 +56,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: ['EDIT', 'LORA'],
     hint: 'LoRA réaliste et pas chère',
+    score: 941,
   },
   {
     id: 'black-forest-labs/flux-1-dev-lora',
@@ -56,6 +64,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: ['EDIT', 'LORA'],
     hint: 'LoRA FLUX.1 [dev], base la plus connue',
+    score: 840,
   },
   {
     id: 'bytedance/seedream-5.0-pro',
@@ -63,6 +72,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: ['REF', 'PERF'],
     hint: "Jusqu'à 10 images de référence",
+    score: 1081,
   },
   {
     id: 'bytedance/seedream-5.0-flash',
@@ -70,6 +80,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: ['REF', 'PERF'],
     hint: 'Rapide, 2K',
+    score: 1040, // guess score
   },
   {
     id: 'alibaba/qwen-image-3.0-pro',
@@ -77,6 +88,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: ['REF', 'PERF'],
     hint: 'Très bon suivi du prompt',
+    score: 1088,
   },
   {
     id: 'openai/gpt-image-2.5-sunburst',
@@ -84,6 +96,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: ['REF', 'PERF'],
     hint: "Texte dans l'image, jusqu'à 16 références (filtré)",
+    score: 1198,
   },
 
   // ── VIDÉO ────────────────────────────────────────────────
@@ -93,6 +106,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['REF', 'LORA'],
     hint: 'LoRA vidéo + références, avec audio',
+    score: 1137, // Elo AA de MiniMax H3 (768p)
   },
   {
     id: 'alibaba/wan-2.2-lora',
@@ -100,6 +114,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['LORA'],
     hint: 'LoRA HIGH/LOW noise',
+    score: 940, // guess score
   },
   {
     id: 'lightricks/ltx-2.3-spicy-lora',
@@ -107,6 +122,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['LORA'],
     hint: 'Image de départ obligatoire',
+    score: 892, // Elo AA de LTX-2.3 Pro
   },
   {
     id: 'bytedance/seedance-2.5',
@@ -114,6 +130,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['REF', 'PERF'],
     hint: "Jusqu'à 30 images de référence",
+    score: 1143,
   },
   {
     id: 'alibaba/wan-3.0',
@@ -121,6 +138,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['REF', 'PERF'],
     hint: "Jusqu'à 10 références, avec audio",
+    score: 1156,
   },
   {
     id: 'alibaba/wan-3.0-prime',
@@ -128,6 +146,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['REF', 'PERF'],
     hint: 'Version haut de gamme de Wan 3.0',
+    score: 1165, // guess score
   },
   {
     id: 'alibaba/happyhorse-1.1',
@@ -135,6 +154,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['REF'],
     hint: "Jusqu'à 9 images de référence",
+    score: 1042,
   },
   {
     id: 'alibaba/wan-2.6',
@@ -142,6 +162,7 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['REF'],
     hint: 'Référence = vidéos (pas images)',
+    score: 1005, // guess score
   },
   {
     id: 'kling/3.0',
@@ -149,8 +170,18 @@ export const MODEL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: ['PERF'],
     hint: "Mouvements réalistes, jusqu'en 4K",
+    score: 1000, // Kling 3.0 1080p (Pro)
   },
 ];
+
+/** Photo puis vidéo, et dans chaque média du meilleur score au moins bon. */
+export function byScore(a: ModelFamilyDef, b: ModelFamilyDef): number {
+  if (a.media !== b.media) return a.media === 'image' ? -1 : 1;
+  return b.score - a.score;
+}
+
+/** Toujours triée par score : toutes les listes de l'app suivent cet ordre. */
+export const MODEL_FAMILIES: ModelFamilyDef[] = [...FAMILY_DEFS].sort(byScore);
 
 /**
  * Outils lancés depuis un résultat (pas dans le dropdown des modèles).
@@ -181,6 +212,7 @@ export const TOOL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: [],
     hint: 'Agrandit et affine une image',
+    score: 0, // outil hors classement
   },
   {
     id: UPSCALERS.video.family,
@@ -188,6 +220,7 @@ export const TOOL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: [],
     hint: 'Passe une vidéo en haute résolution',
+    score: 0, // outil hors classement
   },
 ];
 

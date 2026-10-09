@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Shuffle,
   ImageUpscale,
-  PencilLine,
+  RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -26,7 +26,13 @@ import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ModelBadge } from '@/components/ui/model-badge'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { AssetThumb } from '@/components/composer/ReferencePicker'
+import { formatOption } from '@/components/composer/ParamFields'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -73,7 +79,16 @@ function ActionButton({
   )
 }
 
-export function GenerationItem({ generation: g }: { generation: Generation }) {
+const isPending = (g: Generation) =>
+  g.status === 'queued' || g.status === 'running'
+
+/**
+ * Une demande et son résultat. `generations` : une seule génération, ou toutes
+ * celles d'une série (×N), qui partagent la même demande et s'affichent en grille.
+ */
+export function GenerationItem({ generations }: { generations: Generation[] }) {
+  const g = generations[0]
+  const series = generations.length > 1
   const queryClient = useQueryClient()
   const [viewing, setViewing] = useState<Asset | null>(null)
   const [upscaling, setUpscaling] = useState<Asset | null>(null)
@@ -92,7 +107,9 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       params,
       referenceAssetIds: g.references.map((r) => r.id),
       contextIds: g.contexts.map((c) => c.id),
-      loraIds: lorasOf(family),
+      loraIds: Object.keys(lorasOf(family)),
+      loraWords: lorasOf(family),
+      count: generations.length,
     }
   }
   const { data: catalog } = useQuery(catalogQuery())
@@ -100,7 +117,19 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
   const { data: personas = [] } = useQuery(personasQuery())
   const persona = personas.find((p) => p.id === g.personaId) ?? null
   const def = getFamily(g.family)
-  const pending = g.status === 'queued' || g.status === 'running'
+  const pending = generations.some(isPending)
+  // Coût réel une fois connu, sinon l'estimation pendant la génération.
+  const realCost = generations.reduce((sum, m) => sum + Number(m.cost ?? 0), 0)
+  const estimate = generations.reduce(
+    (sum, m) => sum + Number(m.estimatedCost ?? 0),
+    0,
+  )
+  const costText =
+    generations.some((m) => m.cost) && !pending
+      ? formatUsd(realCost)
+      : estimate > 0
+        ? `≈ ${formatUsd(estimate)}`
+        : null
 
   const toReference = useMutation({
     mutationFn: (asset: Asset) =>
@@ -135,15 +164,20 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
     )?.id
   }
 
-  /** LoRA de cette génération (anciennes générations : toutes celles du persona pour ce modèle). */
-  const lorasOf = (family: string) => {
-    if (family !== g.family) return []
+  /**
+   * LoRA de cette génération, avec les mots envoyés. Anciennes générations : les
+   * LoRA du persona pour ce modèle, sans mot (on ne réinjecte rien d'office).
+   */
+  const lorasOf = (family: string): Record<string, string[]> => {
+    if (family !== g.family) return {}
     if (!g.loras.length && g.lorasApplied > 0) {
-      return (persona?.loras ?? [])
-        .filter((l) => l.family === family)
-        .map((l) => l.id)
+      return Object.fromEntries(
+        (persona?.loras ?? [])
+          .filter((l) => l.family === family)
+          .map((l) => [l.id, []]),
+      )
     }
-    return g.loras.map((l) => l.id)
+    return Object.fromEntries(g.loras.map((l) => [l.id, l.triggerWords]))
   }
 
   /** Recharge le composer avec cette génération (modèle au choix). */
@@ -156,7 +190,8 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       attachments: g.references,
       refMode: g.refMode,
       contextIds: g.contexts.map((c) => c.id),
-      loraIds: lorasOf(family),
+      loras: lorasOf(family),
+      count: generations.length,
       params,
     })
   }
@@ -173,6 +208,43 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       attachments: [asset],
       refMode: 'start-frame',
     })
+
+  // Actions au survol d'un résultat (image seule ou case d'une série).
+  const outputActions = (asset: Asset) => (
+    <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      {asset.mediaType === 'image' && (
+        <>
+          <ActionButton
+            onClick={() => edit(asset)}
+            title="Éditer (image → image)"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </ActionButton>
+          <ActionButton
+            onClick={() => animate(asset)}
+            title="Animer (image → vidéo)"
+          >
+            <Clapperboard className="h-3.5 w-3.5" />
+          </ActionButton>
+        </>
+      )}
+      {persona && (
+        <ActionButton
+          onClick={() => toReference.mutate(asset)}
+          title={`Ajouter aux références de ${persona.name}`}
+        >
+          <BookmarkPlus className="h-3.5 w-3.5" />
+        </ActionButton>
+      )}
+      <a
+        href={`${asset.url}?download=1`}
+        title="Télécharger"
+        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition hover:bg-black/80"
+      >
+        <Download className="h-3.5 w-3.5" />
+      </a>
+    </div>
+  )
 
   return (
     <div className="space-y-3">
@@ -201,47 +273,25 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             )}
           </div>
         )}
-        <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-          {/* Actions sur la demande */}
-          {!isUpscale ? (
-            <div className="-ml-0.5 flex items-center gap-0.5">
-              <button
-                onClick={() => rerun()}
-                className="rounded-md p-1.5 hover:bg-accent hover:text-foreground"
-                title="Modifier la demande : la remet dans le composer"
-                aria-label="Modifier la demande"
-              >
-                <PencilLine className="size-[14.4px]" />
-              </button>
-            </div>
-          ) : (
-            <span />
-          )}
-          {/* Contextes, modèle et paramètres */}
+        <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          {/* Modifier la demande | modèle, paramètres, puis tags */}
           <div className="flex flex-wrap items-center justify-end gap-1.5 pr-1">
-            {g.loras.map((l) => (
-              <span
-                key={l.id}
-                title={
-                  l.triggerWords.length
-                    ? `Mot déclencheur : ${l.triggerWords.join(', ')}`
-                    : 'LoRA'
-                }
-                className="flex items-center gap-1 rounded-full border border-violet-400/30 px-2 py-0.5 text-violet-300"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
-                {l.label || 'LoRA'}
-              </span>
-            ))}
-            {g.contexts.map((c) => (
-              <span
-                key={c.id}
-                title={c.text}
-                className="rounded-full border border-brand/30 px-2 py-0.5 text-brand/90"
-              >
-                {c.label}
-              </span>
-            ))}
+            {!isUpscale && (
+              <>
+                <button
+                  onClick={() => rerun()}
+                  className="rounded-md p-1 hover:bg-accent hover:text-foreground"
+                  title="Modifier la demande : la remet dans le composer"
+                  aria-label="Modifier la demande"
+                >
+                  <RotateCcw className="size-[14px]" />
+                </button>
+                <span
+                  aria-hidden
+                  className="h-3.5 w-px bg-muted-foreground/40"
+                />
+              </>
+            )}
             <span className="font-medium text-foreground/80">
               {def?.label ?? g.family}
             </span>
@@ -253,9 +303,17 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
               .slice(0, 4)
               .map(([k, v]) => (
                 <span key={k} className="rounded bg-secondary/60 px-1.5 py-0.5">
-                  {String(v)}
+                  {formatOption(k, v)}
                 </span>
               ))}
+            {/* Série : nombre d'images générées avec cette demande. */}
+            {series && (
+              <span className="rounded bg-secondary/60 px-1.5 py-0.5 tabular-nums">
+                x{generations.length}
+              </span>
+            )}
+            {/* LoRA (violet) puis raccourcis (bleu), après le modèle et ses réglages. */}
+            <RequestTags generation={g} />
           </div>
         </div>
       </div>
@@ -263,7 +321,27 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       {/* Résultat */}
       <div className="flex justify-start">
         <div className="w-full max-w-[85%] space-y-2">
-          {pending && (
+          {/* Au-dessus du résultat : coût, puis « Série · N images » pour une série. */}
+          {(costText || series) && (
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+              {costText && <span>{costText}</span>}
+              {costText && series && (
+                <span
+                  aria-hidden
+                  className="h-3.5 w-px bg-muted-foreground/40"
+                />
+              )}
+              {series && <span>Série · {generations.length} images</span>}
+            </div>
+          )}
+          {series && (
+            <SeriesResults
+              generations={generations}
+              outputActions={outputActions}
+              onView={setViewing}
+            />
+          )}
+          {!series && pending && (
             <div className="flex aspect-[4/3] max-w-md flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-muted/30">
               <Loader2 className="h-6 w-6 animate-spin text-brand" />
               <div className="text-center text-xs text-muted-foreground">
@@ -280,7 +358,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             </div>
           )}
 
-          {g.status === 'failed' && (
+          {!series && g.status === 'failed' && (
             <div className="flex max-w-md items-start gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive-foreground" />
               <div className="space-y-2">
@@ -295,7 +373,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
             </div>
           )}
 
-          {g.status === 'succeeded' && (
+          {!series && g.status === 'succeeded' && (
             <div
               className={cn(
                 'grid gap-2',
@@ -305,7 +383,8 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
               {g.outputs.map((asset) => (
                 <div
                   key={asset.id}
-                  className="group relative max-w-xl overflow-hidden rounded-2xl border border-border/40 bg-black/20"
+                  // Largeur ajustée au média : une image verticale ne s'étire pas en largeur.
+                  className="group relative w-fit max-w-xl overflow-hidden rounded-2xl border border-border/40 bg-black/20"
                 >
                   {asset.mediaType === 'video' ? (
                     <video
@@ -314,54 +393,20 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                       loop
                       playsInline
                       preload="metadata"
-                      className="w-full"
+                      // Hauteur plafonnée : une vidéo 9:16 tient entière à l'écran.
+                      className="block max-h-[70vh] w-auto max-w-full"
                     />
                   ) : (
-                    <button
-                      onClick={() => setViewing(asset)}
-                      className="block w-full"
-                    >
+                    <button onClick={() => setViewing(asset)} className="block">
                       <img
                         src={asset.url}
                         alt={g.prompt}
-                        className="w-full object-contain"
+                        className="block max-h-[70vh] w-auto max-w-full object-contain"
                         loading="lazy"
                       />
                     </button>
                   )}
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                    {asset.mediaType === 'image' && (
-                      <>
-                        <ActionButton
-                          onClick={() => edit(asset)}
-                          title="Éditer (image → image)"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </ActionButton>
-                        <ActionButton
-                          onClick={() => animate(asset)}
-                          title="Animer (image → vidéo)"
-                        >
-                          <Clapperboard className="h-3.5 w-3.5" />
-                        </ActionButton>
-                      </>
-                    )}
-                    {persona && (
-                      <ActionButton
-                        onClick={() => toReference.mutate(asset)}
-                        title={`Ajouter aux références de ${persona.name}`}
-                      >
-                        <BookmarkPlus className="h-3.5 w-3.5" />
-                      </ActionButton>
-                    )}
-                    <a
-                      href={`${asset.url}?download=1`}
-                      title="Télécharger"
-                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition hover:bg-black/80"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                    </a>
-                  </div>
+                  {outputActions(asset)}
                 </div>
               ))}
             </div>
@@ -380,7 +425,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                   <button
                     onClick={() => setRelaunch(relaunchRequest(g.family))}
                     className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-                    title="Relancer la même demande avec un nouveau seed"
+                    title="Relancer la même demande"
                   >
                     <RefreshCw className="h-3 w-3" /> Relancer
                   </button>
@@ -422,6 +467,7 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                 </>
               )}
               {!isUpscale &&
+                !series &&
                 g.status === 'succeeded' &&
                 g.outputs.length === 1 && (
                   <button
@@ -432,11 +478,6 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
                     <ImageUpscale className="h-3 w-3" /> Upscale
                   </button>
                 )}
-              {g.seed !== null && <span className="px-1.5">seed {g.seed}</span>}
-              <span className="ml-auto pr-1 tabular-nums">
-                {g.cost ? formatUsd(g.cost) : '—'}
-                {g.cost && !g.settled && ' (provisoire)'}
-              </span>
             </div>
           )}
         </div>
@@ -450,5 +491,188 @@ export function GenerationItem({ generation: g }: { generation: Generation }) {
       />
       <RelaunchDialog request={relaunch} onClose={() => setRelaunch(null)} />
     </div>
+  )
+}
+
+/** Grille d'une série (×N) : progression, puis une case par image. */
+function SeriesResults({
+  generations,
+  outputActions,
+  onView,
+}: {
+  generations: Generation[]
+  outputActions: (asset: Asset) => React.ReactNode
+  onView: (asset: Asset) => void
+}) {
+  const pending = generations.filter(isPending)
+  const done = generations.length - pending.length
+
+  return (
+    <div className="space-y-2">
+      {pending.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          <>
+            <span className="tabular-nums">
+              {done} / {generations.length} terminées ·{' '}
+              <Elapsed since={generations[0].createdAt} />
+            </span>
+            <span className="h-1 w-24 overflow-hidden rounded-full bg-secondary">
+              <span
+                className="block h-full rounded-full bg-brand transition-[width]"
+                style={{ width: `${(done / generations.length) * 100}%` }}
+              />
+            </span>
+          </>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {generations.map((m) => {
+          const asset = m.outputs[0]
+          return (
+            <div key={m.id} className="space-y-1">
+              {m.status === 'succeeded' && asset ? (
+                <div className="group relative aspect-[3/4] overflow-hidden rounded-xl border border-border/40 bg-black/20">
+                  {asset.mediaType === 'video' ? (
+                    <video
+                      src={asset.url}
+                      controls
+                      loop
+                      playsInline
+                      preload="metadata"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => onView(asset)}
+                      className="block h-full w-full"
+                    >
+                      <img
+                        src={asset.url}
+                        alt={m.prompt}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    </button>
+                  )}
+                  {outputActions(asset)}
+                </div>
+              ) : isPending(m) ? (
+                <div className="flex aspect-[3/4] flex-col items-center justify-center gap-2 rounded-xl border border-border/50 bg-muted/30 text-xs text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin text-brand" />
+                  {m.status === 'queued' ? 'En file' : 'En cours'}
+                </div>
+              ) : m.status === 'failed' ? (
+                <div
+                  className="flex aspect-[3/4] flex-col items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-center text-xs"
+                  title={m.errorMessage ?? undefined}
+                >
+                  <AlertTriangle className="h-4 w-4 text-destructive-foreground" />
+                  <span className="line-clamp-4">
+                    {m.errorMessage ?? 'La génération a échoué.'}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex aspect-[3/4] items-center justify-center rounded-xl border border-border/40 text-xs text-muted-foreground italic">
+                  Résultat indisponible
+                </div>
+              )}
+              <div className="truncate px-0.5 text-[10px] text-muted-foreground tabular-nums">
+                #{m.batchIndex + 1}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+const TAG_TONE = {
+  lora: 'border-violet-400/40',
+  context: 'border-brand/30',
+} as const
+
+/**
+ * Tags de la demande (mots déclencheurs des LoRA puis raccourcis) résumés en une
+ * pastille « Tags · N », du même style que les réglages ; la liste s'ouvre au survol.
+ */
+function RequestTags({ generation: g }: { generation: Generation }) {
+  const tags = [
+    ...g.loras.flatMap((l) =>
+      (l.triggerWords.length ? l.triggerWords : [l.label || 'LoRA']).map(
+        (text) => ({
+          key: `lora-${l.id}-${text}`,
+          text,
+          title: l.label,
+          tone: 'lora' as const,
+        }),
+      ),
+    ),
+    ...g.contexts.map((c) => ({
+      key: `ctx-${c.id}`,
+      text: c.label,
+      title: c.text,
+      tone: 'context' as const,
+    })),
+  ]
+  if (!tags.length) return null
+
+  const badge = (t: (typeof tags)[number]) => (
+    <span
+      key={t.key}
+      title={t.title}
+      className={cn(
+        'max-w-40 truncate rounded-full border px-2 py-0.5 text-white/80',
+        TAG_TONE[t.tone],
+      )}
+    >
+      {t.text}
+    </span>
+  )
+
+  return <TagsChip tags={tags} badge={badge} />
+}
+
+/** Pastille « Tags · N » : la liste des tags s'ouvre au survol. */
+function TagsChip<T extends { key: string }>({
+  tags,
+  badge,
+}: {
+  tags: T[]
+  badge: (t: T) => React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // Petit délai à la sortie : on peut passer du « +N » au popover sans qu'il se ferme.
+  const show = () => {
+    clearTimeout(closeTimer.current)
+    setOpen(true)
+  }
+  const hide = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 120)
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <span
+          onMouseEnter={show}
+          onMouseLeave={hide}
+          className="cursor-default rounded bg-secondary/60 px-1.5 py-0.5 tabular-nums"
+        >
+          Tags · {tags.length}
+        </span>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        className="flex w-auto max-w-72 flex-wrap gap-1 p-2 text-[11px]"
+      >
+        {tags.map(badge)}
+      </PopoverContent>
+    </Popover>
   )
 }

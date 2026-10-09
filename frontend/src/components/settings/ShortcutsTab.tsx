@@ -299,9 +299,10 @@ export function ShortcutsTab({
           </p>
         </div>
         <Button
+          variant="outline"
           size="sm"
           onClick={() => openDialog(null)}
-          className="shrink-0 brand-gradient hover:opacity-90"
+          className="shrink-0"
         >
           <Plus className="h-4 w-4" /> Nouveau
         </Button>
