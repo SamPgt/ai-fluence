@@ -1,8 +1,14 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, asc, eq, max, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { getZone, type LibraryCategory, type LibraryImportResult, type LibraryOption } from '@ai-fluence/shared';
+import {
+  getZone,
+  type LibraryCategory,
+  type LibraryImportResult,
+  type LibraryMoveResult,
+  type LibraryOption,
+} from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { libraryCategories, libraryOptions } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
@@ -11,6 +17,7 @@ import {
   cancelCategoryThumbnails,
   cancelCategoryThumbnailsUnchecked,
   cancelOptionThumbnails,
+  cancelOptionsThumbnails,
   generateCategoryThumbnails,
   listThumbnails,
   regenerateOptionThumbnail,
@@ -31,6 +38,7 @@ function toCategory(row: CategoryRow, optionCount: number): LibraryCategory {
     id: row.id,
     key: row.key,
     label: row.label,
+    parentId: row.parentId,
     description: row.description,
     zone: row.zone,
     phrase: row.phrase,
@@ -79,6 +87,21 @@ async function ownedCategory(userId: string, id: string): Promise<CategoryRow | 
   return row;
 }
 
+/**
+ * Vérifie un parent : catégorie du compte, de premier niveau, autre que la catégorie elle-même,
+ * et la catégorie ne doit pas avoir elle-même de sous-catégories (deux niveaux au plus). Renvoie le parent ou un message.
+ */
+async function checkParent(userId: string, parentId: string, selfId?: string): Promise<CategoryRow | string> {
+  if (parentId === selfId) return 'Une catégorie ne peut pas être sa propre sous-catégorie.';
+  const parent = await ownedCategory(userId, parentId);
+  if (!parent) return 'Catégorie parente introuvable.';
+  if (parent.parentId) return 'Deux niveaux au plus : choisis une catégorie de premier niveau comme parent.';
+  if (selfId && (await db.$count(libraryCategories, eq(libraryCategories.parentId, selfId)))) {
+    return 'Cette catégorie a déjà des sous-catégories : elle ne peut pas devenir une sous-catégorie.';
+  }
+  return parent;
+}
+
 async function ownedOption(userId: string, id: string): Promise<OptionRow | undefined> {
   const [row] = await db
     .select({ o: libraryOptions })
@@ -119,9 +142,11 @@ const categoryFields = z.object({
   gendered: z.boolean(),
   thumbnailTemplate: z.string().max(1000),
   phrase: z.string().trim().max(200),
+  parentId: z.uuid().nullable(),
 });
 const categoryCreate = categoryFields.partial().required({ label: true }).transform(b => ({
   ...b,
+  parentId: b.parentId ?? null,
   description: b.description ?? '',
   zone: b.zone ?? ('character' as const),
   gendered: b.gendered ?? false,
@@ -155,6 +180,15 @@ const libraryRoutes = new Hono<AppEnv>()
   .post('/categories', zValidator('json', categoryCreate), async c => {
     const user = c.get('user');
     const body = c.req.valid('json');
+    // Sous-catégorie : même zone que le parent ; genre, tournure et gabarit hérités s'ils ne sont pas précisés.
+    if (body.parentId) {
+      const parent = await checkParent(user.id, body.parentId);
+      if (typeof parent === 'string') return c.json({ error: parent }, 400);
+      body.zone = parent.zone;
+      body.gendered ||= parent.gendered;
+      body.phrase ||= parent.phrase;
+      body.thumbnailTemplate ||= parent.thumbnailTemplate;
+    }
     const key = await uniqueKey(user.id, body.key || body.label);
     const position = await db.$count(libraryCategories, eq(libraryCategories.userId, user.id));
     const gendered = body.gendered && getZone(body.zone).gender !== 'none';
@@ -170,6 +204,13 @@ const libraryRoutes = new Hono<AppEnv>()
     const body = c.req.valid('json');
     const current = await ownedCategory(user.id, id);
     if (!current) return c.json({ error: 'Catégorie introuvable.' }, 404);
+    // Rangée sous un parent : elle prend sa zone. Une sous-catégorie ne change pas de zone seule.
+    const parentId = body.parentId !== undefined ? body.parentId : current.parentId;
+    if (parentId) {
+      const parent = await checkParent(user.id, parentId, id);
+      if (typeof parent === 'string') return c.json({ error: parent }, 400);
+      body.zone = parent.zone;
+    }
     // Déplacée vers une zone sans genre (Lieu & décor, Photo) : la catégorie cesse d'être genrée.
     if (getZone(body.zone ?? current.zone).gender === 'none') body.gendered = false;
     const key = body.key !== undefined ? await uniqueKey(user.id, body.key || body.label || 'categorie', id) : undefined;
@@ -178,6 +219,13 @@ const libraryRoutes = new Hono<AppEnv>()
       .set({ ...body, ...(key ? { key } : {}), updatedAt: new Date() })
       .where(eq(libraryCategories.id, id))
       .returning();
+    // Une catégorie qui change de zone emmène ses sous-catégories.
+    if (body.zone && body.zone !== current.zone && !row.parentId) {
+      await db
+        .update(libraryCategories)
+        .set({ zone: body.zone, ...(getZone(body.zone).gender === 'none' ? { gendered: false } : {}), updatedAt: new Date() })
+        .where(eq(libraryCategories.parentId, id));
+    }
     const [{ count }] = await db.select({ count: optionCount }).from(libraryCategories).where(eq(libraryCategories.id, id));
     return c.json({ category: toCategory(row, count) });
   })
@@ -276,6 +324,67 @@ const libraryRoutes = new Hono<AppEnv>()
       return c.json({ queued: await regenerateOptionThumbnail(c.get('user').id, c.req.valid('param').id, c.req.valid('json').gender) });
     },
   )
+  /**
+   * Déplace des options vers une autre catégorie (découper « Vêtements » en « Hauts », « Bas »…).
+   * Les miniatures suivent l'option. Un fragment déjà présent dans la destination reste en place.
+   */
+  .post(
+    '/options/move',
+    zValidator('json', z.object({ optionIds: z.array(z.uuid()).min(1).max(5000), categoryId: z.uuid() })),
+    async c => {
+      const user = c.get('user');
+      const { optionIds, categoryId } = c.req.valid('json');
+      const target = await ownedCategory(user.id, categoryId);
+      if (!target) return c.json({ error: 'Catégorie de destination introuvable.' }, 404);
+      const rows = await db
+        .select({ o: libraryOptions })
+        .from(libraryOptions)
+        .innerJoin(libraryCategories, eq(libraryCategories.id, libraryOptions.categoryId))
+        .where(and(inArray(libraryOptions.id, optionIds), eq(libraryCategories.userId, user.id)));
+      const taken = new Set(
+        (await db.select({ f: libraryOptions.fragment }).from(libraryOptions).where(eq(libraryOptions.categoryId, categoryId))).map(r => r.f),
+      );
+      const moving: OptionRow[] = [];
+      for (const { o } of rows) {
+        if (o.categoryId === categoryId || taken.has(o.fragment)) continue;
+        taken.add(o.fragment);
+        moving.push(o);
+      }
+      // Zone sans genre (lieux, ambiances) : les options perdent leur genre ; sinon, une option réservée rend la catégorie genrée.
+      const genderless = getZone(target.zone).gender === 'none';
+      if (!genderless && !target.gendered && moving.some(o => o.gender)) {
+        await db.update(libraryCategories).set({ gendered: true, updatedAt: new Date() }).where(eq(libraryCategories.id, categoryId));
+      }
+      if (moving.length) {
+        const start = await nextPosition(categoryId);
+        await db.transaction(async tx => {
+          for (const [i, o] of moving.entries()) {
+            await tx
+              .update(libraryOptions)
+              .set({ categoryId, position: start + i, ...(genderless ? { gender: null } : {}) })
+              .where(eq(libraryOptions.id, o.id));
+          }
+        });
+      }
+      const alreadyThere = rows.filter(r => r.o.categoryId === categoryId).length;
+      return c.json({
+        result: { moved: moving.length, duplicates: rows.length - moving.length - alreadyThere } satisfies LibraryMoveResult,
+      });
+    },
+  )
+  /** Supprime plusieurs options d'un coup (et leurs miniatures en attente). */
+  .post('/options/delete', zValidator('json', z.object({ optionIds: z.array(z.uuid()).min(1).max(5000) })), async c => {
+    const user = c.get('user');
+    const rows = await db
+      .select({ id: libraryOptions.id })
+      .from(libraryOptions)
+      .innerJoin(libraryCategories, eq(libraryCategories.id, libraryOptions.categoryId))
+      .where(and(inArray(libraryOptions.id, c.req.valid('json').optionIds), eq(libraryCategories.userId, user.id)));
+    const ids = rows.map(r => r.id);
+    await cancelOptionsThumbnails(ids);
+    if (ids.length) await db.delete(libraryOptions).where(inArray(libraryOptions.id, ids));
+    return c.json({ deleted: ids.length });
+  })
   .patch('/options/:id', idParam, zValidator('json', optionUpdate), async c => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');

@@ -134,6 +134,8 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
 - **Importer un fichier wildcard** dans une zone (`.txt`, une option par ligne ; lignes vides et commentaires `#` / `//` ignorés, doublons écartés) : il devient une catégorie de cette zone. On peut aussi importer dans une catégorie existante.
 - Une option réservée à un genre (**F** / **H**) n'aura que sa miniature, et ne sera proposée qu'aux personnages du même genre (réglé dans les paramètres du persona).
 - Ajouter, modifier ou supprimer une option à la main ; déplacer une catégorie vers une autre zone.
+- **Découper une grosse catégorie** : coche des cartes (Maj+clic pour une plage, ou « Sélectionner les N résultats » après une recherche comme `dress`), puis **Déplacer vers…** une catégorie existante ou une **nouvelle sous-catégorie** (« Vêtements › Robes »). Les miniatures suivent. **Supprimer** en masse ce qui ne sert pas.
+- **Sous-catégories** : deux niveaux au plus. Une sous-catégorie suit la zone de sa catégorie et hérite de son genre, de sa tournure et de son gabarit de miniatures. Chaque sous-catégorie est un trait à part (une bulle « Hauts » et une bulle « Bas » peuvent coexister) : découpe plutôt en pièces complémentaires. Supprimer une catégorie fait remonter ses sous-catégories au premier niveau.
 - Chaque catégorie a un nom technique (`__coupe_de_cheveux__`) pour la syntaxe des wildcards.
 
 **Miniatures** : chaque option a une image type, générée en local par ComfyUI (512×640, ~11 s par miniature sur une RTX 3060), pour choisir visuellement sans connaître le nom des coiffures ou des tenues.

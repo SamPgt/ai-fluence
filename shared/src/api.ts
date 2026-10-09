@@ -362,6 +362,8 @@ export interface LibraryCategory {
   /** Nom technique (`cheveux_coupe`). */
   key: string;
   label: string;
+  /** Catégorie parente (sous-catégorie) ; deux niveaux au plus. */
+  parentId: string | null;
   description: string;
   /** Partie du prompt à laquelle appartient la catégorie (Personnage, Lieu & décor…). */
   zone: LibraryZone;
@@ -466,4 +468,10 @@ export interface VariationRequest {
   face: boolean;
   /** Réglages du modèle (proportions…). */
   params?: Record<string, unknown>;
+}
+
+export interface LibraryMoveResult {
+  moved: number;
+  /** Options laissées en place : le même fragment existe déjà dans la catégorie de destination. */
+  duplicates: number;
 }

@@ -66,3 +66,16 @@ export const LIBRARY_ZONES: LibraryZoneDef[] = [
 export function getZone(id: LibraryZone): LibraryZoneDef {
   return LIBRARY_ZONES.find(z => z.id === id) ?? LIBRARY_ZONES[0];
 }
+
+/**
+ * Catégories dans l'ordre d'affichage : chaque catégorie de premier niveau suivie de ses sous-catégories.
+ * `depth` : 0 pour une catégorie, 1 pour une sous-catégorie.
+ */
+export function orderCategories<T extends { id: string; parentId: string | null }>(categories: T[]): (T & { depth: 0 | 1 })[] {
+  const ids = new Set(categories.map(c => c.id));
+  const roots = categories.filter(c => !c.parentId || !ids.has(c.parentId));
+  return roots.flatMap(root => [
+    { ...root, depth: 0 as const },
+    ...categories.filter(c => c.parentId === root.id).map(c => ({ ...c, depth: 1 as const })),
+  ]);
+}

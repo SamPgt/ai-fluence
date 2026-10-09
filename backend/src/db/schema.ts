@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   boolean,
   index,
   integer,
@@ -240,6 +241,11 @@ export const libraryCategories = pgTable(
     /** Nom technique, unique par compte (`cheveux_coupe`, utilisable en `__cheveux_coupe__`). */
     key: text('key').notNull(),
     label: text('label').notNull(),
+    /**
+     * Catégorie parente (« Vêtements » › « Hauts ») : deux niveaux au plus, même zone que le parent.
+     * Parent supprimé : ses sous-catégories remontent au premier niveau.
+     */
+    parentId: uuid('parent_id').references((): AnyPgColumn => libraryCategories.id, { onDelete: 'set null' }),
     description: text('description').notNull().default(''),
     /** Partie du prompt : Personnage, Tenue, Pose & action, Lieu & décor, Photo & ambiance. */
     zone: text('zone').$type<LibraryZone>().notNull().default('character'),

@@ -1,11 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Check, FileUp, ImageIcon, Library, Loader2, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  CornerDownRight,
+  FileUp,
+  FolderInput,
+  ImageIcon,
+  Library,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   LIBRARY_ZONES,
   getZone,
+  orderCategories,
   type Gender,
   type LibraryCategory,
   type LibraryOption,
@@ -160,7 +177,7 @@ function LibraryPage() {
             {isLoading && <Loader2 className="mx-auto mt-6 h-4 w-4 animate-spin text-muted-foreground" />}
             {!isLoading &&
               LIBRARY_ZONES.map((zone) => {
-                const items = categories.filter((c) => c.zone === zone.id)
+                const items = orderCategories(categories.filter((c) => c.zone === zone.id))
                 return (
                   <div key={zone.id}>
                     <div className="group flex items-center gap-1 px-2 pb-1">
@@ -197,11 +214,13 @@ function LibraryPage() {
                             onClick={() => setSelectedId(c.id)}
                             className={cn(
                               'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors',
+                              c.depth === 1 && 'pl-5',
                               selected?.id === c.id
                                 ? 'bg-accent text-foreground'
                                 : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
                             )}
                           >
+                            {c.depth === 1 && <CornerDownRight className="h-3 w-3 shrink-0 opacity-50" />}
                             <span className="min-w-0 flex-1 truncate">{c.label}</span>
                             <span className="text-[11px] tabular-nums">{c.optionCount}</span>
                           </button>
@@ -244,7 +263,14 @@ function LibraryPage() {
         {/* Catégorie sélectionnée */}
         <section className="min-w-0 flex-1 overflow-y-auto">
           {selected ? (
-            <CategoryPanel key={selected.id} category={selected} onChanged={() => refresh(selected.id)} onDeleted={() => setSelectedId(null)} />
+            <CategoryPanel
+              key={selected.id}
+              category={selected}
+              categories={categories}
+              onChanged={() => refresh(selected.id)}
+              onDeleted={() => setSelectedId(null)}
+              onOpen={setSelectedId}
+            />
           ) : (
             !isLoading && (
               <div className="mx-auto mt-24 max-w-md space-y-3 px-6 text-center">
@@ -268,12 +294,17 @@ function LibraryPage() {
 
 function CategoryPanel({
   category,
+  categories,
   onChanged,
   onDeleted,
+  onOpen,
 }: {
   category: LibraryCategory
+  categories: LibraryCategory[]
   onChanged: () => void
   onDeleted: () => void
+  /** Ouvre une autre catégorie (sous-catégorie créée…). */
+  onOpen: (categoryId: string) => void
 }) {
   const queryClient = useQueryClient()
   const { data: options = [], isLoading } = useQuery(libraryOptionsQuery(category.id))
@@ -318,6 +349,7 @@ function CategoryPanel({
   const durations = thumbnails.map((t) => t.durationMs).filter((d): d is number => d !== null)
   const avgMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
   const [showTemplate, setShowTemplate] = useState(false)
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
   const [template, setTemplate] = useState(category.thumbnailTemplate)
   const [phrase, setPhrase] = useState(category.phrase)
   const defaultTemplate = getZone(category.zone).thumbnailTemplate
@@ -368,6 +400,57 @@ function CategoryPanel({
   }, [options, search])
   const untranslated = options.filter((o) => !o.label).length
 
+  // Sous-catégories : deux niveaux au plus.
+  const parent = categories.find((c) => c.id === category.parentId) ?? null
+  const children = categories.filter((c) => c.parentId === category.id)
+  const parentChoices = categories.filter((c) => !c.parentId && c.id !== category.id && c.zone === category.zone)
+  const addChild = useMutation({
+    mutationFn: () => libraryApi.createCategory({ label: 'Nouvelle sous-catégorie', parentId: category.id }),
+    onSuccess: ({ category: child }) => {
+      queryClient.invalidateQueries({ queryKey: qk.libraryCategories })
+      onOpen(child.id)
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  // Sélection multiple : clic sur la case, Maj+clic pour une plage (dans l'ordre affiché).
+  const [selection, setSelection] = useState<Set<string>>(new Set())
+  const [anchor, setAnchor] = useState<string | null>(null)
+  const [moving, setMoving] = useState(false)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const toggleOption = (id: string, range: boolean) => {
+    setSelection((prev) => {
+      const next = new Set(prev)
+      const from = anchor ? filtered.findIndex((o) => o.id === anchor) : -1
+      const to = filtered.findIndex((o) => o.id === id)
+      if (range && from >= 0 && to >= 0) {
+        for (const o of filtered.slice(Math.min(from, to), Math.max(from, to) + 1)) next.add(o.id)
+      } else if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    setAnchor(id)
+  }
+  const clearSelection = () => {
+    setSelection(new Set())
+    setAnchor(null)
+  }
+  const afterBulk = () => {
+    clearSelection()
+    queryClient.invalidateQueries({ queryKey: qk.libraryCategories })
+    queryClient.invalidateQueries({ queryKey: ['library', 'options'] })
+    queryClient.invalidateQueries({ queryKey: ['library', 'thumbnails'] })
+  }
+  const bulkDelete = useMutation({
+    mutationFn: () => libraryApi.removeOptions([...selection]),
+    onSuccess: ({ deleted }) => {
+      setConfirmBulkDelete(false)
+      afterBulk()
+      toast.success(`${deleted} option(s) supprimée(s)`)
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
   return (
     <div className="space-y-5 px-6 py-5">
       {/* En-tête de la catégorie */}
@@ -389,14 +472,43 @@ function CategoryPanel({
               {category.label}
             </button>
           )}
+          {parent && (
+            <button onClick={() => onOpen(parent.id)} className="block text-xs text-muted-foreground hover:text-foreground">
+              {parent.label} ›
+            </button>
+          )}
           <p className="text-xs text-muted-foreground">
             <code className="text-foreground/70">__{category.key}__</code> · {options.length} option(s)
             {untranslated > 0 && ` · ${untranslated} sans libellé français`}
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          <Select value={category.zone} onValueChange={(zone) => update.mutate({ zone: zone as LibraryZone })}>
-            <SelectTrigger size="sm" className="w-44" title="Zone de la catégorie">
+        <div className="flex flex-wrap items-center gap-3">
+          {children.length === 0 && (
+            <Select value={category.parentId ?? '__root'} onValueChange={(v) => update.mutate({ parentId: v === '__root' ? null : v })}>
+              <SelectTrigger size="sm" className="w-48" title="Ranger dans une autre catégorie (sous-catégorie)">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__root">Catégorie principale</SelectItem>
+                {parentChoices.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    Sous-catégorie de {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {!category.parentId && (
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={addChild.isPending} onClick={() => addChild.mutate()}>
+              <Plus className="h-3.5 w-3.5" /> Sous-catégorie
+            </Button>
+          )}
+          <Select value={category.zone} disabled={Boolean(category.parentId)} onValueChange={(zone) => update.mutate({ zone: zone as LibraryZone })}>
+            <SelectTrigger
+              size="sm"
+              className="w-44"
+              title={category.parentId ? 'Une sous-catégorie suit la zone de sa catégorie' : 'Zone de la catégorie (et de ses sous-catégories)'}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -465,7 +577,7 @@ function CategoryPanel({
                   Gabarit
                 </Button>
                 {ready > 0 && (
-                  <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" disabled={generate.isPending} onClick={() => generate.mutate('all')}>
+                  <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" disabled={generate.isPending} onClick={() => setConfirmRegenerate(true)}>
                     Tout régénérer
                   </Button>
                 )}
@@ -594,11 +706,40 @@ function CategoryPanel({
         />
       </div>
 
-      {/* Recherche */}
-      {options.length > 12 && (
-        <div className="relative max-w-sm">
-          <Search className="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher…" className="h-8 pl-8 text-xs" />
+      {/* Recherche et sélection */}
+      {options.length > 0 && (
+        <div className="sticky top-0 z-10 -mx-6 flex flex-wrap items-center gap-2 bg-background/95 px-6 py-2 backdrop-blur">
+          {options.length > 12 && (
+            <div className="relative w-full max-w-sm">
+              <Search className="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher… (ex. dress, jeans)" className="h-8 pl-8 text-xs" />
+            </div>
+          )}
+          {selection.size > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-medium tabular-nums">{selection.size} sélectionnée(s)</span>
+              {filtered.some((o) => !selection.has(o.id)) && (
+                <Button variant="ghost" size="sm" className="h-7" onClick={() => setSelection(new Set([...selection, ...filtered.map((o) => o.id)]))}>
+                  {search.trim() ? `+ les ${filtered.length} résultats` : `Tout sélectionner (${filtered.length})`}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" onClick={clearSelection}>
+                Désélectionner
+              </Button>
+              <Button size="sm" className="h-7 gap-1.5" onClick={() => setMoving(true)}>
+                <FolderInput className="h-3.5 w-3.5" /> Déplacer vers…
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-muted-foreground hover:text-destructive" onClick={() => setConfirmBulkDelete(true)}>
+                <Trash2 className="h-3.5 w-3.5" /> Supprimer
+              </Button>
+            </div>
+          ) : (
+            filtered.length > 0 && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => setSelection(new Set(filtered.map((o) => o.id)))}>
+                {search.trim() ? `Sélectionner les ${filtered.length} résultats` : 'Tout sélectionner'}
+              </Button>
+            )
+          )}
         </div>
       )}
 
@@ -619,6 +760,9 @@ function CategoryPanel({
                 gendered={category.gendered}
                 thumbnail={thumbByKey.get(`${o.id}:${shownGender(o)}`) ?? null}
                 thumbnailGender={shownGender(o)}
+                selected={selection.has(o.id)}
+                selecting={selection.size > 0}
+                onToggle={(range) => toggleOption(o.id, range)}
                 onChanged={onChanged}
                 onThumbnailQueued={refreshThumbnails}
               />
@@ -638,11 +782,135 @@ function CategoryPanel({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={`Supprimer « ${category.label} » ?`}
-        description={`La catégorie et ses ${options.length} option(s) seront supprimées de la bibliothèque.`}
+        description={
+          `La catégorie et ses ${options.length} option(s) seront supprimées de la bibliothèque.` +
+          (children.length ? ` Ses ${children.length} sous-catégorie(s) et leurs options sont conservées et remontent au premier niveau.` : '')
+        }
         pending={remove.isPending}
         onConfirm={() => remove.mutate()}
       />
+      <ConfirmDialog
+        open={confirmRegenerate}
+        onOpenChange={setConfirmRegenerate}
+        title={`Régénérer les ${expected} miniatures ?`}
+        description={`Les ${ready} miniatures existantes seront remplacées (en local, environ ${formatDuration((avgMs ?? 11_000) * expected)}). Pour une seule miniature ratée, utilise plutôt « Régénérer » sur sa carte.`}
+        confirmLabel="Tout régénérer"
+        pending={generate.isPending}
+        onConfirm={() => {
+          setConfirmRegenerate(false)
+          generate.mutate('all')
+        }}
+      />
+      <ConfirmDialog
+        open={confirmBulkDelete}
+        onOpenChange={setConfirmBulkDelete}
+        title={`Supprimer ${selection.size} option(s) ?`}
+        description="Elles et leurs miniatures sont retirées de la bibliothèque. Les images déjà générées ne changent pas."
+        pending={bulkDelete.isPending}
+        onConfirm={() => bulkDelete.mutate()}
+      />
+      <MoveDialog
+        open={moving}
+        category={category}
+        categories={categories}
+        optionIds={[...selection]}
+        onClose={() => setMoving(false)}
+        onMoved={(targetId) => {
+          setMoving(false)
+          afterBulk()
+          if (targetId) onOpen(targetId)
+        }}
+      />
     </div>
+  )
+}
+
+/** « Déplacer vers… » : une catégorie existante, ou une nouvelle sous-catégorie créée à la volée. */
+function MoveDialog({
+  open,
+  category,
+  categories,
+  optionIds,
+  onClose,
+  onMoved,
+}: {
+  open: boolean
+  category: LibraryCategory
+  categories: LibraryCategory[]
+  optionIds: string[]
+  onClose: () => void
+  onMoved: (targetId: string | null) => void
+}) {
+  const root = categories.find((c) => c.id === (category.parentId ?? category.id)) ?? category
+  const [name, setName] = useState('')
+  const [follow, setFollow] = useState(false)
+  useEffect(() => {
+    if (open) setName('')
+  }, [open])
+  const move = useMutation({
+    mutationFn: async (target: { id: string } | { label: string }) => {
+      const id = 'id' in target ? target.id : (await libraryApi.createCategory({ label: target.label, parentId: root.id })).category.id
+      return { id, ...(await libraryApi.moveOptions(optionIds, id)).result }
+    },
+    onSuccess: ({ id, moved, duplicates }) => {
+      toast.success(`${moved} option(s) déplacée(s)` + (duplicates ? ` · ${duplicates} déjà présente(s), laissée(s) en place` : ''))
+      onMoved(follow ? id : null)
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+  const targets = orderCategories(categories).filter((c) => c.id !== category.id)
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Déplacer {optionIds.length} option(s)</DialogTitle>
+          <DialogDescription>Leurs miniatures suivent. Une option déjà présente dans la destination reste ici.</DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (name.trim()) move.mutate({ label: name.trim() })
+          }}
+        >
+          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={`Nouvelle sous-catégorie de ${root.label}`} className="h-8 text-xs" />
+          <Button type="submit" size="sm" className="h-8 shrink-0" disabled={!name.trim() || move.isPending}>
+            {move.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Créer et déplacer'}
+          </Button>
+        </form>
+        <div className="max-h-72 space-y-3 overflow-y-auto">
+          {LIBRARY_ZONES.map((zone) => {
+            const items = targets.filter((c) => c.zone === zone.id)
+            if (!items.length) return null
+            return (
+              <div key={zone.id}>
+                <div className="pb-1 text-[11px] font-bold tracking-wide text-zinc-300 uppercase">{zone.label}</div>
+                {items.map((c) => (
+                  <button
+                    key={c.id}
+                    disabled={move.isPending}
+                    onClick={() => move.mutate({ id: c.id })}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+                      c.depth === 1 && 'pl-6',
+                    )}
+                  >
+                    {c.depth === 1 && <CornerDownRight className="h-3 w-3 shrink-0 opacity-50" />}
+                    <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                    <span className="text-[11px] tabular-nums">{c.optionCount}</span>
+                  </button>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Switch checked={follow} onCheckedChange={setFollow} />
+          Ouvrir la destination après le déplacement
+        </label>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -651,6 +919,9 @@ function OptionCard({
   gendered,
   thumbnail,
   thumbnailGender,
+  selected,
+  selecting,
+  onToggle,
   onChanged,
   onThumbnailQueued,
 }: {
@@ -658,6 +929,10 @@ function OptionCard({
   gendered: boolean
   thumbnail: LibraryThumbnail | null
   thumbnailGender: ThumbnailGender
+  selected: boolean
+  /** Une sélection est en cours : un clic sur la carte sélectionne au lieu de modifier. */
+  selecting: boolean
+  onToggle: (range: boolean) => void
   onChanged: () => void
   onThumbnailQueued: () => void
 }) {
@@ -688,7 +963,7 @@ function OptionCard({
   const busy = thumbnail?.status === 'queued' || thumbnail?.status === 'running'
 
   return (
-    <div className="group overflow-hidden rounded-xl border border-border/40 bg-card">
+    <div className={cn('group overflow-hidden rounded-xl border bg-card', selected ? 'border-brand ring-1 ring-brand' : 'border-border/40')}>
       {/* Miniature (l'ancienne reste affichée pendant une régénération) */}
       <div className="relative flex aspect-[4/5] items-center justify-center bg-secondary/40">
         {thumbnail?.url ? (
@@ -709,15 +984,30 @@ function OptionCard({
             {thumbnail.error ?? 'Échec'}
           </span>
         )}
+        {/* Sélection en cours : un clic n'importe où sur l'image sélectionne */}
+        {selecting && <button className="absolute inset-0" onClick={(e) => onToggle(e.shiftKey)} aria-hidden tabIndex={-1} />}
+        {/* Case de sélection (Maj+clic : toute la plage) */}
+        <button
+          onClick={(e) => onToggle(e.shiftKey)}
+          className={cn(
+            'absolute top-1.5 left-1.5 flex h-5 w-5 items-center justify-center rounded-md border transition-opacity',
+            selected ? 'border-brand bg-brand text-white' : 'border-white/70 bg-black/40 text-transparent hover:text-white/70',
+            selected || selecting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          )}
+          title="Sélectionner (Maj+clic : plage)"
+          aria-label="Sélectionner"
+        >
+          <Check className="h-3 w-3" />
+        </button>
         {gendered && option.gender && (
           <span
-            className="absolute top-1.5 left-1.5 rounded bg-black/60 px-1.5 text-[10px] font-semibold text-white"
+            className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 text-[10px] font-semibold text-white"
             title={`Option ${GENDER_LABEL[option.gender].toLowerCase()}`}
           >
             {option.gender === 'female' ? 'F' : 'H'}
           </span>
         )}
-        {!editing && (
+        {!editing && !selecting && (
           <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
             <button
               onClick={() => regenerate.mutate()}
@@ -765,7 +1055,9 @@ function OptionCard({
           </div>
         </form>
       ) : (
-        <button onClick={() => setEditing(true)} className="block w-full space-y-0.5 p-2 text-left" title={option.source ? `Importé de ${option.source}` : undefined}>
+        <button
+          onClick={(e) => (selecting ? onToggle(e.shiftKey) : setEditing(true))}
+          className="block w-full space-y-0.5 p-2 text-left" title={option.source ? `Importé de ${option.source}` : undefined}>
           <span className="flex items-center gap-1.5 text-[13px] font-medium">
             <span className="truncate">{option.label ?? option.fragment}</span>
             {!option.label && <span className="shrink-0 rounded bg-secondary px-1 text-[9px] font-semibold text-muted-foreground">EN</span>}

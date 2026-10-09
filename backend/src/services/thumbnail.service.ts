@@ -183,6 +183,11 @@ export async function cancelOptionThumbnails(optionId: string) {
   await cancelRows(await db.select().from(libraryThumbnails).where(eq(libraryThumbnails.optionId, optionId)));
 }
 
+/** Avant une suppression en masse : annule les miniatures en file de ces options. */
+export async function cancelOptionsThumbnails(optionIds: string[]) {
+  if (optionIds.length) await cancelRows(await db.select().from(libraryThumbnails).where(inArray(libraryThumbnails.optionId, optionIds)));
+}
+
 /** Avant de supprimer une catégorie : annule ses miniatures encore en file. */
 export async function cancelCategoryThumbnailsUnchecked(categoryId: string) {
   await cancelRows(await thumbnailsOfCategory(categoryId));

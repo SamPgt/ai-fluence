@@ -17,6 +17,7 @@ import type {
   GenerationRequest,
   LibraryCategory,
   LibraryImportResult,
+  LibraryMoveResult,
   LibraryOption,
   LibraryThumbnail,
   ThumbnailGender,
@@ -113,7 +114,7 @@ export const comfyApi = {
 }
 
 type LibraryCategoryInput = Pick<LibraryCategory, 'label'> &
-  Partial<Pick<LibraryCategory, 'key' | 'description' | 'zone' | 'gendered' | 'thumbnailTemplate' | 'phrase'>>
+  Partial<Pick<LibraryCategory, 'key' | 'description' | 'zone' | 'gendered' | 'thumbnailTemplate' | 'phrase' | 'parentId'>>
 type LibraryOptionInput = Pick<LibraryOption, 'fragment'> & Partial<Pick<LibraryOption, 'label' | 'gender' | 'tags' | 'weight'>>
 
 export const libraryApi = {
@@ -134,6 +135,10 @@ export const libraryApi = {
   updateOption: (id: string, body: Partial<LibraryOptionInput>) =>
     apiFetch<{ option: LibraryOption }>(`/library/options/${id}`, { method: 'PATCH', body }),
   removeOption: (id: string) => apiFetch<{ ok: true }>(`/library/options/${id}`, { method: 'DELETE' }),
+  moveOptions: (optionIds: string[], categoryId: string) =>
+    apiFetch<{ result: LibraryMoveResult }>('/library/options/move', { method: 'POST', body: { optionIds, categoryId } }),
+  removeOptions: (optionIds: string[]) =>
+    apiFetch<{ deleted: number }>('/library/options/delete', { method: 'POST', body: { optionIds } }),
   thumbnails: (categoryId: string) => apiFetch<{ thumbnails: LibraryThumbnail[] }>(`/library/categories/${categoryId}/thumbnails`),
   generateThumbnails: (categoryId: string, mode: 'missing' | 'all') =>
     apiFetch<{ queued: number }>(`/library/categories/${categoryId}/thumbnails`, { method: 'POST', body: { mode } }),

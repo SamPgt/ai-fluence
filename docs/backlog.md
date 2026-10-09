@@ -10,6 +10,10 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 - **Traduire les libellés** des packs importés en français.
 - **Exécution locale** : Ollama est installé sur le poste ; brancher un modèle texte local en plus de ceux de SpicyAPI, pour que tout le parcours puisse rester local.
 
+## Bibliothèque
+
+- **Sous-catégories « alternatives »** : aujourd'hui une sous-catégorie est un trait à part (Hauts + Bas). Découper « Coiffures » en « Courtes » / « Longues » donne deux traits de coiffure, et deux emplacements dans le créateur de personnage. Si ce besoin revient, un réglage de la catégorie parente « une seule option parmi ses sous-catégories » ; sinon, préférer favoris et masquage (lot 1c) pour réduire une liste.
+
 ## Prompts
 
 - **« Smartphone photo » pris au pied de la lettre** : avec Z-Image, `amateur smartphone photo of…` fait apparaître un téléphone dans l'image (2 images sur 3 lors d'un test). Pour le bloc « Photo » des wildcards : décrire l'effet (`candid snapshot, slightly tilted framing, natural phone-camera look`) plutôt que l'appareil, et ajouter `smartphone, phone in frame, hands holding phone` au prompt négatif.

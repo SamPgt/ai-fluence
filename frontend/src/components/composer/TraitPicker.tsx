@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Check, ImageIcon, Library, Loader2, Search } from 'lucide-react'
-import { LIBRARY_ZONES, type Gender, type GenerationTrait, type LibraryCategory } from '@ai-fluence/shared'
+import { LIBRARY_ZONES, orderCategories, type Gender, type GenerationTrait, type LibraryCategory } from '@ai-fluence/shared'
 
 import { libraryCategoriesQuery, libraryOptionsQuery, libraryThumbnailsQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -36,7 +36,7 @@ export function TraitPicker({
   onClose: () => void
 }) {
   const { data: categories = [] } = useQuery({ ...libraryCategoriesQuery(), enabled: open })
-  const usable = categories.filter((c) => c.optionCount > 0 && (!categoryIds || categoryIds.includes(c.id)))
+  const usable = orderCategories(categories).filter((c) => c.optionCount > 0 && (!categoryIds || categoryIds.includes(c.id)))
   const [categoryId, setCategoryId] = useState<string | null>(initialCategoryId)
   const category = usable.find((c) => c.id === categoryId) ?? usable[0] ?? null
   useEffect(() => {
@@ -79,6 +79,7 @@ export function TraitPicker({
                           onClick={() => setCategoryId(c.id)}
                           className={cn(
                             'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors',
+                            c.depth === 1 && 'pl-6',
                             category?.id === c.id ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
                           )}
                         >
