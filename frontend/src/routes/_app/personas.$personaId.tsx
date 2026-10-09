@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { Camera, Loader2, Plus, Star, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { MODEL_FAMILIES, type Gender, type MediaKind, type Persona, type PersonaLora } from '@ai-fluence/shared'
 
@@ -110,9 +110,16 @@ function PersonaEditor({ persona }: { persona: Persona }) {
     <>
       <PageHeader
         right={
-          <Button size="sm" onClick={() => save.mutate()} disabled={!dirty || save.isPending || !draft.name.trim()} className="brand-gradient">
-            {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enregistrer'}
-          </Button>
+          <>
+            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" asChild>
+              <Link to="/personnages/$personaId/masters" params={{ personaId: persona.id }}>
+                <Star className="h-3.5 w-3.5" /> Images master
+              </Link>
+            </Button>
+            <Button size="sm" onClick={() => save.mutate()} disabled={!dirty || save.isPending || !draft.name.trim()} className="brand-gradient">
+              {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enregistrer'}
+            </Button>
+          </>
         }
       >
         <PersonaAvatar persona={draft} size={24} className="rounded-md" />

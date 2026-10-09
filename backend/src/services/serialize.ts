@@ -22,6 +22,7 @@ export function toAsset(row: AssetRow): Asset {
     durationSeconds: row.durationSeconds,
     personaId: row.personaId,
     isReference: row.isReference,
+    isMaster: row.isMaster,
     generationId: row.generationId,
     createdAt: row.createdAt.toISOString(),
   };
@@ -82,6 +83,7 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
     references,
     face,
     traits: row.traits,
+    variation: row.variation ?? null,
     batchId: row.batchId,
     batchIndex: row.batchIndex,
     contexts: row.contexts,

@@ -21,6 +21,7 @@ import type {
   LibraryThumbnail,
   ThumbnailGender,
   LoginRequest,
+  MastersResponse,
   Persona,
   PersonaInput,
   PromptPreset,
@@ -28,6 +29,7 @@ import type {
   SearchResult,
   Settings,
   SignupRequest,
+  VariationRequest,
   Thread,
   ThreadDetailResponse,
   UpdateSettingsRequest,
@@ -180,6 +182,14 @@ export const personasApi = {
   update: (id: string, body: Partial<PersonaInput>) =>
     apiFetch<{ persona: Persona }>(`/personas/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/personas/${id}`, { method: 'DELETE' }),
+}
+
+export const mastersApi = {
+  list: (personaId: string) => apiFetch<MastersResponse>(`/personas/${personaId}/masters`),
+  set: (personaId: string, assetId: string, isMaster: boolean) =>
+    apiFetch<{ asset: Asset }>(`/personas/${personaId}/masters/${assetId}`, { method: 'PATCH', body: { isMaster } }),
+  generate: (personaId: string, body: VariationRequest) =>
+    apiFetch<{ threadId: string }>(`/personas/${personaId}/variations`, { method: 'POST', body }),
 }
 
 export const threadsApi = {

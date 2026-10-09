@@ -5,6 +5,7 @@
 import type { InputSchema, VideoRefMode } from './input';
 import type { MediaKind, ModelBadge, ModelProvider, TaskKind } from './models';
 import type { LibraryZone } from './library';
+import type { GenerationVariation, MasterAxis } from './masters';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -130,6 +131,8 @@ export interface Asset {
   durationSeconds: number | null;
   personaId: string | null;
   isReference: boolean;
+  /** Image master du persona (fait aussi partie de ses références). */
+  isMaster: boolean;
   generationId: string | null;
   createdAt: string;
 }
@@ -231,6 +234,8 @@ export interface Generation {
   /** Image « visage » appliquée au résultat (ReActor). */
   face: Asset | null;
   traits: GenerationTrait[];
+  /** Images master : axe et variante de cette image. */
+  variation: GenerationVariation | null;
   /** Série : les générations d'une même demande ×N partagent ce `batchId`. */
   batchId: string | null;
   batchIndex: number;
@@ -435,4 +440,30 @@ export interface CharacterDraft {
   personaId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Images master ─────────────────────────────────────────────
+
+export interface PersonaMaster {
+  asset: Asset;
+  /** Axe de la variation qui l'a produite (null : image de référence, upload…). */
+  axis: MasterAxis | null;
+  variantLabel: string | null;
+}
+
+export interface MastersResponse {
+  /** Fil masqué des variations (null tant qu'aucun lot n'a été lancé). */
+  threadId: string | null;
+  masters: PersonaMaster[];
+}
+
+export interface VariationRequest {
+  /** `mix` : une variante tirée dans tous les axes pour chaque image. */
+  axis: MasterAxis | 'mix';
+  count: number;
+  family: string;
+  /** Applique le visage de l'image de référence (ReActor, local). */
+  face: boolean;
+  /** Réglages du modèle (proportions…). */
+  params?: Record<string, unknown>;
 }

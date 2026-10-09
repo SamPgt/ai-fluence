@@ -15,6 +15,7 @@ import promptsRoutes from './routes/prompts.route.js';
 import comfyRoutes from './routes/comfy.route.js';
 import libraryRoutes from './routes/library.route.js';
 import charactersRoutes from './routes/characters.route.js';
+import mastersRoutes from './routes/masters.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -46,6 +47,7 @@ const app = new Hono<AppEnv>()
   .route('/assets', assetsRoutes)
   .route('/media', mediaRoutes)
   .route('/personas', personasRoutes)
+  .route('/personas', mastersRoutes)
   .route('/threads', threadsRoutes)
   .route('/generations', generationsRoutes)
   .route('/presets', presetsRoutes)

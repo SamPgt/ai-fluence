@@ -21,6 +21,7 @@ import {
   type GenerationTrait,
   type Generation,
   type GenerationRequest,
+  type GenerationVariation,
   type LoraEntry,
   type QuoteResponse,
   type UpscaleRequest,
@@ -244,14 +245,22 @@ export class PriceChangedError extends Error {
   }
 }
 
+/** Réglages propres à une image d'une série (images master : une variante par image). */
+export interface PerImage {
+  prompt?: string;
+  variation?: GenerationVariation;
+}
+
 export async function createGeneration(
   user: SessionUser,
   req: GenerationRequest,
+  perImage?: (i: number) => PerImage,
 ): Promise<CreateGenerationResponse> {
   const count = req.count ?? 1;
   // Créateur de personnage : chaque image a son propre tirage de traits.
   const traitsFor = (i: number) => req.traitDraws?.[i] ?? req.traitIds;
-  const p = await prepare(user, { ...req, traitIds: traitsFor(0) });
+  const promptFor = (i: number) => perImage?.(i).prompt ?? req.prompt;
+  const p = await prepare(user, { ...req, prompt: promptFor(0), traitIds: traitsFor(0) });
   const quote = await quoteFor(p);
 
   // Le devis affiché au clic (total de la série) vaut confirmation ; s'il a augmenté entre-temps, on redemande.
@@ -269,17 +278,18 @@ export async function createGeneration(
     // Seed fixé par l'utilisateur : décalé d'une image à l'autre, sinon la série donnerait N fois la même image.
     const params = { ...req.params };
     if (i > 0 && typeof params.seed === 'number') params.seed = (params.seed + i) % MAX_SEED;
-    const pi = i === 0 ? p : await prepare(user, { ...req, params, traitIds: traitsFor(i) });
+    const pi = i === 0 ? p : await prepare(user, { ...req, params, prompt: promptFor(i), traitIds: traitsFor(i) });
     const qi = i === 0 ? quote : await quoteFor(pi);
     const res = await launch(user, pi, qi, {
       threadId,
       personaId: pi.persona?.id ?? null,
       family: req.family,
-      prompt: req.prompt,
+      prompt: promptFor(i),
       refMode: req.refMode ?? 'start-frame',
       params: i === 0 ? (req.params ?? {}) : params,
       batchId,
       batchIndex: i,
+      variation: perImage?.(i).variation ?? null,
     });
     threadId = res.thread.id;
     first ??= res;
@@ -320,6 +330,7 @@ async function launch(
     params: Record<string, unknown>;
     batchId?: string | null;
     batchIndex?: number;
+    variation?: GenerationVariation | null;
   },
 ): Promise<CreateGenerationResponse> {
   // Fil : existant (vérifié) ou créé à partir du prompt.
@@ -360,6 +371,7 @@ async function launch(
       traits: p.traits,
       batchId: meta.batchId ?? null,
       batchIndex: meta.batchIndex ?? 0,
+      variation: meta.variation ?? null,
       contexts: p.contexts,
       lorasApplied: p.lorasApplied,
       idempotencyKey,

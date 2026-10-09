@@ -185,6 +185,16 @@ Une fois l'image de référence choisie (« Choisir comme image de référence �
 3. **Progression** : compteur vers un jeu d'entraînement de LoRA (repère : 15 à 30 images variées en angles, expressions et lumières).
 4. Les masters alimentent la bibliothèque de références du persona et, plus tard, l'export d'un dataset de LoRA (légendes générées, cf. backlog).
 
+#### Mise en œuvre (lot 4b)
+
+- **Base** : `assets.is_master` (marquer une master la met aussi dans les références du persona ; retirée des références, elle n'est plus master), `generations.variation` (`{axis, variantId, label}`), `personas.master_thread_id` (fil masqué des variations).
+- **Axes** (`shared/src/masters.ts`) : Angles, Expressions, Lumières, Tenues (formulations neutres en genre), Cadrages ; 6 à 8 variantes chacun (libellé FR, fragment EN). Un lot parcourt l'axe dans un ordre mélangé, sans répétition tant que possible ; « Mélange » pioche dans tous les axes.
+- **Prompt** : phrase de la fiche d'identité du persona + fragment de la variante ; sans fiche, « a woman / a man ». Le suffixe du persona s'applique comme ailleurs.
+- **Visage** : l'avatar du persona en rôle Visage (ReActor), activé par défaut si le modèle local le permet.
+- **API** : `GET /personas/:id/masters`, `PATCH /personas/:id/masters/:assetId`, `POST /personas/:id/variations {axis, count, family, face, params}`.
+- **Écran** : `/personnages/:id/masters` ; panneau des masters (total / 20, barre par axe / 4), lots de variations avec ⭐. L'image de référence du créateur est la première master.
+- **Pas encore fait** : choisir une autre image que l'avatar comme visage, export du dataset de LoRA (images + légendes).
+
 ### 8.4 Historique et comparaison
 
 - Chaque génération de variantes forme un **lot** (Lot 1, Lot 2…), conservé avec son tirage.
@@ -304,6 +314,6 @@ Ouvert :
 | **2. Miniatures** | Gabarit de miniature par catégorie, génération locale des miniatures manquantes (basse résolution, progression), régénération, versions femme / homme | ✅ fait |
 | **3. Sélecteur visuel et bulles** | Composer : « + Trait » → catégorie → grille de miniatures → bulle ; assemblage en langage naturel accordé au genre ; aperçu du prompt | ✅ fait |
 | **4a. Créateur de personnage** | Fiche d'identité avec le même sélecteur, 🎲 / 🔒, lots de variantes, Grille / Comparer, « Garder ce personnage » (avatar, référence, fiche d'identité en bulles) | ✅ fait (sélection de tirage « 3 sur 48 » à venir) |
-| **4b. Images master** | Variations proches de l'image de référence, étoiles, diversité par axe, préparation d'un dataset de LoRA | à faire |
+| **4b. Images master** | Variations proches de l'image de référence, étoiles, diversité par axe, préparation d'un dataset de LoRA | ✅ fait (export du dataset à venir) |
 | **5. Lieux** | Fiche du lieu, variantes, images master, rattachement au personnage | à faire |
 | **6. Compositeur de scène** | Panneau Scène (personnage + lieu + tenue + action + photo), scènes et looks enregistrés, aléatoire et syntaxe `__…__` / `{…}` | à faire |

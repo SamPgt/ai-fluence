@@ -98,7 +98,8 @@ export const assetsRoutes = new Hono<AppEnv>()
       if (!(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
       const [row] = await db
         .update(assets)
-        .set({ isReference, personaId })
+        // Retirée des références, une image n'est plus une master non plus.
+        .set({ isReference, personaId, ...(isReference ? {} : { isMaster: false }) })
         .where(and(eq(assets.id, c.req.param('id')), eq(assets.userId, user.id)))
         .returning();
       if (!row) return c.json({ error: 'Média introuvable.' }, 404);

@@ -11,12 +11,12 @@ import type { CharacterDraft, CharacterSlot, Gender, Generation, GenerationReque
 
 import { charactersApi, generationsApi } from '@/lib/api'
 import { catalogQuery, libraryCategoriesQuery, libraryOptionsQuery, libraryThumbnailsQuery, qk, threadQuery } from '@/lib/queries'
-import { formatDuration } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { NewPersonaDialog } from '@/components/personas/NewPersonaDialog'
 import { TraitPicker } from '@/components/composer/TraitPicker'
+import { groupLots, isPending, LotProgress, LotTabs, VariantCard } from '@/components/characters/Lots'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -29,8 +29,6 @@ export const Route = createFileRoute('/_app/personnages/nouveau')({
 
 const DRAFT_KEY = ['character-draft'] as const
 const LOT_SIZES = [4, 8, 12]
-
-const isPending = (g: Generation) => g.status === 'queued' || g.status === 'running'
 
 /** Tire une option au hasard (pondérée) parmi celles qui conviennent au genre. */
 function draw(options: LibraryOption[]): LibraryOption | null {
@@ -92,7 +90,8 @@ function CharacterCreatorPage() {
             queryClient.invalidateQueries({ queryKey: qk.personas })
             queryClient.removeQueries({ queryKey: DRAFT_KEY })
             setPersonaId(personaId)
-            navigate({ to: '/personas/$personaId', params: { personaId } })
+            // Suite logique : les images master du nouveau personnage.
+            navigate({ to: '/personnages/$personaId/masters', params: { personaId } })
           }}
         />
       ) : (
@@ -154,15 +153,7 @@ function Creator({
   const [picker, setPicker] = useState<string | null>(null)
 
   // Lots : une série = un lot ; le plus récent est affiché par défaut.
-  const lots = useMemo(() => {
-    const out: Generation[][] = []
-    for (const g of thread?.generations ?? []) {
-      const last = out.at(-1)
-      if (g.batchId && last?.[0].batchId === g.batchId) last.push(g)
-      else out.push([g])
-    }
-    return out
-  }, [thread?.generations])
+  const lots = useMemo(() => groupLots(thread?.generations ?? []), [thread?.generations])
   const [lotIndex, setLotIndex] = useState<number | null>(null)
   const lot = lots[lotIndex ?? lots.length - 1] ?? []
   useEffect(() => setLotIndex(null), [lots.length])
@@ -223,8 +214,6 @@ function Creator({
 
   const pending = lot.filter(isPending)
   const done = lot.filter((g) => !isPending(g))
-  const durations = done.map((g) => g.durationMs).filter((d): d is number => d !== null)
-  const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
   const randomCount = sheetCategories.filter((c) => slotOf(c.id).mode === 'random').length
   const lockedCount = sheetCategories.filter((c) => slotOf(c.id).locked).length
   const [keeping, setKeeping] = useState<Generation | null>(null)
@@ -406,21 +395,14 @@ function Creator({
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/40 bg-card">
           <div className="flex flex-wrap items-center gap-2 border-b border-border/40 px-4 py-2.5">
             <span className="text-sm font-semibold">Variantes</span>
-            {lots.map((l, i) => (
-              <button
-                key={l[0].id}
-                onClick={() => {
-                  setLotIndex(i)
-                  setSelectedId(null)
-                }}
-                className={cn(
-                  'rounded-full border px-2.5 py-0.5 text-[11px] tabular-nums transition-colors',
-                  l === lot ? 'border-border bg-accent text-foreground' : 'border-border/40 text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Lot {i + 1} · {l.length}
-              </button>
-            ))}
+            <LotTabs
+              lots={lots}
+              current={lot}
+              onPick={(i) => {
+                setLotIndex(i)
+                setSelectedId(null)
+              }}
+            />
             {lot.length > 0 && (
               <div className="ml-auto flex h-7 items-center rounded-md border border-input p-0.5 text-[11px]">
                 {(['grid', 'compare'] as const).map((v) => (
@@ -436,23 +418,7 @@ function Creator({
             )}
           </div>
 
-          {pending.length > 0 && (
-            <div className="flex items-center gap-3 border-b border-border/40 px-4 py-2 text-[11px] text-muted-foreground">
-              <span className="tabular-nums">
-                {family?.provider === 'comfy' ? 'En local, une image à la fois · ' : ''}
-                {done.length} / {lot.length} terminées
-                {avg !== null && ` · reste ≈ ${formatDuration(avg * pending.length)}`}
-              </span>
-              <span className="h-1 w-40 overflow-hidden rounded-full bg-secondary">
-                <span className="block h-full rounded-full bg-brand" style={{ width: `${(done.length / lot.length) * 100}%` }} />
-              </span>
-              {lot[0]?.provider === 'comfy' && (
-                <button className="ml-auto hover:text-foreground" onClick={() => cancelLot.mutate()}>
-                  Annuler le lot
-                </button>
-              )}
-            </div>
-          )}
+          <LotProgress lot={lot} onCancel={() => cancelLot.mutate()} />
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {lot.length === 0 ? (
@@ -472,6 +438,7 @@ function Creator({
                     generation={g}
                     selected={g.id === selectedId}
                     queuePosition={lot.filter((x) => x.status === 'queued').indexOf(g) + 1}
+                    caption={g.traits.map((t) => t.label ?? t.fragment).join(' · ')}
                     onSelect={() => setSelectedId(g.id === selectedId ? null : g.id)}
                   />
                 ))}
@@ -529,49 +496,6 @@ function Creator({
         onClose={() => setPicker(null)}
       />
       <KeepDialog draft={draft} generation={keeping} onClose={() => setKeeping(null)} onKept={onKept} />
-    </div>
-  )
-}
-
-function VariantCard({
-  generation: g,
-  selected,
-  queuePosition,
-  onSelect,
-}: {
-  generation: Generation
-  selected: boolean
-  queuePosition: number
-  onSelect: () => void
-}) {
-  const image = g.outputs[0]
-  return (
-    <div className="space-y-1">
-      <button
-        onClick={onSelect}
-        disabled={g.status !== 'succeeded'}
-        className={cn(
-          'relative flex aspect-[4/5] w-full items-center justify-center overflow-hidden rounded-xl border bg-secondary/30',
-          selected ? 'border-brand ring-1 ring-brand' : 'border-border/40',
-          g.status === 'queued' && 'border-dashed',
-        )}
-      >
-        <span className="absolute top-1.5 left-1.5 rounded bg-black/60 px-1.5 text-[10px] font-semibold text-white">#{g.batchIndex + 1}</span>
-        {g.status === 'succeeded' && image ? (
-          <img src={image.url} alt="" className="h-full w-full object-cover" />
-        ) : g.status === 'running' ? (
-          <span className="flex flex-col items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin text-brand" /> En cours
-          </span>
-        ) : g.status === 'queued' ? (
-          <span className="text-[11px] text-muted-foreground">En file · {queuePosition}</span>
-        ) : (
-          <span className="px-2 text-center text-[11px] text-destructive-foreground">{g.errorMessage ?? 'Échec'}</span>
-        )}
-      </button>
-      <p className="truncate px-0.5 text-[10px] text-muted-foreground" title={g.traits.map((t) => t.label ?? t.fragment).join(' · ')}>
-        {g.traits.map((t) => t.label ?? t.fragment).join(' · ') || '—'}
-      </p>
     </div>
   )
 }

@@ -158,8 +158,18 @@ Le **+** de la barre de gauche ouvre le créateur (la création rapide d'un pers
 - **Départ** : « Vierge » ou « Aléatoire complet » démarrent une nouvelle création ; la création en cours est reprise à chaque ouverture.
 - **Genre** (Femme / Homme), **modèle** et **taille du lot** (4, 8, 12), puis « Générer N variantes ». Chaque variante fait son propre tirage ; en local, elles arrivent une par une, avec la progression et « Annuler le lot ».
 - **Variantes** : historique des lots (rien n'est supprimé), vue **Grille** (traits tirés sous chaque image) ou **Comparer** (une colonne par image, une ligne par trait, en couleur ce qui varie ; clic sur une case pour reprendre ce trait seul).
-- Sur une variante : **Reprendre ces traits** (recopiés dans la fiche, sauf les verrouillés) ou **Garder ce personnage** : le persona est créé avec son genre, l'image comme avatar et première référence, et ses traits comme fiche d'identité. Quand on le sélectionne, le composer ajoute ces traits en bulles.
+- Sur une variante : **Reprendre ces traits** (recopiés dans la fiche, sauf les verrouillés) ou **Garder ce personnage** : le persona est créé avec son genre, l'image comme avatar, première référence et première image master, et ses traits comme fiche d'identité. Quand on le sélectionne, le composer ajoute ces traits en bulles. On arrive ensuite sur ses images master.
 - L'**aperçu neutre** (cadrage, fond, lumière) prolonge la phrase des traits ; modifiable. Les variantes restent hors de la liste des fils et de la galerie.
+
+## Images master
+
+Page d'un personnage → **Images master** (ou directement après « Garder ce personnage »).
+
+- Choisir un **axe** : Angles, Expressions, Lumières, Tenues, Cadrages, ou **Mélange** (une variante tirée dans tous les axes pour chaque image). Chaque image du lot prend une variante différente de l'axe.
+- Le prompt = la fiche d'identité du personnage + la variante (« head and shoulders portrait in side profile view… »). **Visage de la référence** (local, ReActor) applique le visage de l'avatar à chaque image.
+- ⭐ sur une variation : elle devient **image master** et rejoint les références du personnage. Clic sur l'image : plein écran.
+- Le panneau de gauche compte les masters (repère : 20 pour entraîner une LoRA) et la **diversité par axe** (4 par axe) pour voir ce qui manque.
+- Les variations restent hors de la liste des fils et de la galerie ; retirer une image des références la retire aussi des masters.
 
 ## Où sont les fichiers
 

@@ -16,6 +16,7 @@ export const qk = {
   threadsAll: ['threads'] as const,
   thread: (id: string) => ['thread', id] as const,
   references: (personaId: string) => ['references', personaId] as const,
+  masters: (personaId: string) => ['masters', personaId] as const,
   gallery: (personaId: string | null, media: string | null) => ['gallery', personaId ?? 'all', media ?? 'all'] as const,
 }
 

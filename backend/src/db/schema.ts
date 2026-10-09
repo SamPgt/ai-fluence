@@ -14,6 +14,7 @@ import type {
   CharacterSlot,
   GenerationContext,
   GenerationTrait,
+  GenerationVariation,
   Gender,
   LibraryZone,
   ModelProvider,
@@ -80,6 +81,8 @@ export const personas = pgTable(
     gender: text('gender').$type<Gender>(),
     /** Fiche d'identité (créateur de personnage) : traits ajoutés en bulles dans le composer. */
     identity: jsonb('identity').$type<GenerationTrait[]>().notNull().default([]),
+    /** Fil masqué des variations (images master). Sans clé étrangère : fils et personas se référencent déjà. */
+    masterThreadId: uuid('master_thread_id'),
     color: text('color').notNull().default('#8b5cf6'),
     avatarAssetId: uuid('avatar_asset_id'),
     description: text('description').notNull().default(''),
@@ -145,6 +148,8 @@ export const generations = pgTable(
     contexts: jsonb('contexts').$type<GenerationContext[]>().notNull().default([]),
     /** Traits de la bibliothèque (instantané : reste lisible si l'option est modifiée ou supprimée). */
     traits: jsonb('traits').$type<GenerationTrait[]>().notNull().default([]),
+    /** Images master : axe et variante de cette image. */
+    variation: jsonb('variation').$type<GenerationVariation>(),
     status: text('status').$type<'queued' | 'running' | 'succeeded' | 'failed'>().notNull().default('queued'),
     spicyTaskId: text('spicy_task_id'),
     /** `spicy` (cloud) ou `comfy` (ComfyUI local). */
@@ -190,6 +195,8 @@ export const assets = pgTable(
     durationSeconds: real('duration_seconds'),
     /** Fait partie de la bibliothèque de références du persona. */
     isReference: boolean('is_reference').notNull().default(false),
+    /** Image master du persona (validée pour la cohérence, puis le jeu d'entraînement d'une LoRA). */
+    isMaster: boolean('is_master').notNull().default(false),
     /** Copie uploadée chez SpicyAPI (valable 24 h). */
     spicyUri: text('spicy_uri'),
     spicyUriExpiresAt: timestamp('spicy_uri_expires_at', { withTimezone: true }),

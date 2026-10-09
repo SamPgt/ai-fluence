@@ -127,7 +127,7 @@ const charactersRoutes = new Hono<AppEnv>()
   })
   /**
    * « Garder ce personnage » : crée le persona depuis une variante. Son image devient l'avatar et la première
-   * référence ; ses traits de la zone Personnage deviennent sa fiche d'identité.
+   * référence (et première image master) ; ses traits de la zone Personnage deviennent sa fiche d'identité.
    */
   .post(
     '/drafts/:id/keep',
@@ -165,7 +165,7 @@ const charactersRoutes = new Hono<AppEnv>()
           position,
         })
         .returning();
-      await db.update(assets).set({ personaId: persona.id, isReference: true }).where(eq(assets.id, image.id));
+      await db.update(assets).set({ personaId: persona.id, isReference: true, isMaster: true }).where(eq(assets.id, image.id));
       await db.update(characterDrafts).set({ personaId: persona.id, name, updatedAt: new Date() }).where(eq(characterDrafts.id, id));
       return c.json({ persona: toPersona(persona, 1) }, 201);
     },
