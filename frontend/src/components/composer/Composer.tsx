@@ -80,6 +80,10 @@ export function Composer({
   const { data: personas = [] } = useQuery(personasQuery())
   const { data: contexts = [] } = useQuery(presetsQuery())
   const persona = personas.find((p) => p.id === personaId) ?? null
+  // Persona créé avec le créateur : sa fiche d'identité arrive en bulles, si aucune n'est déjà posée.
+  useEffect(() => {
+    if (persona?.identity.length && composerStore.state.traits.length === 0) composer.load({ traits: persona.identity })
+  }, [persona?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const families = catalog?.families ?? []
 
   // Modèle par défaut : dernier du fil > persona > paramètres > premier modèle photo dispo.

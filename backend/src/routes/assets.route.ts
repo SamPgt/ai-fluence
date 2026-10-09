@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { assets, generations, personas } from '../db/schema.js';
@@ -124,7 +124,12 @@ export const assetsRoutes = new Hono<AppEnv>()
     async c => {
       const user = c.get('user');
       const q = c.req.valid('query');
-      const where = [eq(assets.userId, user.id), eq(assets.kind, 'output')];
+      const where = [
+        eq(assets.userId, user.id),
+        eq(assets.kind, 'output'),
+        // Variantes du créateur de personnage (fils masqués) : hors galerie.
+        sql`not exists (select 1 from generations g join threads t on t.id = g.thread_id where g.id = ${assets.generationId} and t.hidden)`,
+      ];
       if (q.personaId) where.push(eq(assets.personaId, q.personaId));
       if (q.media) where.push(eq(assets.mediaType, q.media));
       if (q.before) where.push(lt(assets.createdAt, new Date(q.before)));

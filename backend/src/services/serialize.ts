@@ -33,6 +33,7 @@ export function toPersona(row: PersonaRow, referenceCount = 0): Persona {
     name: row.name,
     kind: row.kind,
     gender: row.gender ?? null,
+    identity: row.identity,
     color: row.color,
     avatarAssetId: row.avatarAssetId,
     avatarUrl: row.avatarAssetId ? mediaUrl(row.avatarAssetId) : null,

@@ -21,7 +21,7 @@ const threadsRoutes = new Hono<AppEnv>()
   .use(auth)
   .get('/', zValidator('query', z.object({ personaId: z.string().optional() })), async c => {
     const { personaId } = c.req.valid('query');
-    const where = [eq(threads.userId, c.get('user').id)];
+    const where = [eq(threads.userId, c.get('user').id), eq(threads.hidden, false)];
     if (personaId === 'none') where.push(sql`${threads.personaId} is null`);
     else if (personaId) where.push(eq(threads.personaId, personaId));
     const rows = await db
@@ -44,7 +44,11 @@ const threadsRoutes = new Hono<AppEnv>()
       .from(threads)
       .leftJoin(generations, and(eq(generations.threadId, threads.id), ilike(generations.prompt, pattern)))
       .where(
-        and(eq(threads.userId, c.get('user').id), or(ilike(threads.title, pattern), ilike(generations.prompt, pattern))),
+        and(
+          eq(threads.userId, c.get('user').id),
+          eq(threads.hidden, false),
+          or(ilike(threads.title, pattern), ilike(generations.prompt, pattern)),
+        ),
       )
       .orderBy(threads.id)
       .limit(30);

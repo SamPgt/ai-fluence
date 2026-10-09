@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -17,7 +16,6 @@ import { personasQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { SESSION_QUERY_KEY } from '@/server/auth'
 import { useUiPref } from '@/components/providers/ui-prefs'
-import { NewPersonaDialog } from '@/components/personas/NewPersonaDialog'
 import { PersonaAvatar, initials } from '@/components/personas/PersonaAvatar'
 import { LogoMark } from '@/components/ui/logo-mark'
 import {
@@ -111,7 +109,6 @@ export function PersonaRail({ user }: { user: User }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [personaId, setPersonaId] = useUiPref('personaId')
-  const [creating, setCreating] = useState(false)
   const { data: personas = [] } = useQuery(personasQuery())
 
   const select = (id: string) => {
@@ -164,10 +161,11 @@ export function PersonaRail({ user }: { user: User }) {
             onSelect={() => select(p.id)}
           />
         ))}
+        {/* Ouvre le créateur de personnage (la création rapide y reste accessible). */}
         <Bubble
           active={false}
-          label="Nouveau persona"
-          onClick={() => setCreating(true)}
+          label="Créer un personnage"
+          onClick={() => navigate({ to: '/personnages/nouveau' })}
         >
           {/* Même taille que les bulles de personas (44px), fond clair. */}
           <span className="grid h-11 w-11 place-items-center bg-muted/50 text-muted-foreground transition hover:brightness-125 hover:text-foreground">
@@ -246,7 +244,6 @@ export function PersonaRail({ user }: { user: User }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <NewPersonaDialog open={creating} onOpenChange={setCreating} />
     </nav>
   )
 }

@@ -4,6 +4,7 @@
  */
 import type {
   Asset,
+  CharacterDraft,
   AuthResponse,
   CatalogResponse,
   ComfyStatus,
@@ -138,6 +139,15 @@ export const libraryApi = {
     apiFetch<{ cancelled: number }>(`/library/categories/${categoryId}/thumbnails/cancel`, { method: 'POST' }),
   regenerateThumbnail: (optionId: string, gender?: ThumbnailGender) =>
     apiFetch<{ queued: number }>(`/library/options/${optionId}/thumbnails`, { method: 'POST', body: { gender } }),
+}
+
+export const charactersApi = {
+  current: () => apiFetch<{ draft: CharacterDraft }>('/characters/drafts/current'),
+  create: (start: 'blank' | 'random') => apiFetch<{ draft: CharacterDraft }>('/characters/drafts', { method: 'POST', body: { start } }),
+  update: (id: string, body: Partial<Pick<CharacterDraft, 'name' | 'gender' | 'slots' | 'previewPrompt' | 'family'>>) =>
+    apiFetch<{ draft: CharacterDraft }>(`/characters/drafts/${id}`, { method: 'PATCH', body }),
+  keep: (id: string, generationId: string, name: string) =>
+    apiFetch<{ persona: Persona }>(`/characters/drafts/${id}/keep`, { method: 'POST', body: { generationId, name } }),
 }
 
 export const catalogApi = {

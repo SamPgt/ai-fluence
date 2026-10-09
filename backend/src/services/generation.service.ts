@@ -145,7 +145,7 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     : [images.map(localAssetRef), videos.map(localAssetRef)];
 
   // Traits de la bibliothèque (bulles du composer) : une phrase, avant le texte libre.
-  const { traits, sentence } = await resolveTraits(user.id, req.traitIds ?? [], persona?.gender ?? null);
+  const { traits, sentence } = await resolveTraits(user.id, req.traitIds ?? [], persona?.gender ?? req.gender ?? null);
 
   // Le mot déclencheur n'a de sens que si une LoRA du persona est appliquée.
   const willApplyLoras = loras.length > 0;
@@ -249,7 +249,9 @@ export async function createGeneration(
   req: GenerationRequest,
 ): Promise<CreateGenerationResponse> {
   const count = req.count ?? 1;
-  const p = await prepare(user, req);
+  // Créateur de personnage : chaque image a son propre tirage de traits.
+  const traitsFor = (i: number) => req.traitDraws?.[i] ?? req.traitIds;
+  const p = await prepare(user, { ...req, traitIds: traitsFor(0) });
   const quote = await quoteFor(p);
 
   // Le devis affiché au clic (total de la série) vaut confirmation ; s'il a augmenté entre-temps, on redemande.
@@ -267,7 +269,7 @@ export async function createGeneration(
     // Seed fixé par l'utilisateur : décalé d'une image à l'autre, sinon la série donnerait N fois la même image.
     const params = { ...req.params };
     if (i > 0 && typeof params.seed === 'number') params.seed = (params.seed + i) % MAX_SEED;
-    const pi = i === 0 ? p : await prepare(user, { ...req, params });
+    const pi = i === 0 ? p : await prepare(user, { ...req, params, traitIds: traitsFor(i) });
     const qi = i === 0 ? quote : await quoteFor(pi);
     const res = await launch(user, pi, qi, {
       threadId,

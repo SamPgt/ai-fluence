@@ -20,8 +20,13 @@ export function TraitPicker({
   selected,
   onPick,
   onClose,
+  categoryIds,
+  title = 'Ajouter un trait',
 }: {
   open: boolean
+  /** Limite la fenêtre à ces catégories (fiche du créateur de personnage). */
+  categoryIds?: string[]
+  title?: string
   /** Catégorie ouverte d'emblée (clic sur une bulle pour la changer). */
   initialCategoryId: string | null
   /** Genre du personnage : options et miniatures de ce genre. Null : choix Femme / Homme dans la fenêtre. */
@@ -31,7 +36,7 @@ export function TraitPicker({
   onClose: () => void
 }) {
   const { data: categories = [] } = useQuery({ ...libraryCategoriesQuery(), enabled: open })
-  const usable = categories.filter((c) => c.optionCount > 0)
+  const usable = categories.filter((c) => c.optionCount > 0 && (!categoryIds || categoryIds.includes(c.id)))
   const [categoryId, setCategoryId] = useState<string | null>(initialCategoryId)
   const category = usable.find((c) => c.id === categoryId) ?? usable[0] ?? null
   useEffect(() => {
@@ -42,7 +47,7 @@ export function TraitPicker({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="flex h-[min(720px,85vh)] flex-col gap-0 p-0 sm:max-w-5xl">
         <DialogHeader className="border-b border-border/40 px-5 py-3.5">
-          <DialogTitle className="text-base">Ajouter un trait</DialogTitle>
+          <DialogTitle className="text-base">{title}</DialogTitle>
           <DialogDescription className="text-xs">
             Choisis visuellement : l'option est ajoutée en bulle et intégrée au prompt en anglais.
           </DialogDescription>

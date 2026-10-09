@@ -11,6 +11,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import type {
+  CharacterSlot,
   GenerationContext,
   GenerationTrait,
   Gender,
@@ -77,6 +78,8 @@ export const personas = pgTable(
     kind: text('kind').$type<'influencer' | 'art'>().notNull().default('influencer'),
     /** Genre du personnage : accorde le prompt et choisit les miniatures de la bibliothèque. */
     gender: text('gender').$type<Gender>(),
+    /** Fiche d'identité (créateur de personnage) : traits ajoutés en bulles dans le composer. */
+    identity: jsonb('identity').$type<GenerationTrait[]>().notNull().default([]),
     color: text('color').notNull().default('#8b5cf6'),
     avatarAssetId: uuid('avatar_asset_id'),
     description: text('description').notNull().default(''),
@@ -103,6 +106,8 @@ export const threads = pgTable(
     personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     isPinned: boolean('is_pinned').notNull().default(false),
+    /** Fil technique (variantes du créateur de personnage) : absent de la liste des fils et de la galerie. */
+    hidden: boolean('hidden').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -292,4 +297,27 @@ export const libraryThumbnails = pgTable(
     updatedAt: updatedAt(),
   },
   t => [uniqueIndex('library_thumbnails_option_gender_idx').on(t.optionId, t.gender), index('library_thumbnails_status_idx').on(t.status)],
+);
+
+/** Création de personnage en cours : fiche d'identité et fil masqué de ses variantes. */
+export const characterDrafts = pgTable(
+  'character_drafts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default(''),
+    gender: text('gender').$type<Gender>().notNull().default('female'),
+    slots: jsonb('slots').$type<CharacterSlot[]>().notNull().default([]),
+    previewPrompt: text('preview_prompt').notNull(),
+    family: text('family'),
+    threadId: uuid('thread_id')
+      .notNull()
+      .references(() => threads.id, { onDelete: 'cascade' }),
+    personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  t => [index('character_drafts_user_idx').on(t.userId, t.updatedAt)],
 );

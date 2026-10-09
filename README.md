@@ -150,6 +150,17 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
 - La **tournure** d'une catégorie (bibliothèque → « Gabarit ») règle l'insertion de ses options : `{option} hairstyle` transforme « bob » en « bob hairstyle ».
 - Le prompt réellement envoyé s'affiche sous le composer (« Prompt envoyé : … »). Les traits restent visibles dans la demande, et « Modifier la demande » les remet dans le composer.
 
+## Créer un personnage
+
+Le **+** de la barre de gauche ouvre le créateur (la création rapide d'un persona reste accessible en haut à droite).
+
+- **Fiche d'identité** : une ligne par catégorie de la zone *Personnage* de la bibliothèque. Pour chaque trait : choisir dans la grille de miniatures, 🎲 aléatoire (tiré pour chaque variante), vider (le modèle décide), 🔒 verrouiller. « Tout aléatoire » passe en aléatoire tous les traits non verrouillés.
+- **Départ** : « Vierge » ou « Aléatoire complet » démarrent une nouvelle création ; la création en cours est reprise à chaque ouverture.
+- **Genre** (Femme / Homme), **modèle** et **taille du lot** (4, 8, 12), puis « Générer N variantes ». Chaque variante fait son propre tirage ; en local, elles arrivent une par une, avec la progression et « Annuler le lot ».
+- **Variantes** : historique des lots (rien n'est supprimé), vue **Grille** (traits tirés sous chaque image) ou **Comparer** (une colonne par image, une ligne par trait, en couleur ce qui varie ; clic sur une case pour reprendre ce trait seul).
+- Sur une variante : **Reprendre ces traits** (recopiés dans la fiche, sauf les verrouillés) ou **Garder ce personnage** : le persona est créé avec son genre, l'image comme avatar et première référence, et ses traits comme fiche d'identité. Quand on le sélectionne, le composer ajoute ces traits en bulles.
+- L'**aperçu neutre** (cadrage, fond, lumière) prolonge la phrase des traits ; modifiable. Les variantes restent hors de la liste des fils et de la galerie.
+
 ## Où sont les fichiers
 
 ```

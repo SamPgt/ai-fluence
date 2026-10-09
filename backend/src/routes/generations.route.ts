@@ -26,6 +26,8 @@ const generationSchema = z.object({
   faceAssetId: z.uuid().nullable().optional(),
   count: z.number().int().min(1).max(12).optional(),
   traitIds: z.array(z.uuid()).max(20).default([]),
+  traitDraws: z.array(z.array(z.uuid()).max(20)).max(12).optional(),
+  gender: z.enum(['female', 'male']).nullable().optional(),
   contextIds: z.array(z.uuid()).max(20).default([]),
   expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
 });

@@ -155,6 +155,8 @@ export interface Persona {
   kind: 'influencer' | 'art';
   /** Genre du personnage (null : non précisé). */
   gender: Gender | null;
+  /** Fiche d'identité (traits de la zone Personnage), ajoutée en bulles dans le composer. */
+  identity: GenerationTrait[];
   color: string;
   avatarAssetId: string | null;
   avatarUrl: string | null;
@@ -265,6 +267,10 @@ export interface GenerationRequest {
   count?: number;
   /** Traits choisis dans la bibliothèque (ids d'options), assemblés en phrase avant le texte libre. */
   traitIds?: string[];
+  /** Série : traits propres à chaque image (créateur de personnage, un tirage par variante). Prioritaire sur `traitIds`. */
+  traitDraws?: string[][];
+  /** Genre du sujet quand il n'y a pas de persona (créateur de personnage) : accorde la phrase des traits. */
+  gender?: Gender | null;
   /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
   contextIds?: string[];
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
@@ -398,4 +404,35 @@ export interface LibraryImportResult {
   duplicates: number;
   /** Lignes vides ou commentaires. */
   ignored: number;
+}
+
+// ── Créateur de personnage ────────────────────────────────────
+
+/**
+ * Un emplacement de la fiche d'identité = une catégorie de la zone Personnage.
+ * `chosen` : une option fixée ; `random` : tirée pour chaque variante (dans `pool`, ou toute la catégorie) ;
+ * `empty` : le modèle décide. `locked` : épargné par « Tout aléatoire ».
+ */
+export interface CharacterSlot {
+  categoryId: string;
+  mode: 'chosen' | 'random' | 'empty';
+  optionId: string | null;
+  pool: string[];
+  locked: boolean;
+}
+
+export interface CharacterDraft {
+  id: string;
+  name: string;
+  gender: Gender;
+  slots: CharacterSlot[];
+  /** Prompt neutre des variantes (cadrage, fond, lumière), pour juger le personnage, pas la scène. */
+  previewPrompt: string;
+  family: string | null;
+  /** Fil masqué qui contient les variantes (un lot = une série). */
+  threadId: string;
+  /** Persona créé par « Garder ce personnage ». */
+  personaId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
