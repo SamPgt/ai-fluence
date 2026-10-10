@@ -318,5 +318,5 @@ Ouvert :
 | **1d. Découpage automatique** | Proposition de sous-catégories par mots-clés (puis par modèle texte), validée avant application | ✅ fait pour la zone Tenue (règles dans `shared/src/split.ts`) ; modèle texte et autres zones à venir |
 | **4a. Créateur de personnage** | Fiche d'identité avec le même sélecteur, 🎲 / 🔒, lots de variantes, Grille / Comparer, « Garder ce personnage » (avatar, référence, fiche d'identité en bulles) | ✅ fait (sélection de tirage « 3 sur 48 » : lot 1c) |
 | **4b. Images master** | Variations proches de l'image de référence, étoiles, diversité par axe, préparation d'un dataset de LoRA | ✅ fait (export du dataset à venir) |
-| **5. Lieux** | Fiche du lieu, variantes, images master, rattachement au personnage | à faire |
+| **5. Lieux** | Fiche du lieu, variantes, images master, rattachement au personnage | ✅ fait (page Lieux, créateur et images master communs avec les personnages, image → image depuis la référence) |
 | **6. Compositeur de scène** | Panneau Scène (personnage + lieu + tenue + action + photo), scènes et looks enregistrés, aléatoire et syntaxe `__…__` / `{…}` | à faire |

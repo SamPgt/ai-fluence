@@ -74,6 +74,7 @@ export function VariantCard({
   queuePosition,
   caption,
   corner,
+  aspect = 'portrait',
   onSelect,
 }: {
   generation: Generation
@@ -83,6 +84,8 @@ export function VariantCard({
   caption: string
   /** Bouton en haut à droite de la vignette (étoile master…). */
   corner?: ReactNode
+  /** Portrait (personnage) ou paysage (lieu). */
+  aspect?: 'portrait' | 'landscape'
   onSelect: () => void
 }) {
   const image = g.outputs[0]
@@ -93,7 +96,8 @@ export function VariantCard({
           onClick={onSelect}
           disabled={g.status !== 'succeeded'}
           className={cn(
-            'relative flex aspect-[4/5] w-full items-center justify-center overflow-hidden rounded-xl border bg-secondary/30',
+            'relative flex w-full items-center justify-center overflow-hidden rounded-xl border bg-secondary/30',
+            aspect === 'landscape' ? 'aspect-[3/2]' : 'aspect-[4/5]',
             selected ? 'border-brand ring-1 ring-brand' : 'border-border/40',
             g.status === 'queued' && 'border-dashed',
           )}

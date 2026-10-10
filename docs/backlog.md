@@ -16,6 +16,8 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 
 ## Prompts
 
+- **Phrase d'un lieu** : les traits Lieu & décor sont listés dans l'ordre des catégories (« A wooden desk and a sunny kitchen »). Mieux : le type de pièce d'abord, le reste en « with … » (« A sunny kitchen with a wooden desk »). Piste : marquer la catégorie « type de lieu » dans la bibliothèque, ou une tournure `with {option}` sur les autres catégories.
+
 - **« Smartphone photo » pris au pied de la lettre** : avec Z-Image, `amateur smartphone photo of…` fait apparaître un téléphone dans l'image (2 images sur 3 lors d'un test). Pour le bloc « Photo » des wildcards : décrire l'effet (`candid snapshot, slightly tilted framing, natural phone-camera look`) plutôt que l'appareil, et ajouter `smartphone, phone in frame, hands holding phone` au prompt négatif.
 
 - **Termes mal compris par le modèle** : dans le pack de coiffures Civitai, « 360 waves » (vagues sur cheveux très courts) donne de longs cheveux ondulés, « bantu knots » une tresse en couronne. Les miniatures le rendent visible ; piste : corriger le fragment (plus descriptif) ou le faire réécrire par un modèle texte.
@@ -27,6 +29,8 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 - **LoRA locales du persona** : associer une LoRA du dossier `models/loras` de ComfyUI à un persona (aujourd'hui, les LoRA du persona ne visent que les modèles SpicyAPI).
 - **Dataset de LoRA** : exporter la planche de références d'un persona avec des légendes (JoyCaption est installé dans ComfyUI) pour entraîner une LoRA (ai-toolkit en local, fal…).
 - **Plans larges** : `inswapper_128` est faible sur les petits visages ; tester un détail / upscale du visage avant le swap, ou un autre modèle de swap.
+
+- **Angles d'un lieu** : l'image → image garde le cadrage de la référence ; même à 0,85, les « angles » changent peu (test : cuisine de Nadia). Pour de vrais changements d'angle : texte seul (fiche du lieu), ou un modèle d'édition à références (Qwen-Image-Edit, Flux Kontext en local ; Seedream, Nano Banana côté SpicyAPI).
 
 ## Local (ComfyUI)
 

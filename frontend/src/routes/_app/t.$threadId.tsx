@@ -26,7 +26,10 @@ function ThreadPage() {
   useEffect(() => setEditingTitle(false), [threadId])
   const { data: personas = [] } = useQuery(personasQuery())
   const persona = personas.find((p) => p.id === data?.thread.personaId) ?? null
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  /** Collé en bas : vrai à l'ouverture, faux dès que l'utilisateur remonte dans le fil. */
+  const stickRef = useRef(true)
   const count = data?.generations.length ?? 0
 
   // Une série (demande ×N) s'affiche en un seul bloc : ses générations sont regroupées.
@@ -40,10 +43,34 @@ function ThreadPage() {
     return out
   }, [data?.generations])
 
-  // Défile en bas à l'ouverture et à chaque nouvelle génération.
+  // Reste en bas du fil pendant que son contenu grandit (images qui se chargent après l'ouverture,
+  // nouvelle génération), sauf si l'utilisateur est remonté lire plus haut.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: count > 1 ? 'smooth' : 'auto' })
+    stickRef.current = true
+  }, [threadId])
+  useEffect(() => {
+    stickRef.current = true
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [count, threadId])
+  useEffect(() => {
+    const el = scrollRef.current
+    const content = contentRef.current
+    if (!el || !content) return
+    const follow = () => {
+      if (stickRef.current) el.scrollTop = el.scrollHeight
+    }
+    const observer = new ResizeObserver(follow)
+    observer.observe(content)
+    // Le cadre aussi : il rapetisse quand le composer apparaît sous le fil.
+    observer.observe(el)
+    // Chaque image chargée (l'évènement ne remonte pas : on l'écoute en capture).
+    content.addEventListener('load', follow, true)
+    return () => {
+      observer.disconnect()
+      content.removeEventListener('load', follow, true)
+    }
+  }, [threadId])
 
   return (
     <>
@@ -92,8 +119,29 @@ function ThreadPage() {
         </div>
       </PageHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl space-y-8 px-4 py-6">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto"
+        // Seul un geste de l'utilisateur décroche du bas ; revenir en bas raccroche.
+        onWheel={(e) => {
+          if (e.deltaY < 0) stickRef.current = false
+        }}
+        onTouchMove={() => {
+          stickRef.current = false
+        }}
+        onPointerDown={(e) => {
+          // Clic sur la barre de défilement (le cadre lui-même, pas son contenu).
+          if (e.target === e.currentTarget) stickRef.current = false
+        }}
+        onKeyDown={(e) => {
+          if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) stickRef.current = false
+        }}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) stickRef.current = true
+        }}
+      >
+        <div ref={contentRef} className="mx-auto max-w-4xl space-y-8 px-4 py-6">
           {isLoading && (
             <div className="flex justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -103,7 +151,6 @@ function ThreadPage() {
           {groups.map((group) => (
             <GenerationItem key={group[0].id} generations={group} />
           ))}
-          <div ref={bottomRef} />
         </div>
       </div>
 

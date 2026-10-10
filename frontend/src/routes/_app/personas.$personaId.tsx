@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, Loader2, Plus, Star, Trash2, X } from 'lucide-react'
+import { Camera, Loader2, MapPin, Plus, Star, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { MODEL_FAMILIES, type Gender, type MediaKind, type Persona, type PersonaLora } from '@ai-fluence/shared'
 
 import { assetsApi, personasApi } from '@/lib/api'
-import { catalogQuery, personasQuery, qk } from '@/lib/queries'
+import { catalogQuery, personasQuery, placesQuery, qk } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -302,6 +302,8 @@ function PersonaEditor({ persona }: { persona: Persona }) {
 
           <References persona={persona} />
 
+          <PersonaPlaces persona={persona} />
+
           <Card title="Modèles par défaut" description="Sélectionnés automatiquement dans le composer pour ce persona.">
             <div className="grid gap-4 sm:grid-cols-2">
               <DefaultFamily media="image" value={draft.defaultImageFamily} onChange={(v) => set('defaultImageFamily', v)} />
@@ -422,6 +424,36 @@ function References({ persona }: { persona: Persona }) {
         className="hidden"
         onChange={(e) => onFiles(e.target.files)}
       />
+    </Card>
+  )
+}
+
+/** Lieux récurrents rattachés au personnage (le rattachement se fait depuis la page Lieux). */
+function PersonaPlaces({ persona }: { persona: Persona }) {
+  const { data: places = [] } = useQuery(placesQuery())
+  const attached = places.filter((p) => p.personaIds.includes(persona.id))
+  return (
+    <Card title="Lieux" description={`Les lieux récurrents de ${persona.name} : sa chambre, son café… Rattache-les depuis la page Lieux.`}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {attached.map((p) => (
+          <Link key={p.id} to="/lieux/$placeId/masters" params={{ placeId: p.id }} className="overflow-hidden rounded-lg border border-border/40 hover:border-border">
+            {p.avatarUrl ? (
+              <img src={p.avatarUrl} alt="" className="aspect-[3/2] w-full object-cover" />
+            ) : (
+              <span className="flex aspect-[3/2] items-center justify-center bg-secondary/40">
+                <MapPin className="h-4 w-4 text-muted-foreground" />
+              </span>
+            )}
+            <span className="block truncate px-2 py-1.5 text-xs font-medium">{p.name}</span>
+          </Link>
+        ))}
+        <Link
+          to="/lieux"
+          className="flex aspect-[3/2] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <MapPin className="h-4 w-4" /> {attached.length ? 'Gérer les lieux' : 'Rattacher un lieu'}
+        </Link>
+      </div>
     </Card>
   )
 }

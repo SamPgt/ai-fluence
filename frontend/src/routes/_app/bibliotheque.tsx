@@ -648,7 +648,7 @@ function CategoryPanel({
               </div>
               <p className="pb-1 text-[11px] text-muted-foreground">
                 Comment l'option s'insère dans la phrase du prompt : avec <code>{'{option} hairstyle'}</code>, « bob » devient « a woman with bob
-                hairstyle ». Vide : le fragment tel quel.
+                hairstyle ». S'applique aussi aux miniatures. Vide : le fragment tel quel.
               </p>
               <span className="text-[11px] text-muted-foreground">Gabarit des miniatures</span>
               <Textarea
@@ -659,8 +659,11 @@ function CategoryPanel({
               />
               <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                 <span className="flex-1">
-                  <code>{'{option}'}</code> : le fragment de l'option · <code>{'{subject}'}</code> : une personne tirée au hasard (version
-                  femme / homme selon la miniature). S'applique aux prochaines miniatures.
+                  <code>{'{option}'}</code> : l'option, avec la tournure si elle en a une (« black » → « black skin ») ·{' '}
+                  <code>{'{subject}'}</code> : une personne d'origine tirée au
+                  hasard · <code>{'{person}'}</code> : une femme ou un homme, sans origine (couleur de peau, des yeux…) ·{' '}
+                  <code>{'{femme: … | homme: …}'}</code> : un passage différent selon la version de la miniature (ex.{' '}
+                  <code>{'{femme: wearing a crop top | homme: shirtless}'}</code>). S'applique aux prochaines miniatures.
                 </span>
                 {category.thumbnailTemplate && (
                   <Button

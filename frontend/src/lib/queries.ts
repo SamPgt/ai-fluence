@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { catalogApi, comfyApi, libraryApi, personasApi, presetsApi, settingsApi, threadsApi } from './api'
+import { catalogApi, comfyApi, libraryApi, personasApi, placesApi, presetsApi, settingsApi, threadsApi } from './api'
 
 export const qk = {
   catalog: ['catalog'] as const,
@@ -16,7 +16,8 @@ export const qk = {
   threadsAll: ['threads'] as const,
   thread: (id: string) => ['thread', id] as const,
   references: (personaId: string) => ['references', personaId] as const,
-  masters: (personaId: string) => ['masters', personaId] as const,
+  masters: (id: string) => ['masters', id] as const,
+  places: ['places'] as const,
   gallery: (personaId: string | null, media: string | null) => ['gallery', personaId ?? 'all', media ?? 'all'] as const,
 }
 
@@ -79,6 +80,8 @@ export const libraryThumbnailsQuery = (categoryId: string) =>
 
 export const personasQuery = () =>
   queryOptions({ queryKey: qk.personas, queryFn: () => personasApi.list().then((r) => r.personas), staleTime: 60_000 })
+
+export const placesQuery = () => queryOptions({ queryKey: qk.places, queryFn: () => placesApi.list().then((r) => r.places) })
 
 export const presetsQuery = () =>
   queryOptions({ queryKey: qk.presets, queryFn: () => presetsApi.list().then((r) => r.presets), staleTime: 5 * 60_000 })

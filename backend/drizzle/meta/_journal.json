@@ -127,6 +127,13 @@
       "when": 1791573798381,
       "tag": "0017_library_favorites",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791578160521,
+      "tag": "0018_places",
+      "breakpoints": true
     }
   ]
 }

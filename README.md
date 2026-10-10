@@ -143,7 +143,11 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
 **Miniatures** : chaque option a une image type, générée en local par ComfyUI (512×640, ~11 s par miniature sur une RTX 3060), pour choisir visuellement sans connaître le nom des coiffures ou des tenues.
 
 - « Générer les miniatures manquantes » sur une catégorie : mises dans la file de ComfyUI, générées l'une après l'autre, avec la progression, le temps restant et « Annuler ». Elles n'apparaissent ni dans les fils ni dans la galerie.
-- Le **gabarit** (bouton « Gabarit ») est le prompt neutre de la catégorie : `{option}` = le fragment de l'option, `{subject}` = une personne tirée au hasard (origine, âge, et version femme / homme selon la miniature). Chaque zone a un gabarit par défaut (portrait sur fond uni, plein pied pour les tenues, pièce vide pour les lieux…).
+- Le **gabarit** (bouton « Gabarit ») est le prompt neutre de la catégorie. Chaque zone a un gabarit par défaut (portrait sur fond uni, plein pied pour les tenues, pièce vide pour les lieux…). Mots-clés :
+  - `{option}` : le fragment de l'option, avec la **tournure** de la catégorie si elle en a une (tournure `{option} skin` : « black » → « black skin ») ;
+  - `{subject}` : une personne tirée au hasard (origine, âge, version femme / homme selon la miniature) ;
+  - `{person}` : une femme ou un homme **sans origine**, pour les catégories où l'origine contredirait l'option (couleur de peau, des yeux…) ;
+  - `{femme: … | homme: …}` : un passage différent selon la version de la miniature, ex. `{femme: wearing a fitted crop top | homme: shirtless}` pour voir une morphologie « muscular ».
 - Une miniature ratée se régénère au survol de sa carte ; l'ancienne reste affichée jusque-là. « Tout régénérer » relance toute la catégorie (après un changement de gabarit, par exemple).
 - Dans une catégorie genrée, « Femme / Homme » choisit la version affichée des options valables pour les deux.
 
@@ -174,6 +178,14 @@ Page d'un personnage → **Images master** (ou directement après « Garder ce p
 - ⭐ sur une variation : elle devient **image master** et rejoint les références du personnage. Clic sur l'image : plein écran.
 - Le panneau de gauche compte les masters (repère : 20 pour entraîner une LoRA) et la **diversité par axe** (4 par axe) pour voir ce qui manque.
 - Les variations restent hors de la liste des fils et de la galerie ; retirer une image des références la retire aussi des masters.
+
+## Lieux
+
+Icône « Lieux » dans la barre de gauche : les lieux récurrents (la chambre de Léa, son café…), pour retrouver le même décor d'une scène à l'autre.
+
+- **Créer un lieu** : même créateur que pour un personnage, avec une fiche tirée de la zone *Lieu & décor* de la bibliothèque (type de pièce, style déco, mobilier…), des lots de variantes en paysage (aperçu : plan large, sans personne), puis **Garder ce lieu** (l'image devient sa référence et sa première master).
+- **Images master du lieu** : axes **Angles** (depuis l'entrée, coin opposé, plongée…), **Moments** (matin, heure dorée, nuit…), **Détails**, **Avec quelqu'un** (une silhouette pour l'échelle), ou **Mélange**. **Partir de la référence** fait chaque variation en image → image depuis la référence (force réglable : plus elle est haute, plus l'image s'en éloigne), pour garder la même pièce. Repère : 12 masters, 3 par axe.
+- **Rattacher** un lieu à un ou plusieurs personnages depuis sa carte ; la page du personnage liste ses lieux. Le moment de la journée n'appartient pas au lieu : il viendra de la scène (lot 6).
 
 ## Où sont les fichiers
 

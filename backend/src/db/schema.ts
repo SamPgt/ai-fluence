@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type {
   CharacterSlot,
+  CreatorKind,
   GenerationContext,
   GenerationTrait,
   GenerationVariation,
@@ -196,6 +197,8 @@ export const assets = pgTable(
     durationSeconds: real('duration_seconds'),
     /** Fait partie de la bibliothèque de références du persona. */
     isReference: boolean('is_reference').notNull().default(false),
+    /** Image d'un lieu récurrent (référence ou master). */
+    placeId: uuid('place_id').references((): AnyPgColumn => places.id, { onDelete: 'set null' }),
     /** Image master du persona (validée pour la cohérence, puis le jeu d'entraînement d'une LoRA). */
     isMaster: boolean('is_master').notNull().default(false),
     /** Copie uploadée chez SpicyAPI (valable 24 h). */
@@ -324,6 +327,8 @@ export const characterDrafts = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    /** Personnage ou lieu. */
+    kind: text('kind').$type<CreatorKind>().notNull().default('character'),
     name: text('name').notNull().default(''),
     gender: text('gender').$type<Gender>().notNull().default('female'),
     slots: jsonb('slots').$type<CharacterSlot[]>().notNull().default([]),
@@ -333,8 +338,45 @@ export const characterDrafts = pgTable(
       .notNull()
       .references(() => threads.id, { onDelete: 'cascade' }),
     personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'set null' }),
+    placeId: uuid('place_id').references((): AnyPgColumn => places.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   t => [index('character_drafts_user_idx').on(t.userId, t.updatedAt)],
+);
+
+/** Lieu récurrent (sa chambre de gameuse, son café…) : fiche, image de référence, images master. */
+export const places = pgTable(
+  'places',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** Fiche du lieu : traits de la zone Lieu & décor. */
+    identity: jsonb('identity').$type<GenerationTrait[]>().notNull().default([]),
+    /** Image de référence (première master), base des variations en image → image. */
+    avatarAssetId: uuid('avatar_asset_id'),
+    defaultImageFamily: text('default_image_family'),
+    /** Fil masqué des variations (images master). */
+    masterThreadId: uuid('master_thread_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  t => [index('places_user_idx').on(t.userId, t.createdAt)],
+);
+
+/** Lieux rattachés à un personnage (un même lieu peut servir à plusieurs). */
+export const personaPlaces = pgTable(
+  'persona_places',
+  {
+    personaId: uuid('persona_id')
+      .notNull()
+      .references(() => personas.id, { onDelete: 'cascade' }),
+    placeId: uuid('place_id')
+      .notNull()
+      .references(() => places.id, { onDelete: 'cascade' }),
+  },
+  t => [uniqueIndex('persona_places_idx').on(t.personaId, t.placeId)],
 );

@@ -1,5 +1,5 @@
-import type { Asset, Generation, Persona, Thread } from '@ai-fluence/shared';
-import type { assets, generations, personas, threads } from '../db/schema.js';
+import type { Asset, Generation, Persona, Place, Thread } from '@ai-fluence/shared';
+import type { assets, generations, personas, places, threads } from '../db/schema.js';
 
 type AssetRow = typeof assets.$inferSelect;
 type PersonaRow = typeof personas.$inferSelect;
@@ -46,6 +46,21 @@ export function toPersona(row: PersonaRow, referenceCount = 0): Persona {
     defaultImageFamily: row.defaultImageFamily,
     defaultVideoFamily: row.defaultVideoFamily,
     referenceCount,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export function toPlace(row: typeof places.$inferSelect, personaIds: string[] = [], masterCount = 0): Place {
+  return {
+    id: row.id,
+    name: row.name,
+    identity: row.identity,
+    avatarAssetId: row.avatarAssetId,
+    avatarUrl: row.avatarAssetId ? mediaUrl(row.avatarAssetId) : null,
+    defaultImageFamily: row.defaultImageFamily,
+    personaIds,
+    masterCount,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

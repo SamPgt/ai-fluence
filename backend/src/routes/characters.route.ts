@@ -2,27 +2,32 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { CharacterDraft, CharacterSlot } from '@ai-fluence/shared';
+import type { CharacterDraft, CharacterSlot, CreatorKind } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { assets, characterDrafts, generations, libraryCategories, personas, threads } from '../db/schema.js';
+import { assets, characterDrafts, generations, libraryCategories, personas, places, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
-import { toPersona } from '../services/serialize.js';
+import { toPersona, toPlace } from '../services/serialize.js';
 import type { AppEnv } from '../types.js';
 
 /**
- * Créateur de personnage : une fiche d'identité (un emplacement par catégorie de la zone Personnage),
- * des lots de variantes générés dans un fil masqué, puis « Garder ce personnage » qui crée le persona.
+ * Créateur de personnage ou de lieu : une fiche (un emplacement par catégorie de la zone Personnage, ou
+ * Lieu & décor), des lots de variantes générés dans un fil masqué, puis « Garder » qui crée le persona ou le lieu.
  */
 
 type DraftRow = typeof characterDrafts.$inferSelect;
 
-/** Prompt neutre des variantes : on juge le personnage, pas la scène. Prolonge la phrase des traits. */
-const DEFAULT_PREVIEW =
-  'head and shoulders studio portrait photo, wearing a plain grey t-shirt, plain light grey background, soft even lighting, looking at the camera, realistic photo';
+/** Prompt neutre des variantes : on juge le personnage (ou le lieu), pas la scène. Prolonge la phrase des traits. */
+const DEFAULT_PREVIEW: Record<CreatorKind, string> = {
+  character:
+    'head and shoulders studio portrait photo, wearing a plain grey t-shirt, plain light grey background, soft even lighting, looking at the camera, realistic photo',
+  place: 'wide-angle photo of the whole place, no people, natural daylight, realistic photo',
+};
+const ZONE: Record<CreatorKind, 'character' | 'place'> = { character: 'character', place: 'place' };
 
 function toDraft(row: DraftRow): CharacterDraft {
   return {
     id: row.id,
+    kind: row.kind,
     name: row.name,
     gender: row.gender,
     slots: row.slots,
@@ -30,20 +35,21 @@ function toDraft(row: DraftRow): CharacterDraft {
     family: row.family,
     threadId: row.threadId,
     personaId: row.personaId,
+    placeId: row.placeId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-/** Un emplacement par catégorie de la zone Personnage qui a des options. */
-async function initialSlots(userId: string, start: 'blank' | 'random'): Promise<CharacterSlot[]> {
+/** Un emplacement par catégorie de la zone (Personnage ou Lieu & décor) qui a des options. */
+async function initialSlots(userId: string, start: 'blank' | 'random', kind: CreatorKind): Promise<CharacterSlot[]> {
   const categories = await db
     .select({ id: libraryCategories.id })
     .from(libraryCategories)
     .where(
       and(
         eq(libraryCategories.userId, userId),
-        eq(libraryCategories.zone, 'character'),
+        eq(libraryCategories.zone, ZONE[kind]),
         sql`exists (select 1 from library_options o where o.category_id = ${libraryCategories.id})`,
       ),
     )
@@ -57,14 +63,14 @@ async function initialSlots(userId: string, start: 'blank' | 'random'): Promise<
   }));
 }
 
-async function createDraft(userId: string, start: 'blank' | 'random'): Promise<DraftRow> {
+async function createDraft(userId: string, start: 'blank' | 'random', kind: CreatorKind): Promise<DraftRow> {
   const [thread] = await db
     .insert(threads)
-    .values({ userId, title: 'Création de personnage', hidden: true })
+    .values({ userId, title: kind === 'place' ? 'Création de lieu' : 'Création de personnage', hidden: true })
     .returning({ id: threads.id });
   const [row] = await db
     .insert(characterDrafts)
-    .values({ userId, slots: await initialSlots(userId, start), previewPrompt: DEFAULT_PREVIEW, threadId: thread.id })
+    .values({ userId, kind, slots: await initialSlots(userId, start, kind), previewPrompt: DEFAULT_PREVIEW[kind], threadId: thread.id })
     .returning();
   return row;
 }
@@ -103,19 +109,35 @@ async function ownedDraft(userId: string, id: string): Promise<DraftRow | undefi
 const charactersRoutes = new Hono<AppEnv>()
   .use(auth)
   /** Création en cours (la plus récente pas encore gardée), ou une nouvelle en « aléatoire complet ». */
-  .get('/drafts/current', async c => {
+  .get('/drafts/current', zValidator('query', z.object({ kind: z.enum(['character', 'place']).default('character') })), async c => {
     const user = c.get('user');
+    const { kind } = c.req.valid('query');
     const [row] = await db
       .select()
       .from(characterDrafts)
-      .where(and(eq(characterDrafts.userId, user.id), isNull(characterDrafts.personaId)))
+      .where(
+        and(
+          eq(characterDrafts.userId, user.id),
+          eq(characterDrafts.kind, kind),
+          isNull(characterDrafts.personaId),
+          isNull(characterDrafts.placeId),
+        ),
+      )
       .orderBy(desc(characterDrafts.updatedAt))
       .limit(1);
-    return c.json({ draft: toDraft(row ?? (await createDraft(user.id, 'random'))) });
+    return c.json({ draft: toDraft(row ?? (await createDraft(user.id, 'random', kind))) });
   })
-  .post('/drafts', zValidator('json', z.object({ start: z.enum(['blank', 'random']).default('random') })), async c => {
-    return c.json({ draft: toDraft(await createDraft(c.get('user').id, c.req.valid('json').start)) }, 201);
-  })
+  .post(
+    '/drafts',
+    zValidator(
+      'json',
+      z.object({ start: z.enum(['blank', 'random']).default('random'), kind: z.enum(['character', 'place']).default('character') }),
+    ),
+    async c => {
+      const { start, kind } = c.req.valid('json');
+      return c.json({ draft: toDraft(await createDraft(c.get('user').id, start, kind)) }, 201);
+    },
+  )
   .patch('/drafts/:id', idParam, zValidator('json', draftUpdate), async c => {
     const { id } = c.req.valid('param');
     if (!(await ownedDraft(c.get('user').id, id))) return c.json({ error: 'Création introuvable.' }, 404);
@@ -152,6 +174,23 @@ const charactersRoutes = new Hono<AppEnv>()
         .where(and(eq(assets.generationId, generation.id), eq(assets.kind, 'output')))
         .limit(1);
       if (!image) return c.json({ error: 'Cette variante n’a plus d’image.' }, 400);
+
+      // Lieu : sa fiche (traits Lieu & décor), l'image comme référence et première master.
+      if (draft.kind === 'place') {
+        const [place] = await db
+          .insert(places)
+          .values({
+            userId: user.id,
+            name,
+            identity: generation.traits.filter(t => t.zone === 'place'),
+            avatarAssetId: image.id,
+            defaultImageFamily: draft.family,
+          })
+          .returning();
+        await db.update(assets).set({ placeId: place.id, isMaster: true }).where(eq(assets.id, image.id));
+        await db.update(characterDrafts).set({ placeId: place.id, name, updatedAt: new Date() }).where(eq(characterDrafts.id, id));
+        return c.json({ place: toPlace(place, [], 1) }, 201);
+      }
 
       const position = await db.$count(personas, eq(personas.userId, user.id));
       const [persona] = await db

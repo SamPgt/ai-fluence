@@ -5,7 +5,7 @@
 import type { InputSchema, VideoRefMode } from './input';
 import type { MediaKind, ModelBadge, ModelProvider, TaskKind } from './models';
 import type { LibraryZone } from './library';
-import type { GenerationVariation, MasterAxis } from './masters';
+import type { CreatorKind, GenerationVariation, MasterAxis } from './masters';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -436,6 +436,8 @@ export interface CharacterSlot {
 
 export interface CharacterDraft {
   id: string;
+  /** Personnage ou lieu : la fiche se construit avec la zone Personnage ou Lieu & décor. */
+  kind: CreatorKind;
   name: string;
   gender: Gender;
   slots: CharacterSlot[];
@@ -446,6 +448,8 @@ export interface CharacterDraft {
   threadId: string;
   /** Persona créé par « Garder ce personnage ». */
   personaId: string | null;
+  /** Lieu créé par « Garder ce lieu ». */
+  placeId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -470,8 +474,10 @@ export interface VariationRequest {
   axis: MasterAxis | 'mix';
   count: number;
   family: string;
-  /** Applique le visage de l'image de référence (ReActor, local). */
+  /** Applique le visage de l'image de référence (ReActor, local). Personnage seulement. */
   face: boolean;
+  /** Lieu : part de l'image de référence (image → image) à cette force (0,3 à 0,95) ; absent = texte seul. */
+  strength?: number;
   /** Réglages du modèle (proportions…). */
   params?: Record<string, unknown>;
 }
@@ -480,4 +486,21 @@ export interface LibraryMoveResult {
   moved: number;
   /** Options laissées en place : le même fragment existe déjà dans la catégorie de destination. */
   duplicates: number;
+}
+
+// ── Lieux ─────────────────────────────────────────────────────
+
+/** Lieu récurrent (sa chambre, son café…) : fiche, image de référence, images master, personnages rattachés. */
+export interface Place {
+  id: string;
+  name: string;
+  /** Fiche du lieu (traits de la zone Lieu & décor). */
+  identity: GenerationTrait[];
+  avatarAssetId: string | null;
+  avatarUrl: string | null;
+  defaultImageFamily: string | null;
+  personaIds: string[];
+  masterCount: number;
+  createdAt: string;
+  updatedAt: string;
 }

@@ -4,6 +4,7 @@ import {
   Images,
   LayoutGrid,
   Library,
+  MapPin,
   LogOut,
   Plus,
   Settings,
@@ -186,6 +187,20 @@ export function PersonaRail({ user }: { user: User }) {
           </Link>
         </TooltipTrigger>
         <TooltipContent side="right">Bibliothèque</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/lieux"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            activeProps={{ className: 'bg-accent text-foreground' }}
+            aria-label="Lieux"
+          >
+            <MapPin className="h-5 w-5" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">Lieux</TooltipContent>
       </Tooltip>
 
       <Tooltip>

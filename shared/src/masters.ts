@@ -4,7 +4,13 @@
  * Les fragments anglais prolongent la phrase d'identité du personnage (« a woman with afro hair, … »).
  */
 
-export type MasterAxis = 'angles' | 'expressions' | 'lighting' | 'outfits' | 'framing';
+/** Axes d'un personnage. */
+export type CharacterAxis = 'angles' | 'expressions' | 'lighting' | 'outfits' | 'framing';
+/** Axes d'un lieu. */
+export type PlaceAxis = 'room-angles' | 'times' | 'details' | 'presence';
+export type MasterAxis = CharacterAxis | PlaceAxis;
+/** Ce qu'on crée : un personnage ou un lieu récurrent. */
+export type CreatorKind = 'character' | 'place';
 
 export interface MasterVariant {
   id: string;
@@ -17,6 +23,11 @@ export interface MasterAxisDef {
   label: string;
   hint: string;
   variants: MasterVariant[];
+  /**
+   * Lieu, image → image : force conseillée. Un autre angle ou un détail demande de s'éloigner de la référence ;
+   * un autre moment de la journée, de la garder.
+   */
+  strength?: number;
 }
 
 /** Variation enregistrée avec la génération : l'axe et la variante tirés pour cette image. */
@@ -26,10 +37,11 @@ export interface GenerationVariation {
   label: string;
 }
 
-/** Repère pour un jeu d'entraînement de LoRA (15 à 30 images variées). */
-export const MASTER_TARGET = 20;
-/** Repère par axe, pour voir ce qui manque. */
-export const MASTER_TARGET_PER_AXIS = 4;
+/** Repères : total recommandé et par axe (personnage : jeu d'entraînement d'une LoRA, 15 à 30 images variées). */
+export const MASTER_TARGETS: Record<CreatorKind, { total: number; perAxis: number }> = {
+  character: { total: 20, perAxis: 4 },
+  place: { total: 12, perAxis: 3 },
+};
 
 const STUDIO = 'wearing a plain grey t-shirt, plain light grey background, soft even lighting, realistic photo';
 
@@ -109,6 +121,68 @@ export const MASTER_AXES: MasterAxisDef[] = [
   },
 ];
 
+/**
+ * Axes d'un lieu. Le moment de la journée n'appartient pas au lieu (sa chambre de jour comme de nuit) :
+ * les masters couvrent plusieurs moments pour que le lieu reste reconnaissable dans chaque scène.
+ */
+export const PLACE_AXES: MasterAxisDef[] = [
+  {
+    id: 'room-angles',
+    label: 'Angles',
+    strength: 0.85,
+    hint: 'Depuis la porte, le coin opposé, en plongée…',
+    variants: [
+      { id: 'doorway', label: 'Depuis l’entrée', fragment: 'wide-angle photo of the whole place seen from the entrance, no people, natural daylight, realistic photo' },
+      { id: 'opposite', label: 'Coin opposé', fragment: 'wide-angle photo of the place seen from the opposite corner, no people, natural daylight, realistic photo' },
+      { id: 'eye-level', label: 'Face au mur principal', fragment: 'eye-level photo facing the main wall of the place, no people, natural daylight, realistic photo' },
+      { id: 'window', label: 'Vers la fenêtre', fragment: 'photo of the place looking towards the window, no people, natural daylight, realistic photo' },
+      { id: 'high', label: 'Plongée', fragment: 'high-angle photo of the place seen from above, no people, natural daylight, realistic photo' },
+      { id: 'low', label: 'Ras du sol', fragment: 'low-angle photo of the place taken close to the floor, no people, natural daylight, realistic photo' },
+    ],
+  },
+  {
+    id: 'times',
+    label: 'Moments',
+    strength: 0.6,
+    hint: 'Matin, midi, heure dorée, nuit…',
+    variants: [
+      { id: 'morning', label: 'Matin', fragment: 'wide photo of the place in the early morning, soft cool light, no people, realistic photo' },
+      { id: 'noon', label: 'Midi', fragment: 'wide photo of the place at midday, bright natural light, no people, realistic photo' },
+      { id: 'golden', label: 'Heure dorée', fragment: 'wide photo of the place at golden hour, warm sunlight, long shadows, no people, realistic photo' },
+      { id: 'dusk', label: 'Crépuscule', fragment: 'wide photo of the place at dusk, blue hour light, no people, realistic photo' },
+      { id: 'night-lamps', label: 'Nuit, lampes', fragment: 'wide photo of the place at night, lit by warm lamps, no people, realistic photo' },
+      { id: 'night-dark', label: 'Nuit, pénombre', fragment: 'wide photo of the place at night in dim light, a few glowing light sources, no people, realistic photo' },
+    ],
+  },
+  {
+    id: 'details',
+    label: 'Détails',
+    strength: 0.85,
+    hint: 'Objets, matières, recoins…',
+    variants: [
+      { id: 'object', label: 'Objet', fragment: 'close-up detail photo of a decorative object in the place, shallow depth of field, realistic photo' },
+      { id: 'materials', label: 'Matières', fragment: 'close-up detail photo of the textures and materials of the place, realistic photo' },
+      { id: 'corner', label: 'Recoin', fragment: 'photo of a corner of the place, no people, natural light, realistic photo' },
+      { id: 'surface', label: 'Plan de travail', fragment: 'detail photo of the main table or desk surface of the place with its objects, realistic photo' },
+    ],
+  },
+  {
+    id: 'presence',
+    label: 'Avec quelqu’un',
+    strength: 0.75,
+    hint: 'Une silhouette pour l’échelle, de dos, assise…',
+    variants: [
+      { id: 'back', label: 'De dos', fragment: 'wide photo of the place with a person seen from behind, small in the frame, natural light, realistic photo' },
+      { id: 'sitting', label: 'Assise', fragment: 'wide photo of the place with a person sitting, seen from afar, natural light, realistic photo' },
+      { id: 'walking', label: 'En passant', fragment: 'wide photo of the place with a person walking through, slightly blurred, natural light, realistic photo' },
+    ],
+  },
+];
+
+export function axesFor(kind: CreatorKind): MasterAxisDef[] {
+  return kind === 'place' ? PLACE_AXES : MASTER_AXES;
+}
+
 export function masterAxis(id: MasterAxis): MasterAxisDef {
-  return MASTER_AXES.find(a => a.id === id)!;
+  return [...MASTER_AXES, ...PLACE_AXES].find(a => a.id === id)!;
 }

@@ -5,6 +5,7 @@
 import type {
   Asset,
   CharacterDraft,
+  CreatorKind,
   AuthResponse,
   CatalogResponse,
   ComfyStatus,
@@ -25,6 +26,7 @@ import type {
   MastersResponse,
   Persona,
   PersonaInput,
+  Place,
   PromptPreset,
   QuoteResponse,
   SearchResult,
@@ -151,12 +153,15 @@ export const libraryApi = {
 }
 
 export const charactersApi = {
-  current: () => apiFetch<{ draft: CharacterDraft }>('/characters/drafts/current'),
-  create: (start: 'blank' | 'random') => apiFetch<{ draft: CharacterDraft }>('/characters/drafts', { method: 'POST', body: { start } }),
+  current: (kind: CreatorKind = 'character') =>
+    apiFetch<{ draft: CharacterDraft }>('/characters/drafts/current', { query: { kind } }),
+  create: (start: 'blank' | 'random', kind: CreatorKind = 'character') =>
+    apiFetch<{ draft: CharacterDraft }>('/characters/drafts', { method: 'POST', body: { start, kind } }),
   update: (id: string, body: Partial<Pick<CharacterDraft, 'name' | 'gender' | 'slots' | 'previewPrompt' | 'family'>>) =>
     apiFetch<{ draft: CharacterDraft }>(`/characters/drafts/${id}`, { method: 'PATCH', body }),
+  /** Crée le persona (personnage) ou le lieu depuis une variante. */
   keep: (id: string, generationId: string, name: string) =>
-    apiFetch<{ persona: Persona }>(`/characters/drafts/${id}/keep`, { method: 'POST', body: { generationId, name } }),
+    apiFetch<{ persona?: Persona; place?: Place }>(`/characters/drafts/${id}/keep`, { method: 'POST', body: { generationId, name } }),
 }
 
 export const catalogApi = {
@@ -191,12 +196,21 @@ export const personasApi = {
   remove: (id: string) => apiFetch<{ ok: true }>(`/personas/${id}`, { method: 'DELETE' }),
 }
 
+/** Images master d'un persona (`character`) ou d'un lieu (`place`). */
+const mastersBase = (kind: CreatorKind, id: string) => `/${kind === 'place' ? 'places' : 'personas'}/${id}`
 export const mastersApi = {
-  list: (personaId: string) => apiFetch<MastersResponse>(`/personas/${personaId}/masters`),
-  set: (personaId: string, assetId: string, isMaster: boolean) =>
-    apiFetch<{ asset: Asset }>(`/personas/${personaId}/masters/${assetId}`, { method: 'PATCH', body: { isMaster } }),
-  generate: (personaId: string, body: VariationRequest) =>
-    apiFetch<{ threadId: string }>(`/personas/${personaId}/variations`, { method: 'POST', body }),
+  list: (kind: CreatorKind, id: string) => apiFetch<MastersResponse>(`${mastersBase(kind, id)}/masters`),
+  set: (kind: CreatorKind, id: string, assetId: string, isMaster: boolean) =>
+    apiFetch<{ asset: Asset }>(`${mastersBase(kind, id)}/masters/${assetId}`, { method: 'PATCH', body: { isMaster } }),
+  generate: (kind: CreatorKind, id: string, body: VariationRequest) =>
+    apiFetch<{ threadId: string }>(`${mastersBase(kind, id)}/variations`, { method: 'POST', body }),
+}
+
+export const placesApi = {
+  list: () => apiFetch<{ places: Place[] }>('/places'),
+  update: (id: string, body: Partial<Pick<Place, 'name' | 'defaultImageFamily' | 'personaIds'>>) =>
+    apiFetch<{ place: Place }>(`/places/${id}`, { method: 'PATCH', body }),
+  remove: (id: string) => apiFetch<{ ok: true }>(`/places/${id}`, { method: 'DELETE' }),
 }
 
 export const threadsApi = {

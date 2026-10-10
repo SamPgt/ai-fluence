@@ -37,20 +37,39 @@ const POLL_MS = 1500;
 /** Personnes variées : la miniature montre l'option, pas une personne en particulier. */
 const ORIGINS = ['East Asian', 'Black', 'South Asian', 'Southeast Asian', 'Middle Eastern', 'white European', 'mixed-race'];
 
-function subjectFor(gender: ThumbnailGender): string {
-  const g: Gender = gender === 'any' ? (randomInt(2) ? 'female' : 'male') : gender;
+/** `{subject}` : une personne d'origine tirée au hasard. */
+function subjectFor(g: Gender, decade: string): string {
   const origin =
     randomInt(ORIGINS.length + 1) === ORIGINS.length ? (g === 'female' ? 'Latina' : 'Latino') : ORIGINS[randomInt(ORIGINS.length)];
-  const decade = randomInt(2) ? 'twenties' : 'thirties';
   return g === 'female' ? `a young ${origin} woman in her ${decade}` : `a young ${origin} man in his ${decade}`;
 }
+
+/** `{person}` : le genre seul, sans origine (couleur de peau, des yeux… : pas de contradiction avec l'option). */
+function personFor(g: Gender, decade: string): string {
+  return g === 'female' ? `a young woman in her ${decade}` : `a young man in his ${decade}`;
+}
+
+/** `{femme: … | homme: …}` : la branche du genre de la miniature (ex. crop top pour elle, torse nu pour lui). */
+const GENDER_ALTERNATIVE = /\{\s*femme\s*:([^|{}]*)\|\s*homme\s*:([^{}]*)\}/gi;
 
 export function templateOf(category: Pick<CategoryRow, 'thumbnailTemplate' | 'zone'>): string {
   return category.thumbnailTemplate.trim() || getZone(category.zone).thumbnailTemplate;
 }
 
 function promptFor(category: CategoryRow, option: OptionRow, gender: ThumbnailGender): string {
-  return templateOf(category).replaceAll('{option}', option.fragment).replaceAll('{subject}', subjectFor(gender));
+  // Catégorie sans genre : une personne au hasard, la même pour tout le gabarit.
+  const g: Gender = gender === 'any' ? (randomInt(2) ? 'female' : 'male') : gender;
+  const decade = randomInt(2) ? 'twenties' : 'thirties';
+  // L'option avec la tournure de la catégorie (« black » → « black skin »), comme dans le prompt des générations.
+  const text = category.phrase.includes('{option}') ? category.phrase.replaceAll('{option}', option.fragment) : option.fragment;
+  // Les mots-clés d'abord : ils peuvent apparaître dans une branche femme / homme.
+  return templateOf(category)
+    .replaceAll('{option}', text)
+    .replaceAll('{subject}', subjectFor(g, decade))
+    .replaceAll('{person}', personFor(g, decade))
+    .replace(GENDER_ALTERNATIVE, (_, female: string, male: string) => (g === 'female' ? female : male).trim())
+    .replace(/\s+,/g, ',')
+    .replace(/\s{2,}/g, ' ');
 }
 
 /** Versions à générer : femme et/ou homme dans une catégorie genrée, une seule sinon. */
