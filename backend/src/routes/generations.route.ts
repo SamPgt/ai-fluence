@@ -27,6 +27,11 @@ const generationSchema = z.object({
   count: z.number().int().min(1).max(12).optional(),
   traitIds: z.array(z.uuid()).max(20).default([]),
   traitDraws: z.array(z.array(z.uuid()).max(20)).max(12).optional(),
+  traitSlots: z
+    .array(z.object({ categoryId: z.uuid(), drawFrom: z.enum(['all', 'favorites', 'pool']), pool: z.array(z.uuid()).max(500) }))
+    .max(20)
+    .optional(),
+  placeId: z.uuid().nullable().optional(),
   gender: z.enum(['female', 'male']).nullable().optional(),
   contextIds: z.array(z.uuid()).max(20).default([]),
   expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),

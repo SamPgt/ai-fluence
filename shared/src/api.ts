@@ -214,6 +214,20 @@ export interface GenerationTrait {
   fragment: string;
   /** Miniature de l'option (version du genre du personnage). */
   thumbnailUrl: string | null;
+  /** Tiré au hasard (bulle 🎲 du composer) plutôt que choisi. */
+  random?: boolean;
+}
+
+/**
+ * Bulle 🎲 du composer : une catégorie tirée au hasard pour chaque image, dans toute la liste,
+ * les favoris, ou une sélection (`pool`).
+ */
+export interface TraitSlot {
+  categoryId: string;
+  categoryLabel: string;
+  zone: LibraryZone;
+  drawFrom: 'all' | 'favorites' | 'pool';
+  pool: string[];
 }
 
 export type GenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
@@ -274,6 +288,10 @@ export interface GenerationRequest {
   traitIds?: string[];
   /** Série : traits propres à chaque image (créateur de personnage, un tirage par variante). Prioritaire sur `traitIds`. */
   traitDraws?: string[][];
+  /** Catégories tirées au hasard pour chaque image (bulles 🎲). */
+  traitSlots?: Pick<TraitSlot, 'categoryId' | 'drawFrom' | 'pool'>[];
+  /** Lieu récurrent : sa fiche est ajoutée aux traits. */
+  placeId?: string | null;
   /** Genre du sujet quand il n'y a pas de persona (créateur de personnage) : accorde la phrase des traits. */
   gender?: Gender | null;
   /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
@@ -301,8 +319,12 @@ export interface QuoteResponse {
   lorasApplied: number;
   /** Nombre d'images de la série ; `estimatedCost` et `maxCharge` sont des totaux. */
   count: number;
-  /** Prompt réellement envoyé (traits assemblés, texte libre, suffixe du persona, contextes). */
+  /** Prompt réellement envoyé (traits assemblés, texte libre, suffixe du persona, contextes). Avec des tirages : un exemple. */
   finalPrompt: string;
+  /** Le prompt contient des tirages (🎲, `__…__`, `{a|b}`) : `finalPrompt` n'est qu'un exemple. */
+  randomized: boolean;
+  /** Wildcards `__…__` inconnues, laissées telles quelles. */
+  unknownWildcards: string[];
 }
 
 export interface CreateGenerationResponse {
@@ -503,4 +525,17 @@ export interface Place {
   masterCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Scènes ────────────────────────────────────────────────────
+
+/** Combinaison réutilisable pour n'importe quel personnage : bulles choisies et 🎲, lieu, texte libre. */
+export interface Scene {
+  id: string;
+  name: string;
+  traits: GenerationTrait[];
+  slots: TraitSlot[];
+  placeId: string | null;
+  prompt: string;
+  createdAt: string;
 }

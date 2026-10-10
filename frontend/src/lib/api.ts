@@ -29,6 +29,7 @@ import type {
   Place,
   PromptPreset,
   QuoteResponse,
+  Scene,
   SearchResult,
   Settings,
   SignupRequest,
@@ -204,6 +205,12 @@ export const mastersApi = {
     apiFetch<{ asset: Asset }>(`${mastersBase(kind, id)}/masters/${assetId}`, { method: 'PATCH', body: { isMaster } }),
   generate: (kind: CreatorKind, id: string, body: VariationRequest) =>
     apiFetch<{ threadId: string }>(`${mastersBase(kind, id)}/variations`, { method: 'POST', body }),
+}
+
+export const scenesApi = {
+  list: () => apiFetch<{ scenes: Scene[] }>('/scenes'),
+  create: (body: Omit<Scene, 'id' | 'createdAt'>) => apiFetch<{ scene: Scene }>('/scenes', { method: 'POST', body }),
+  remove: (id: string) => apiFetch<{ ok: true }>(`/scenes/${id}`, { method: 'DELETE' }),
 }
 
 export const placesApi = {

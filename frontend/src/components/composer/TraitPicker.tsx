@@ -31,8 +31,11 @@ export function TraitPicker({
   categoryIds,
   title = 'Ajouter un trait',
   pool,
+  onPickRandom,
 }: {
   open: boolean
+  /** Bouton « 🎲 Au hasard » : la catégorie sera tirée au hasard pour chaque image (composer). */
+  onPickRandom?: (category: LibraryCategory) => void
   /** Mode tirage : coche les options parmi lesquelles tirer (une seule catégorie). */
   pool?: DrawPool
   /** Limite la fenêtre à ces catégories (fiche du créateur de personnage). */
@@ -114,6 +117,7 @@ export function TraitPicker({
                 onPick={onPick}
                 pool={pool}
                 onDone={onClose}
+                onPickRandom={onPickRandom}
               />
             )}
           </div>
@@ -130,6 +134,7 @@ function OptionGrid({
   onPick,
   pool,
   onDone,
+  onPickRandom,
 }: {
   category: LibraryCategory
   gender: Gender | null
@@ -137,6 +142,7 @@ function OptionGrid({
   onPick: (trait: GenerationTrait) => void
   pool?: DrawPool
   onDone: () => void
+  onPickRandom?: (category: LibraryCategory) => void
 }) {
   const { data: options = [], isLoading } = useQuery(libraryOptionsQuery(category.id))
   const { data: thumbnails = [] } = useQuery(libraryThumbnailsQuery(category.id))
@@ -186,6 +192,17 @@ function OptionGrid({
           <Input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Rechercher dans ${category.label}…`} className="h-8 pl-8 text-xs" />
         </div>
         <span className="text-xs text-muted-foreground tabular-nums">{visible.length} option(s)</span>
+        {onPickRandom && !pool && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 text-[11px]"
+            onClick={() => onPickRandom(category)}
+            title="Une option tirée au hasard pour chaque image (série ×N : un tirage par image)"
+          >
+            <Dice5 className="h-3.5 w-3.5 text-brand" /> Au hasard
+          </Button>
+        )}
         {favoriteCount > 0 && (
           <button
             type="button"

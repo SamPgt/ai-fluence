@@ -158,6 +158,17 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
 - La **tournure** d'une catégorie (bibliothèque → « Gabarit ») règle l'insertion de ses options : `{option} hairstyle` transforme « bob » en « bob hairstyle ».
 - Le prompt réellement envoyé s'affiche sous le composer (« Prompt envoyé : … »). Les traits restent visibles dans la demande, et « Modifier la demande » les remet dans le composer.
 
+## Composer une scène
+
+Dans le composer, autour des bulles de traits :
+
+- **🎲 Au hasard** (bouton dans la fenêtre « Trait ») : la catégorie est tirée au hasard pour **chaque image** ; en série ×4 / ×8, chaque image a son propre tirage, affiché sous l'image (🎲 …). Un clic sur la bulle 🎲 choisit parmi quoi tirer : toute la liste, les favoris, ou une sélection.
+- **Lieu** : un lieu récurrent (ceux du personnage en premier). Sa fiche entre dans le prompt ; un clic sur sa bulle propose ses images master comme **image de départ** (image → image) pour un lieu plus fidèle.
+- **Visage de …** (modèles locaux avec ReActor) : joint l'avatar du personnage en rôle Visage, en un clic.
+- **Scènes** : enregistre la combinaison actuelle (bulles hors personnage, 🎲, lieu, texte) sous un nom (« Courses du samedi ») et la recharge pour n'importe quel personnage ; l'identité du persona actif est gardée.
+- **Texte libre** : `__clé__` tire une option de la catégorie (clé affichée sous son nom dans la Bibliothèque, avec sa tournure), `{café|parc|plage}` une variante, `{2::café|parc}` une variante pondérée. Une catégorie inconnue est signalée et laissée telle quelle.
+- Avec des tirages, la ligne sous le composer montre **un exemple** de prompt : chaque image fait son propre tirage.
+
 ## Créer un personnage
 
 Le **+** de la barre de gauche ouvre le créateur (la création rapide d'un persona reste accessible en haut à droite).

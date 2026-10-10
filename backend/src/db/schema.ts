@@ -21,6 +21,7 @@ import type {
   LibraryZone,
   ModelProvider,
   PersonaLora,
+  TraitSlot,
   TaskKind,
   ThumbnailGender,
   ThumbnailStatus,
@@ -379,4 +380,23 @@ export const personaPlaces = pgTable(
       .references(() => places.id, { onDelete: 'cascade' }),
   },
   t => [uniqueIndex('persona_places_idx').on(t.personaId, t.placeId)],
+);
+
+/** Scène enregistrée : bulles choisies et 🎲, lieu, texte libre ; réutilisable pour n'importe quel personnage. */
+export const scenes = pgTable(
+  'scenes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    traits: jsonb('traits').$type<GenerationTrait[]>().notNull().default([]),
+    slots: jsonb('slots').$type<TraitSlot[]>().notNull().default([]),
+    placeId: uuid('place_id').references(() => places.id, { onDelete: 'set null' }),
+    prompt: text('prompt').notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  t => [index('scenes_user_idx').on(t.userId, t.createdAt)],
 );

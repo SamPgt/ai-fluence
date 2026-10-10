@@ -17,6 +17,7 @@ import libraryRoutes from './routes/library.route.js';
 import charactersRoutes from './routes/characters.route.js';
 import { mastersRoutes } from './routes/masters.route.js';
 import placesRoutes from './routes/places.route.js';
+import scenesRoutes from './routes/scenes.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,7 +35,7 @@ const app = new Hono<AppEnv>()
   // Un `:id` qui n'est pas un UUID ferait planter Postgres : on répond 404 avant.
   .use('*', async (c, next) => {
     const segments = c.req.path.split('/');
-    const idx = segments.findIndex(s => ['media', 'threads', 'generations', 'personas', 'places', 'assets', 'presets'].includes(s));
+    const idx = segments.findIndex(s => ['media', 'threads', 'generations', 'personas', 'places', 'scenes', 'assets', 'presets'].includes(s));
     const id = idx >= 0 ? segments[idx + 1] : undefined;
     if (id && !['search', 'references', 'gallery', 'quote', 'upscale'].includes(id) && !UUID_RE.test(id)) {
       return c.json({ error: 'Introuvable.' }, 404);
@@ -51,6 +52,7 @@ const app = new Hono<AppEnv>()
   .route('/personas', mastersRoutes('character'))
   .route('/places', placesRoutes)
   .route('/places', mastersRoutes('place'))
+  .route('/scenes', scenesRoutes)
   .route('/threads', threadsRoutes)
   .route('/generations', generationsRoutes)
   .route('/presets', presetsRoutes)

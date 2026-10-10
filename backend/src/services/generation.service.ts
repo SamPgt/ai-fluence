@@ -31,13 +31,14 @@ import {
   type ModelProvider,
 } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { assets, generations, personas, promptPresets, threads, users } from '../db/schema.js';
+import { assets, generations, personas, places, promptPresets, threads, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
 import { resolveTraits } from './traits.service.js';
+import { drawSlots, resolveWildcards } from './draw.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -73,6 +74,9 @@ interface Prepared {
   /** Image dont le visage est appliqué au résultat (ReActor). */
   face: AssetRow | null;
   traits: GenerationTrait[];
+  /** Tirages (🎲, `__…__`, `{a|b}`) : le prompt change d'une image à l'autre. */
+  randomized: boolean;
+  unknownWildcards: string[];
   dropped: number;
   lorasApplied: number;
 }
@@ -146,12 +150,28 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     : [images.map(localAssetRef), videos.map(localAssetRef)];
 
   // Traits de la bibliothèque (bulles du composer) : une phrase, avant le texte libre.
-  const { traits, sentence } = await resolveTraits(user.id, req.traitIds ?? [], persona?.gender ?? req.gender ?? null);
+  // S'y ajoutent la fiche du lieu choisi et un tirage pour chaque bulle 🎲.
+  const gender = persona?.gender ?? req.gender ?? null;
+  let placeTraitIds: string[] = [];
+  if (req.placeId) {
+    const [place] = await db
+      .select({ identity: places.identity })
+      .from(places)
+      .where(and(eq(places.id, req.placeId), eq(places.userId, user.id)))
+      .limit(1);
+    if (!place) throw new HTTPException(404, { message: 'Lieu introuvable.' });
+    placeTraitIds = place.identity.map(t => t.optionId);
+  }
+  const drawn = await drawSlots(user.id, req.traitSlots ?? [], gender);
+  const resolved = await resolveTraits(user.id, [...new Set([...(req.traitIds ?? []), ...placeTraitIds, ...drawn])], gender);
+  const { sentence } = resolved;
+  const traits = resolved.traits.map(t => (drawn.includes(t.optionId) ? { ...t, random: true } : t));
+  const wildcards = await resolveWildcards(user.id, req.prompt.trim(), gender);
 
   // Le mot déclencheur n'a de sens que si une LoRA du persona est appliquée.
   const willApplyLoras = loras.length > 0;
   // La phrase des traits se prolonge par le texte libre (« …, reading a book »), ou se termine par un point.
-  const text = req.prompt.trim();
+  const text = wildcards.text;
   const body = sentence ? (text ? `${sentence}, ${text}` : `${sentence}.`) : text;
   const parts = [willApplyLoras && persona?.triggerWord ? persona.triggerWord.trim() : '', body].filter(Boolean);
   let finalPrompt = parts.join(' ');
@@ -203,6 +223,8 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     references,
     face,
     traits,
+    randomized: drawn.length > 0 || wildcards.randomized,
+    unknownWildcards: wildcards.unknown,
     dropped: built.dropped,
     lorasApplied: built.lorasApplied,
   };
@@ -304,6 +326,8 @@ function toQuoteResponse(p: Prepared, quote: QuoteLike, count = 1): QuoteRespons
   return {
     count,
     finalPrompt: p.finalPrompt,
+    randomized: p.randomized,
+    unknownWildcards: p.unknownWildcards,
     task: p.task,
     modelId: p.modelId,
     estimatedCost: times(quote.estimatedCost, count),
@@ -343,7 +367,12 @@ async function launch(
       .limit(1);
     if (!thread) throw new HTTPException(404, { message: 'Fil introuvable.' });
   } else {
-    const title = meta.prompt.trim().slice(0, 60) || getFamily(meta.family)!.label;
+    // Titre lisible : sans la syntaxe des tirages (`{a|b}` → « a », `__tenue__` → « tenue »).
+    const readable = meta.prompt
+      .replace(/\{(?:\d+(?:\.\d+)?::)?([^{}|]*)[^{}]*\}/g, '$1')
+      .replace(/__([a-z0-9_/-]+)__/gi, (_, key: string) => key.replace(/[_/-]+/g, ' '))
+      .trim();
+    const title = readable.slice(0, 60) || getFamily(meta.family)!.label;
     [thread] = await db
       .insert(threads)
       .values({ userId: user.id, personaId: meta.personaId, title })
@@ -624,6 +653,8 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
       finalPrompt: '',
       persona: null,
       references: [asset],
+      randomized: false,
+      unknownWildcards: [],
       face: null,
       traits: [],
       dropped: 0,

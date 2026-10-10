@@ -102,7 +102,9 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       faceAssetId: keepFace ? g.face!.id : null,
       contextIds: g.contexts.map((c) => c.id),
       count: generations.length,
-      traitIds: g.traits.map((t) => t.optionId),
+      // Les traits tirés au hasard sont retirés au hasard (dans toute la catégorie).
+      traitIds: g.traits.filter((t) => !t.random).map((t) => t.optionId),
+      traitSlots: g.traits.filter((t) => t.random).map((t) => ({ categoryId: t.categoryId, drawFrom: 'all' as const, pool: [] })),
     }
   }
   const { data: catalog } = useQuery(catalogQuery())
@@ -165,7 +167,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       refMode: g.refMode,
       contextIds: g.contexts.map((c) => c.id),
       count: generations.length,
-      traits: g.traits,
+      traits: g.traits.filter((t) => !t.random),
+      slots: g.traits
+        .filter((t) => t.random)
+        .map((t) => ({ categoryId: t.categoryId, categoryLabel: t.categoryLabel, zone: t.zone, drawFrom: 'all' as const, pool: [] })),
       params,
     })
   }
@@ -217,20 +222,32 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
           <div className="space-y-2 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3">
             {g.traits.length > 0 && (
               <div className="flex flex-wrap justify-end gap-1.5">
-                {g.traits.map((t) => (
-                  <span
-                    key={t.optionId}
-                    className="flex h-7 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] pr-2.5 pl-0.5 text-xs"
-                    title={`${t.categoryLabel} : ${t.fragment}`}
-                  >
-                    {t.thumbnailUrl ? (
-                      <img src={t.thumbnailUrl} alt="" className="h-6 w-6 rounded-full object-cover" />
-                    ) : (
-                      <span className="h-6 w-6 rounded-full bg-secondary" />
-                    )}
-                    {t.label ?? t.fragment}
-                  </span>
-                ))}
+                {g.traits.map((t) =>
+                  t.random && series ? (
+                    // Série : chaque image a son propre tirage, affiché sous l'image.
+                    <span
+                      key={t.optionId}
+                      className="flex h-7 items-center gap-1.5 rounded-full border border-dashed border-brand/50 px-2.5 text-xs"
+                      title="Tirée au hasard pour chaque image"
+                    >
+                      🎲 {t.categoryLabel}
+                    </span>
+                  ) : (
+                    <span
+                      key={t.optionId}
+                      className="flex h-7 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] pr-2.5 pl-0.5 text-xs"
+                      title={`${t.categoryLabel} : ${t.fragment}${t.random ? ' (tiré au hasard)' : ''}`}
+                    >
+                      {t.thumbnailUrl ? (
+                        <img src={t.thumbnailUrl} alt="" className="h-6 w-6 rounded-full object-cover" />
+                      ) : (
+                        <span className="h-6 w-6 rounded-full bg-secondary" />
+                      )}
+                      {t.random && '🎲 '}
+                      {t.label ?? t.fragment}
+                    </span>
+                  ),
+                )}
               </div>
             )}
             {(g.references.length > 0 || g.face) && (
@@ -568,6 +585,12 @@ function SeriesResults({
                 {m.seed !== null && ` · seed ${m.seed}`}
                 {m.durationMs !== null && ` · ${formatDuration(m.durationMs)}`}
               </div>
+              {/* Tirages 🎲 propres à cette image */}
+              {m.traits.some((t) => t.random) && (
+                <div className="truncate px-0.5 text-[10px] text-brand" title={m.traits.filter((t) => t.random).map((t) => `${t.categoryLabel} : ${t.fragment}`).join('\n')}>
+                  🎲 {m.traits.filter((t) => t.random).map((t) => t.label ?? t.fragment).join(' · ')}
+                </div>
+              )}
             </div>
           )
         })}

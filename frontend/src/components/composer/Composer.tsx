@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Film, ImageIcon, ImagePlus, Info, Loader2, ScanFace, Shapes, Wand2, X } from 'lucide-react'
+import { ArrowUp, Dice5, Film, ImageIcon, ImagePlus, Info, Loader2, ScanFace, Shapes, Wand2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   TASK_LABEL,
@@ -40,6 +40,7 @@ import {
 import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 import { TraitPicker } from './TraitPicker'
+import { FaceButton, PlaceBubble, PlaceButton, ScenesButton } from './SceneTools'
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value)
@@ -133,10 +134,14 @@ export function Composer({
     : null
   const task = resolution?.ok ? resolution.task : null
   const schema = task ? family?.tasks[task]?.schema : undefined
-  // Des traits suffisent à faire un prompt : le texte libre devient facultatif.
-  const requiresPrompt = (schema?.required?.includes('prompt') ?? true) && state.traits.length === 0
+  // Des traits (choisis, 🎲 ou un lieu) suffisent à faire un prompt : le texte libre devient facultatif.
+  const hasTraits = state.traits.length > 0 || state.slots.length > 0 || Boolean(state.placeId)
+  const requiresPrompt = (schema?.required?.includes('prompt') ?? true) && !hasTraits
   // Fenêtre des traits : null = fermée ; sinon la catégorie à ouvrir (« '' » = la première).
   const [traitPicker, setTraitPicker] = useState<string | null>(null)
+  // Bulle 🎲 ouverte : choisir parmi quoi tirer (toute la liste, favoris, sélection).
+  const [slotPicker, setSlotPicker] = useState<string | null>(null)
+  const openSlot = state.slots.find((x) => x.categoryId === slotPicker) ?? null
   const supportsLoras = schemaSupportsLoras(schema)
   const personaLoras =
     persona?.loras.filter((l) => l.family === state.family) ?? []
@@ -165,6 +170,8 @@ export function Composer({
         contextIds: activeContextIds,
         count: state.count,
         traitIds: state.traits.map((t) => t.optionId),
+        traitSlots: state.slots.map(({ categoryId, drawFrom, pool }) => ({ categoryId, drawFrom, pool })),
+        placeId: state.placeId,
       }
     : null
 
@@ -308,6 +315,12 @@ export function Composer({
     })
   }
   if (quoteError) notices.push({ text: quoteError, tone: 'error' })
+  if (quoteIsCurrent && quote.data?.unknownWildcards.length) {
+    notices.push({
+      text: `Catégorie inconnue, laissée telle quelle : ${quote.data.unknownWildcards.map((k) => `__${k}__`).join(', ')}`,
+      tone: 'warn',
+    })
+  }
 
   return (
     <div className="shrink-0 px-4 pt-2 pb-5">
@@ -392,9 +405,35 @@ export function Composer({
             </div>
           )}
 
-          {/* Traits choisis dans la bibliothèque : une bulle par catégorie */}
-          {state.traits.length > 0 && (
+          {/* Traits choisis dans la bibliothèque : une bulle par catégorie ; 🎲 : tirée au hasard ; lieu */}
+          {hasTraits && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+              {state.placeId && <PlaceBubble placeId={state.placeId} />}
+              {state.slots.map((x) => (
+                <span
+                  key={x.categoryId}
+                  className="group flex h-7 items-center gap-1.5 rounded-full border border-dashed border-brand/50 bg-brand/[0.04] pr-1 pl-2 text-xs"
+                  title="Tirée au hasard pour chaque image. Clic : choisir parmi quoi tirer."
+                >
+                  <button type="button" onClick={() => setSlotPicker(x.categoryId)} className="flex items-center gap-1.5">
+                    <Dice5 className="h-3.5 w-3.5 text-brand" />
+                    <span className="max-w-40 truncate">
+                      {x.categoryLabel}
+                      <span className="text-muted-foreground">
+                        {x.drawFrom === 'favorites' ? ' · favoris' : x.drawFrom === 'pool' ? ` · ${x.pool.length} au choix` : ' · au hasard'}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => composer.removeSlot(x.categoryId)}
+                    className="rounded-full p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-label={`Retirer ${x.categoryLabel}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
               {state.traits.map((t) => (
                 <span
                   key={t.optionId}
@@ -472,6 +511,9 @@ export function Composer({
               >
                 <Shapes className="h-3.5 w-3.5" /> Trait
               </button>
+              <PlaceButton persona={persona} placeId={state.placeId} />
+              <ScenesButton />
+              {persona && family?.supportsFace && <FaceButton persona={persona} faceId={faceId} />}
               {persona && (
                 <ReferencePicker
                   persona={persona}
@@ -648,13 +690,34 @@ export function Composer({
             composer.setTrait(trait)
             setTraitPicker(null)
           }}
+          onPickRandom={(c) => {
+            composer.setSlot({ categoryId: c.id, categoryLabel: c.label, zone: c.zone, drawFrom: 'all', pool: [] })
+            setTraitPicker(null)
+          }}
           onClose={() => setTraitPicker(null)}
         />
+        <TraitPicker
+          open={openSlot !== null}
+          title={openSlot ? `${openSlot.categoryLabel} : tirer au hasard parmi…` : ''}
+          categoryIds={openSlot ? [openSlot.categoryId] : undefined}
+          initialCategoryId={openSlot?.categoryId ?? null}
+          gender={persona?.gender ?? null}
+          selected={[]}
+          onPick={() => undefined}
+          pool={
+            openSlot
+              ? { drawFrom: openSlot.drawFrom, ids: openSlot.pool, onChange: (drawFrom, ids) => composer.setSlot({ ...openSlot, drawFrom, pool: ids }) }
+              : undefined
+          }
+          onClose={() => setSlotPicker(null)}
+        />
 
-        {/* Aperçu du prompt réellement envoyé, quand des traits l'assemblent */}
-        {state.traits.length > 0 && quoteIsCurrent && quote.data && (
+        {/* Aperçu du prompt réellement envoyé, quand des traits ou des tirages l'assemblent */}
+        {(hasTraits || quote.data?.randomized) && quoteIsCurrent && quote.data && (
           <p className="mt-2 line-clamp-2 px-3 font-mono text-[11px] text-muted-foreground" title={quote.data.finalPrompt}>
-            <span className="font-sans font-medium text-foreground/70">Prompt envoyé : </span>
+            <span className="font-sans font-medium text-foreground/70">
+              {quote.data.randomized ? 'Exemple de prompt (nouveau tirage à chaque image) : ' : 'Prompt envoyé : '}
+            </span>
             {quote.data.finalPrompt}
           </p>
         )}
