@@ -194,6 +194,30 @@ export const LOCAL_FAMILIES: ModelFamilyDef[] = [
     hint: 'Turbo et ses variantes installées dans ComfyUI, gratuit',
     provider: 'comfy',
   },
+  {
+    id: 'local/flux2-klein-4b',
+    label: 'FLUX.2 klein (local)',
+    media: 'image',
+    badges: ['LOCAL', 'REF'],
+    hint: 'Rapide (~10–25 s), jusqu’à 3 images de référence pour la cohérence',
+    provider: 'comfy',
+  },
+  {
+    id: 'local/qwen-image-edit-2511',
+    label: 'Qwen Edit 2511 (local)',
+    media: 'image',
+    badges: ['LOCAL', 'REF'],
+    hint: 'Retouche précise à partir de 1 à 3 images (~1 min)',
+    provider: 'comfy',
+  },
+  {
+    id: 'local/wan-2.2-i2v',
+    label: 'Wan 2.2 (local)',
+    media: 'video',
+    badges: ['LOCAL'],
+    hint: 'Anime une image : 3 ou 5 s en 480p (~4 à 8 min)',
+    provider: 'comfy',
+  },
 ];
 
 export const BADGE_INFO: Record<ModelBadge, { label: string; description: string }> = {

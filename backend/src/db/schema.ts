@@ -259,6 +259,8 @@ export const libraryCategories = pgTable(
     gendered: boolean('gendered').notNull().default(false),
     /** Prompt anglais des miniatures, `{option}` remplacé par le fragment. Vide = gabarit par défaut. */
     thumbnailTemplate: text('thumbnail_template').notNull().default(''),
+    /** Modèle des miniatures (famille, locale ou API). Null = Z-Image en local. */
+    thumbnailFamily: text('thumbnail_family'),
     position: integer('position').notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -311,6 +313,10 @@ export const libraryThumbnails = pgTable(
     /** Image prête ; conservée pendant une régénération, remplacée quand la nouvelle est prête. */
     assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'set null' }),
     comfyPromptId: text('comfy_prompt_id'),
+    /** Modèle API : la miniature passe par une génération (fil masqué), suivie ici. */
+    generationId: uuid('generation_id'),
+    /** Modèle qui a produit (ou produit) la miniature. */
+    family: text('family'),
     /** Prompt envoyé (pour comprendre une miniature ratée). */
     prompt: text('prompt').notNull().default(''),
     error: text('error'),

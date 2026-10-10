@@ -100,6 +100,15 @@ Quand ComfyUI tourne, les modèles locaux (badge `LOCAL`) apparaissent dans le s
 | Modèle | Tâches | Fichiers attendus dans ComfyUI |
 | --- | --- | --- |
 | Z-Image (local) | texte → image, image → image, + visage (si ReActor est installé) | un ou plusieurs modèles Z-Image dans `diffusion_models` (ex. `zImageTurbo_turbo.safetensors`), `qwen_3_4b_fp8_mixed.safetensors` (text_encoders), `flux1AE_v10.safetensors` (vae) |
+| FLUX.2 klein (local) | texte → image, ou 1 à 3 images de **référence** (cohérence d'un personnage, d'un lieu) | `flux-2-klein-4b-fp8.safetensors` (diffusion_models), `flux2-vae.safetensors` (vae), l'encodeur Qwen3-4B de Z-Image |
+| Qwen Edit 2511 (local) | retouche à partir de 1 à 3 images (« la femme de l'image 1 dans la cuisine de l'image 2, en t-shirt gris ») | `qwen-image-edit-2511-Q3_K_M.gguf` (diffusion_models), `qwen_2.5_vl_7b_fp8_scaled.safetensors` (text_encoders), `qwen_image_vae.safetensors` (vae), `Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors` (loras), nœud [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) |
+| Wan 2.2 (local, vidéo) | image → vidéo, 3 ou 5 s, 480p ou 720p | `Wan2.2-I2V-A14B-HighNoise-Q3_K_M.gguf` et `…LowNoise…` (diffusion_models), `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise` / `low_noise` (loras), `umt5_xxl_fp8_e4m3fn_scaled` (text_encoders), `wan_2.1_vae` (vae), nœud ComfyUI-GGUF |
+
+Un modèle dont un fichier manque reste grisé, avec la liste des fichiers manquants.
+
+Mesures sur RTX 3060 12 Go (ComfyUI lancé avec `--reserve-vram 1.5`) : klein ~8 s en texte seul, 15 à 25 s avec 1 ou 2 références, sans déborder de la VRAM ; Qwen Edit ~1 à 2 min (il déborde de 1 à 1,7 Go en RAM, proprement) mais suit mieux une consigne de retouche (changer la tenue, le décor) ; Wan ~4 min pour 3 s en 480p.
+
+**Windows et VRAM** : quand la VRAM est pleine, le pilote NVIDIA déborde **en silence** sur la RAM et tout devient 10 fois plus lent (une image passée de 14 s à 3 min). Lancer ComfyUI avec `-- --reserve-vram 1.5` (dans `COMFYUI_LAUNCH`) et régler le pilote : Panneau NVIDIA → Gérer les paramètres 3D → « CUDA – Sysmem Fallback Policy » → **Prefer No Sysmem Fallback**.
 
 Les fichiers installés dans ComfyUI sont lus en direct :
 - **Modèle** : tous les fichiers de `diffusion_models` dont le nom contient « Z-Image » (Turbo, finetunes comme CyberRealistic…) ;
@@ -149,6 +158,7 @@ Les catégories sont rangées par **zone**, la partie du prompt qu'elles aliment
   - `{subject}` : une personne tirée au hasard (origine, âge, version femme / homme selon la miniature) ;
   - `{person}` : une femme ou un homme **sans origine**, pour les catégories où l'origine contredirait l'option (couleur de peau, des yeux…) ;
   - `{femme: … | homme: …}` : un passage différent selon la version de la miniature, ex. `{femme: wearing a fitted crop top | homme: shirtless}` pour voir une morphologie « muscular ».
+- **Modèle des miniatures** : choisi par catégorie dans la barre « Miniatures » (Z-Image en local par défaut). Un modèle **API** (SpicyAPI) marche sans ComfyUI : le coût total s'affiche avant de lancer. Pour juger un résultat décevant avec un autre modèle : change le modèle de la catégorie, puis « Régénérer » sur la carte.
 - Une miniature ratée se régénère au survol de sa carte ; l'ancienne reste affichée jusque-là. « Tout régénérer » relance toute la catégorie (après un changement de gabarit, par exemple).
 - Dans une catégorie genrée, « Femme / Homme » choisit la version affichée des options valables pour les deux.
 
@@ -185,6 +195,7 @@ Le **+** de la barre de gauche ouvre le créateur (la création rapide d'un pers
 
 Page d'un personnage → **Images master** (ou directement après « Garder ce personnage »).
 
+- Avec un modèle à **références** (FLUX.2 klein, Qwen Edit), **Partir de la référence (image 1)** donne l'image de référence au modèle : la cohérence vient du modèle lui-même, sans ReActor.
 - Choisir un **axe** : Angles, Expressions, Lumières, Tenues, Cadrages, ou **Mélange** (une variante tirée dans tous les axes pour chaque image). Chaque image du lot prend une variante différente de l'axe.
 - Le prompt = la fiche d'identité du personnage + la variante (« head and shoulders portrait in side profile view… »). **Visage de la référence** (local, ReActor) applique le visage de l'avatar à chaque image.
 - ⭐ sur une variation : elle devient **image master** et rejoint les références du personnage. Clic sur l'image : plein écran.

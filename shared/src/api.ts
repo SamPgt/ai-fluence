@@ -394,6 +394,8 @@ export interface LibraryCategory {
   /** Miniatures en version femme et homme (zones Personnage, Tenue, Pose & action). */
   gendered: boolean;
   thumbnailTemplate: string;
+  /** Modèle des miniatures (famille) ; null = Z-Image en local. */
+  thumbnailFamily: string | null;
   optionCount: number;
   createdAt: string;
 }
@@ -429,6 +431,18 @@ export interface LibraryThumbnail {
   url: string | null;
   error: string | null;
   durationMs: number | null;
+  /** Modèle qui a produit la miniature. */
+  family: string | null;
+}
+
+/** Devis des miniatures à générer avec un modèle API (gratuit en local). */
+export interface ThumbnailQuote {
+  family: string;
+  provider: ModelProvider;
+  count: number;
+  /** Coût estimé d'une miniature, puis du total. */
+  unitCost: string;
+  totalCost: string;
 }
 
 export interface LibraryImportResult {
@@ -500,6 +514,8 @@ export interface VariationRequest {
   face: boolean;
   /** Lieu : part de l'image de référence (image → image) à cette force (0,3 à 0,95) ; absent = texte seul. */
   strength?: number;
+  /** Modèle à références (klein, Qwen Edit…) : l'image de référence est donnée au modèle comme « image 1 ». */
+  reference?: boolean;
   /** Réglages du modèle (proportions…). */
   params?: Record<string, unknown>;
 }

@@ -20,6 +20,7 @@ import {
   cancelOptionsThumbnails,
   generateCategoryThumbnails,
   listThumbnails,
+  quoteCategoryThumbnails,
   regenerateOptionThumbnail,
 } from '../services/thumbnail.service.js';
 import type { AppEnv } from '../types.js';
@@ -44,6 +45,7 @@ function toCategory(row: CategoryRow, optionCount: number): LibraryCategory {
     phrase: row.phrase,
     gendered: row.gendered,
     thumbnailTemplate: row.thumbnailTemplate,
+    thumbnailFamily: row.thumbnailFamily,
     optionCount,
     createdAt: row.createdAt.toISOString(),
   };
@@ -145,6 +147,7 @@ const categoryFields = z.object({
   thumbnailTemplate: z.string().max(1000),
   phrase: z.string().trim().max(200),
   parentId: z.uuid().nullable(),
+  thumbnailFamily: z.string().min(3).nullable(),
 });
 const categoryCreate = categoryFields.partial().required({ label: true }).transform(b => ({
   ...b,
@@ -313,8 +316,17 @@ const libraryRoutes = new Hono<AppEnv>()
     idParam,
     zValidator('json', z.object({ mode: z.enum(['missing', 'all']).default('missing') })),
     async c => {
-      const queued = await generateCategoryThumbnails(c.get('user').id, c.req.valid('param').id, c.req.valid('json').mode);
+      const queued = await generateCategoryThumbnails(c.get('user'), c.req.valid('param').id, c.req.valid('json').mode);
       return c.json({ queued });
+    },
+  )
+  /** Devis : nombre de miniatures à générer et coût avec le modèle de la catégorie (0 en local). */
+  .post(
+    '/categories/:id/thumbnails/quote',
+    idParam,
+    zValidator('json', z.object({ mode: z.enum(['missing', 'all']).default('missing') })),
+    async c => {
+      return c.json({ quote: await quoteCategoryThumbnails(c.get('user'), c.req.valid('param').id, c.req.valid('json').mode) });
     },
   )
   .post('/categories/:id/thumbnails/cancel', idParam, async c => {
@@ -325,7 +337,7 @@ const libraryRoutes = new Hono<AppEnv>()
     idParam,
     zValidator('json', z.object({ gender: z.enum(['female', 'male', 'any']).optional() })),
     async c => {
-      return c.json({ queued: await regenerateOptionThumbnail(c.get('user').id, c.req.valid('param').id, c.req.valid('json').gender) });
+      return c.json({ queued: await regenerateOptionThumbnail(c.get('user'), c.req.valid('param').id, c.req.valid('json').gender) });
     },
   )
   /**

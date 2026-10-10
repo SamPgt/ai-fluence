@@ -58,9 +58,13 @@ export function MastersScreen({ owner, header, headerRight }: { owner: MastersOw
     families.find((f) => f.id === owner.defaultImageFamily) ??
     families.find((f) => f.provider === 'comfy') ??
     families[0]
-  // Personnage : visage de la référence (ReActor). Lieu : image → image depuis la référence.
-  const canFace = kind === 'character' && Boolean(family?.supportsFace && owner.avatarAssetId)
-  const canStart = kind === 'place' && Boolean(family?.tasks['image-to-image'] && owner.avatarAssetId)
+  // Modèle à références (klein, Qwen Edit…) : la référence est donnée au modèle. Sinon, personnage : visage
+  // de la référence (ReActor) ; lieu : image → image depuis la référence.
+  const canReference = Boolean(family?.badges.includes('REF') && family.tasks['image-to-image'] && owner.avatarAssetId)
+  // Qwen Edit ne sait que retoucher : la référence est obligatoire.
+  const mustReference = canReference && !family?.tasks['text-to-image']
+  const canFace = !canReference && kind === 'character' && Boolean(family?.supportsFace && owner.avatarAssetId)
+  const canStart = !canReference && kind === 'place' && Boolean(family?.tasks['image-to-image'] && owner.avatarAssetId)
   const [useReference, setUseReference] = useState(true)
   const [axis, setAxisState] = useState<MasterAxis | 'mix'>(axes[0].id)
   // Force conseillée par axe (lieu) ; modifiable ensuite.
@@ -93,6 +97,7 @@ export function MastersScreen({ owner, header, headerRight }: { owner: MastersOw
         family: family!.id,
         face: canFace && useReference,
         strength: canStart && useReference ? strength : undefined,
+        reference: canReference && (useReference || mustReference),
         params: aspect ? { aspect_ratio: kind === 'place' ? '3:2' : '4:5' } : {},
       })
     },
@@ -148,7 +153,15 @@ export function MastersScreen({ owner, header, headerRight }: { owner: MastersOw
               ))}
             </SelectContent>
           </Select>
-          {kind === 'character' ? (
+          {canReference ? (
+            <label
+              className="flex items-center gap-2 text-xs text-muted-foreground"
+              title="Le modèle reçoit l'image de référence (« image 1 ») et garde le même visage ou la même pièce"
+            >
+              <Switch checked={useReference || mustReference} disabled={mustReference} onCheckedChange={setUseReference} />
+              Partir de la référence (image 1)
+            </label>
+          ) : kind === 'character' ? (
             <label
               className={cn('flex items-center gap-2 text-xs', canFace ? 'text-muted-foreground' : 'text-muted-foreground/50')}
               title={

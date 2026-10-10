@@ -38,8 +38,8 @@ import {
 } from '@ai-fluence/shared'
 
 import { libraryApi } from '@/lib/api'
-import { libraryCategoriesQuery, libraryOptionsQuery, libraryThumbnailsQuery, qk } from '@/lib/queries'
-import { formatDuration } from '@/lib/format'
+import { catalogQuery, libraryCategoriesQuery, libraryOptionsQuery, libraryThumbnailsQuery, qk } from '@/lib/queries'
+import { formatDuration, formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -356,7 +356,20 @@ function CategoryPanel({
   const durations = thumbnails.map((t) => t.durationMs).filter((d): d is number => d !== null)
   const avgMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
   const [showTemplate, setShowTemplate] = useState(false)
-  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
+  // Modèle des miniatures : Z-Image en local par défaut ; un modèle API est payant (devis avant de lancer).
+  const { data: catalog } = useQuery(catalogQuery())
+  const thumbFamilies = (catalog?.families ?? []).filter((f) => f.media === 'image' && f.tasks['text-to-image'])
+  const thumbFamilyId = category.thumbnailFamily ?? 'local/z-image-turbo'
+  const thumbFamily = thumbFamilies.find((f) => f.id === thumbFamilyId)
+  const thumbIsApi = thumbFamily ? thumbFamily.provider !== 'comfy' : false
+  /** Lancement à confirmer : tout régénérer, ou des miniatures payantes (modèle API). */
+  const [confirmGenerate, setConfirmGenerate] = useState<'missing' | 'all' | null>(null)
+  const thumbQuote = useQuery({
+    queryKey: ['thumbnail-quote', category.id, thumbFamilyId, confirmGenerate],
+    queryFn: () => libraryApi.quoteThumbnails(category.id, confirmGenerate!).then((r) => r.quote),
+    enabled: confirmGenerate !== null && thumbIsApi,
+    retry: false,
+  })
   const [template, setTemplate] = useState(category.thumbnailTemplate)
   const [phrase, setPhrase] = useState(category.phrase)
   const defaultTemplate = getZone(category.zone).thumbnailTemplate
@@ -611,11 +624,27 @@ function CategoryPanel({
                     ))}
                   </div>
                 )}
+                <Select
+                  value={thumbFamilyId}
+                  onValueChange={(v) => update.mutate({ thumbnailFamily: v === 'local/z-image-turbo' ? null : v })}
+                >
+                  <SelectTrigger size="sm" className="h-7 w-44 text-xs" title="Modèle qui génère les miniatures de cette catégorie">
+                    <SelectValue placeholder="Modèle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {thumbFamilies.map((f) => (
+                      <SelectItem key={f.id} value={f.id} disabled={!f.available}>
+                        {f.label}
+                        {f.provider !== 'comfy' && ' · payant'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" onClick={() => setShowTemplate((v) => !v)}>
                   Gabarit
                 </Button>
                 {ready > 0 && (
-                  <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" disabled={generate.isPending} onClick={() => setConfirmRegenerate(true)}>
+                  <Button variant="ghost" size="sm" className="h-7 text-muted-foreground" disabled={generate.isPending} onClick={() => setConfirmGenerate('all')}>
                     Tout régénérer
                   </Button>
                 )}
@@ -623,8 +652,12 @@ function CategoryPanel({
                   size="sm"
                   className="h-7 gap-1.5"
                   disabled={generate.isPending || ready >= expected}
-                  onClick={() => generate.mutate('missing')}
-                  title="Générées en local par ComfyUI, l'une après l'autre, en basse résolution"
+                  onClick={() => (thumbIsApi ? setConfirmGenerate('missing') : generate.mutate('missing'))}
+                  title={
+                    thumbIsApi
+                      ? `Générées par ${thumbFamily?.label} (SpicyAPI, payant) : le coût s'affiche avant de lancer`
+                      : "Générées en local par ComfyUI, l'une après l'autre, en basse résolution"
+                  }
                 >
                   {generate.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                   {ready >= expected ? 'Miniatures à jour' : `Générer les ${expected - ready} miniatures manquantes`}
@@ -870,15 +903,27 @@ function CategoryPanel({
         onConfirm={() => remove.mutate()}
       />
       <ConfirmDialog
-        open={confirmRegenerate}
-        onOpenChange={setConfirmRegenerate}
-        title={`Régénérer les ${expected} miniatures ?`}
-        description={`Les ${ready} miniatures existantes seront remplacées (en local, environ ${formatDuration((avgMs ?? 11_000) * expected)}). Pour une seule miniature ratée, utilise plutôt « Régénérer » sur sa carte.`}
-        confirmLabel="Tout régénérer"
-        pending={generate.isPending}
+        open={confirmGenerate !== null}
+        onOpenChange={(open) => !open && setConfirmGenerate(null)}
+        title={confirmGenerate === 'all' ? `Régénérer les ${expected} miniatures ?` : `Générer les ${expected - ready} miniatures manquantes ?`}
+        description={
+          (confirmGenerate === 'all'
+            ? `Les ${ready} miniatures existantes seront remplacées. Pour une seule miniature ratée, utilise plutôt « Régénérer » sur sa carte. `
+            : '') +
+          (!thumbIsApi
+            ? `En local avec ${thumbFamily?.label ?? 'Z-Image'}, environ ${formatDuration((avgMs ?? 11_000) * (confirmGenerate === 'all' ? expected : expected - ready))}.`
+            : thumbQuote.isLoading
+              ? 'Calcul du coût…'
+              : thumbQuote.data
+                ? `Avec ${thumbFamily?.label} (SpicyAPI) : ${thumbQuote.data.count} miniature(s) ≈ ${formatUsd(thumbQuote.data.totalCost)} (${formatUsd(thumbQuote.data.unitCost)} chacune), facturées sur ton solde.`
+                : `Coût indisponible : ${(thumbQuote.error as Error | null)?.message ?? 'erreur'}.`)
+        }
+        confirmLabel={confirmGenerate === 'all' ? 'Tout régénérer' : 'Générer'}
+        pending={generate.isPending || (thumbIsApi && !thumbQuote.data)}
         onConfirm={() => {
-          setConfirmRegenerate(false)
-          generate.mutate('all')
+          const mode = confirmGenerate!
+          setConfirmGenerate(null)
+          generate.mutate(mode)
         }}
       />
       <ConfirmDialog

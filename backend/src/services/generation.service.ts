@@ -447,15 +447,21 @@ async function submitToComfy(p: Prepared): Promise<string> {
   const upload = async (asset: AssetRow) =>
     uploadImage(await readFile(asset.filePath), `ai-fluence-${asset.id}.${extFor(asset.mime)}`, asset.mime);
 
-  let image: string | undefined;
-  const ref = typeof p.input.image_url === 'string' ? p.input.image_url : null;
-  if (endpoint.slots.image && ref) {
+  // Images d'entrée : l'image de départ (`image_url`) ou les références (`image_urls`), dans l'ordre.
+  const refs = [
+    ...(typeof p.input.image_url === 'string' ? [p.input.image_url] : []),
+    ...(Array.isArray(p.input.image_urls) ? p.input.image_urls.filter((r): r is string => typeof r === 'string') : []),
+  ];
+  const inputs = refs.map(ref => {
     const asset = p.references.find(a => localAssetRef(a) === ref);
-    if (!asset) throw new Error('Image de départ introuvable.');
-    image = await upload(asset);
-  }
+    if (!asset) throw new Error('Image d’entrée introuvable.');
+    return asset;
+  });
+  const images = await Promise.all(inputs.map(upload));
+  const imageSizes = inputs.map(a => (a.width && a.height ? { width: a.width, height: a.height } : null));
+  const image = endpoint.slots.image ? images[0] : undefined;
   const face = p.face ? await upload(p.face) : undefined;
-  return queuePrompt(buildGraph(endpoint, p.input, { image, face }));
+  return queuePrompt(await buildGraph(endpoint, p.input, { image, face, images, imageSizes }));
 }
 
 /** Largeur et hauteur lues dans l'en-tête PNG (ComfyUI enregistre en PNG). */

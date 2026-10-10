@@ -7,14 +7,14 @@
  *
  * AJOUTER UN WORKFLOW = déposer son JSON, déclarer ici ses paramètres et ses nœuds,
  * et ajouter la famille dans `LOCAL_FAMILIES` (shared/src/models.ts).
+ * Un workflow dont la forme varie (nombre d'images de référence) est construit en code (`build`, cf. comfy-builders.ts).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LOCAL_FAMILIES, type CatalogFamily, type InputSchema, type TaskKind } from '@ai-fluence/shared';
 import { env } from '../env.js';
 import { getNodeOptions, hasNodes, isComfyRunning } from './comfy.service.js';
-
-type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
+import { buildKlein, buildQwenEdit, buildWanI2V, type BuildContext, type Graph } from './comfy-builders.js';
 
 /** Entrée d'un nœud du workflow : [id du nœud, nom de l'entrée]. */
 type Slot = [node: string, input: string];
@@ -23,14 +23,25 @@ export interface LocalEndpoint {
   modelId: string;
   task: TaskKind;
   schema: InputSchema;
-  /** Fichier du workflow, relatif à `backend/comfy-workflows/`. */
-  file: string;
+  /** Fichier du workflow, relatif à `backend/comfy-workflows/` (sinon `build`). */
+  file?: string;
+  /** Workflow construit en code, avec les images envoyées et les fichiers de modèles résolus. */
+  build?: (values: Record<string, unknown>, ctx: BuildContext) => Graph;
+  /**
+   * Fichiers de modèles nécessaires, par rôle : le premier installé parmi `files` (ordre de préférence),
+   * ou parmi ceux qui correspondent à `match`. Sans eux, le modèle est indisponible.
+   */
+  requires?: Record<string, { loader: string; input: string; files?: string[]; match?: RegExp }>;
   /** Nœud `SaveImage` dont on récupère les images. */
   outputNode: string;
   /** Où écrire chaque valeur de l'`input`. `width`/`height` viennent de `aspect_ratio`. */
   slots: Partial<
     Record<'prompt' | 'negative_prompt' | 'seed' | 'steps' | 'strength' | 'width' | 'height' | 'image' | 'model' | 'precision', Slot>
   >;
+  /** Workflow construit en code qui a besoin d'une largeur et d'une hauteur (déduites des proportions). */
+  sized?: boolean;
+  /** Nombre de pixels visé (taille native du modèle) ; défaut : celui de Z-Image (1,33 Mpx). */
+  pixels?: number;
   /**
    * Paramètre `model` : fichier au choix parmi ceux installés dans ComfyUI (liste lue en direct).
    * `match` filtre les fichiers compatibles avec le workflow.
@@ -121,7 +132,112 @@ const Z_IMAGE_LORA: LocalEndpoint['lora'] = { from: ['66', 0], to: ['69', 'model
 /** Le visage s'applique à l'image décodée (65), avant l'enregistrement (9). */
 const Z_IMAGE_FACE: LocalEndpoint['faceSwap'] = { from: ['65', 0], to: ['9', 'images'] };
 
+// ── FLUX.2 klein 4B, Qwen-Image-Edit-2511, Wan 2.2 (cf. comfy-builders.ts) ──
+
+const SEED = { type: 'integer', minimum: 0, maximum: MAX_SEED } as const;
+
+const KLEIN_FILES: LocalEndpoint['requires'] = {
+  unet: { loader: 'UNETLoader', input: 'unet_name', files: ['flux-2-klein-4b-fp8.safetensors', 'flux-2-klein-4b.safetensors'] },
+  // Le même encodeur Qwen3-4B que Z-Image.
+  encoder: { loader: 'CLIPLoader', input: 'clip_name', files: ['qwen_3_4b_fp8_mixed.safetensors', 'qwen_3_4b.safetensors', 'qwen_3_4b_fp4_flux2.safetensors'] },
+  vae: { loader: 'VAELoader', input: 'vae_name', files: ['flux2-vae.safetensors'] },
+};
+
+const KLEIN_COMMON: InputSchema['properties'] = {
+  prompt: { type: 'string', description: 'Description de l’image. Avec des références : « la femme de l’image 1… ».' },
+  aspect_ratio: { type: 'string', enum: ASPECT_RATIOS, default: '9:16' },
+  steps: { type: 'integer', default: 4, minimum: 1, maximum: 12 },
+  seed: SEED,
+};
+
+const QWEN_EDIT_FILES: LocalEndpoint['requires'] = {
+  unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /qwen[-_]image[-_]edit[-_]2511.*\.gguf$/i },
+  encoder: { loader: 'CLIPLoader', input: 'clip_name', match: /qwen_2\.5_vl_7b/i },
+  vae: { loader: 'VAELoader', input: 'vae_name', files: ['qwen_image_vae.safetensors'] },
+  lightning: { loader: 'LoraLoaderModelOnly', input: 'lora_name', match: /qwen-image-edit-2511-lightning-4steps/i },
+};
+
+const WAN_I2V_FILES: LocalEndpoint['requires'] = {
+  high: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /wan2\.2-i2v-a14b-highnoise.*\.gguf$/i },
+  low: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /wan2\.2-i2v-a14b-lownoise.*\.gguf$/i },
+  loraHigh: { loader: 'LoraLoaderModelOnly', input: 'lora_name', match: /wan2\.2_i2v_lightx2v_4steps_lora.*high_noise/i },
+  loraLow: { loader: 'LoraLoaderModelOnly', input: 'lora_name', match: /wan2\.2_i2v_lightx2v_4steps_lora.*low_noise/i },
+  encoder: { loader: 'CLIPLoader', input: 'clip_name', match: /umt5_xxl/i },
+  vae: { loader: 'VAELoader', input: 'vae_name', files: ['wan_2.1_vae.safetensors'] },
+};
+
 export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpoint>>> = {
+  'local/flux2-klein-4b': {
+    'text-to-image': {
+      modelId: 'local/flux2-klein-4b/text-to-image',
+      task: 'text-to-image',
+      outputNode: '9',
+      schema: { type: 'object', required: ['prompt'], properties: KLEIN_COMMON },
+      slots: {},
+      sized: true,
+      // klein est entraîné autour de 1 Mpx.
+      pixels: 1024 * 1024,
+      requires: KLEIN_FILES,
+      build: (values, ctx) => buildKlein(values, ctx, { width: Number(values.width), height: Number(values.height) }),
+    },
+    'image-to-image': {
+      modelId: 'local/flux2-klein-4b/image-to-image',
+      task: 'image-to-image',
+      outputNode: '9',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: { ...KLEIN_COMMON, image_urls: { type: 'array', items: { type: 'string' }, maxItems: 3 } },
+      },
+      slots: {},
+      sized: true,
+      // klein est entraîné autour de 1 Mpx.
+      pixels: 1024 * 1024,
+      requires: KLEIN_FILES,
+      build: (values, ctx) => buildKlein(values, ctx, { width: Number(values.width), height: Number(values.height) }),
+    },
+  },
+  'local/qwen-image-edit-2511': {
+    'image-to-image': {
+      modelId: 'local/qwen-image-edit-2511/image-to-image',
+      task: 'image-to-image',
+      outputNode: '9',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          prompt: { type: 'string', description: 'La retouche : « la femme de l’image 1 dans la cuisine de l’image 2, en t-shirt gris ».' },
+          image_urls: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+          steps: { type: 'integer', default: 4, minimum: 4, maximum: 8 },
+          seed: SEED,
+        },
+      },
+      slots: {},
+      requires: QWEN_EDIT_FILES,
+      build: buildQwenEdit,
+    },
+  },
+  'local/wan-2.2-i2v': {
+    'image-to-video': {
+      modelId: 'local/wan-2.2-i2v/image-to-video',
+      task: 'image-to-video',
+      outputNode: '9',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          prompt: { type: 'string', description: 'Le mouvement : « elle sourit à la caméra puis prend une tomate ».' },
+          image_url: { type: 'string' },
+          duration_seconds: { type: 'integer', enum: [3, 5], default: 3 },
+          resolution: { type: 'string', enum: ['480p', '720p'], default: '480p', description: '720p : plus net, 2 à 3 fois plus long.' },
+          seed: SEED,
+        },
+      },
+      slots: {},
+      requires: WAN_I2V_FILES,
+      build: buildWanI2V,
+    },
+  },
   'local/z-image-turbo': {
     'text-to-image': {
       modelId: 'local/z-image-turbo/text-to-image',
@@ -169,25 +285,40 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
   },
 };
 
-/** Dimensions multiples de 16 pour un ratio `L:H`, autour de `TARGET_PIXELS`. */
-export function sizeFor(aspectRatio: string): { width: number; height: number } {
+/** Dimensions multiples de 16 pour un ratio `L:H`, autour de `pixels` (1,33 Mpx par défaut). */
+export function sizeFor(aspectRatio: string, pixels = TARGET_PIXELS): { width: number; height: number } {
   const [w, h] = aspectRatio.split(':').map(Number);
   const ratio = w && h ? w / h : 9 / 16;
   const round16 = (n: number) => Math.max(256, Math.round(n / 16) * 16);
-  return { width: round16(Math.sqrt(TARGET_PIXELS * ratio)), height: round16(Math.sqrt(TARGET_PIXELS / ratio)) };
+  return { width: round16(Math.sqrt(pixels * ratio)), height: round16(Math.sqrt(pixels / ratio)) };
+}
+
+/**
+ * Fichiers de modèles retenus pour un endpoint (le premier installé par rôle) et ceux qui manquent.
+ * Lu en direct dans ComfyUI : un fichier ajouté est pris en compte sans redémarrer l'app.
+ */
+export async function resolveRequirements(endpoint: LocalEndpoint): Promise<{ files: Record<string, string>; missing: string[] }> {
+  const files: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const [role, req] of Object.entries(endpoint.requires ?? {})) {
+    const installed = await getNodeOptions(req.loader, req.input).catch(() => [] as string[]);
+    const pick = req.files?.find(f => installed.includes(f)) ?? (req.match ? installed.find(f => req.match!.test(f)) : undefined);
+    if (pick) files[role] = pick;
+    else missing.push(req.files?.[0] ?? `${role} (${req.match})`);
+  }
+  return { files, missing };
 }
 
 /**
  * Remplit le workflow avec l'`input` construit par `buildInput` (prompt, paramètres, seed).
  * `files` : noms des fichiers déjà envoyés dans le dossier `input` de ComfyUI
- * (`image` : image de départ, `face` : visage à appliquer).
+ * (`image` : image de départ, `face` : visage à appliquer, `images` : références, dans l'ordre).
  */
-export function buildGraph(
+export async function buildGraph(
   endpoint: LocalEndpoint,
   input: Record<string, unknown>,
-  files: { image?: string; face?: string } = {},
-): Graph {
-  const graph = JSON.parse(readFileSync(WORKFLOWS_DIR + endpoint.file, 'utf8')) as Graph;
+  files: { image?: string; face?: string; images?: string[]; imageSizes?: ({ width: number; height: number } | null)[] } = {},
+): Promise<Graph> {
   const values: Record<string, unknown> = { ...input, image: files.image };
   const props = endpoint.schema.properties ?? {};
   for (const [key, prop] of Object.entries(props)) {
@@ -195,7 +326,17 @@ export function buildGraph(
   }
   // Taille imposée (miniatures), sinon déduite des proportions.
   const fixedSize = typeof input.width === 'number' && typeof input.height === 'number';
-  if (endpoint.slots.width && endpoint.slots.height && !fixedSize) Object.assign(values, sizeFor(String(values.aspect_ratio ?? '9:16')));
+  const sized = endpoint.sized || (endpoint.slots.width && endpoint.slots.height);
+  if (sized && !fixedSize) Object.assign(values, sizeFor(String(values.aspect_ratio ?? '9:16'), endpoint.pixels));
+
+  if (endpoint.build) {
+    const { files: models, missing } = await resolveRequirements(endpoint);
+    if (missing.length) throw new Error(`Fichiers manquants dans ComfyUI : ${missing.join(', ')}.`);
+    const images = files.images ?? (files.image ? [files.image] : []);
+    return endpoint.build(values, { images, imageSizes: files.imageSizes ?? images.map(() => null), files: models });
+  }
+
+  const graph = JSON.parse(readFileSync(WORKFLOWS_DIR + endpoint.file!, 'utf8')) as Graph;
 
   for (const [key, slot] of Object.entries(endpoint.slots)) {
     const value = values[key];
@@ -287,14 +428,22 @@ export async function getLocalFamilies(): Promise<CatalogFamily[]> {
         const schema = running ? await liveSchema(endpoint, faces).catch(() => endpoint.schema) : endpoint.schema;
         tasks[endpoint.task] = { modelId: endpoint.modelId, schema, startingPrice: null, policyTier: null };
       }
-      const ready = running && Object.keys(tasks).length > 0;
+      // Fichiers de modèles requis : sans eux, le modèle est grisé (ex. Qwen Edit pas encore téléchargé).
+      const missing = running
+        ? [...new Set((await Promise.all(endpoints.map(e => resolveRequirements(e)))).flatMap(r => r.missing))]
+        : [];
+      const ready = running && Object.keys(tasks).length > 0 && missing.length === 0;
       return {
         ...def,
         provider: 'comfy',
         supportsFace: faces && endpoints.some(e => e.faceSwap),
         tasks,
         available: ready,
-        unavailableReason: ready ? null : 'Démarre ComfyUI pour l’utiliser',
+        unavailableReason: ready
+          ? null
+          : !running
+            ? 'Démarre ComfyUI pour l’utiliser'
+            : `Fichiers manquants dans ComfyUI : ${missing.join(', ')}`,
       };
     }),
   );

@@ -22,6 +22,7 @@ import type {
   LibraryOption,
   LibraryThumbnail,
   ThumbnailGender,
+  ThumbnailQuote,
   LoginRequest,
   MastersResponse,
   Persona,
@@ -117,7 +118,7 @@ export const comfyApi = {
 }
 
 type LibraryCategoryInput = Pick<LibraryCategory, 'label'> &
-  Partial<Pick<LibraryCategory, 'key' | 'description' | 'zone' | 'gendered' | 'thumbnailTemplate' | 'phrase' | 'parentId'>>
+  Partial<Pick<LibraryCategory, 'key' | 'description' | 'zone' | 'gendered' | 'thumbnailTemplate' | 'phrase' | 'parentId' | 'thumbnailFamily'>>
 type LibraryOptionInput = Pick<LibraryOption, 'fragment'> & Partial<Pick<LibraryOption, 'label' | 'gender' | 'tags' | 'weight' | 'favorite' | 'hidden'>>
 
 export const libraryApi = {
@@ -147,6 +148,8 @@ export const libraryApi = {
   thumbnails: (categoryId: string) => apiFetch<{ thumbnails: LibraryThumbnail[] }>(`/library/categories/${categoryId}/thumbnails`),
   generateThumbnails: (categoryId: string, mode: 'missing' | 'all') =>
     apiFetch<{ queued: number }>(`/library/categories/${categoryId}/thumbnails`, { method: 'POST', body: { mode } }),
+  quoteThumbnails: (categoryId: string, mode: 'missing' | 'all') =>
+    apiFetch<{ quote: ThumbnailQuote }>(`/library/categories/${categoryId}/thumbnails/quote`, { method: 'POST', body: { mode } }),
   cancelThumbnails: (categoryId: string) =>
     apiFetch<{ cancelled: number }>(`/library/categories/${categoryId}/thumbnails/cancel`, { method: 'POST' }),
   regenerateThumbnail: (optionId: string, gender?: ThumbnailGender) =>

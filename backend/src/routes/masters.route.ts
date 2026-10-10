@@ -158,6 +158,8 @@ export function mastersRoutes(kind: CreatorKind) {
           family: z.string().min(3),
           face: z.boolean().default(false),
           strength: z.number().min(0.3).max(0.95).optional(),
+          /** Modèle à références (klein, Qwen Edit…) : l'image de référence est donnée au modèle comme « image 1 ». */
+          reference: z.boolean().default(false),
           params: z.record(z.string(), z.unknown()).default({}),
         }),
       ),
@@ -165,9 +167,9 @@ export function mastersRoutes(kind: CreatorKind) {
         const user = c.get('user');
         const owner = await loadOwner(kind, user.id, c.req.param('id'));
         if (!owner) return c.json({ error: 'Introuvable.' }, 404);
-        const { axis, count, family, face, strength, params } = c.req.valid('json');
+        const { axis, count, family, face, strength, params, reference } = c.req.valid('json');
         const fromReference = kind === 'place' && strength !== undefined;
-        if ((face || fromReference) && !owner.avatarAssetId) {
+        if ((face || fromReference || reference) && !owner.avatarAssetId) {
           return c.json({ error: 'Pas d’image de référence.' }, 400);
         }
 
@@ -178,6 +180,8 @@ export function mastersRoutes(kind: CreatorKind) {
           : [];
         const subject =
           existing.length || kind === 'place' ? '' : `${owner.gender ? SUBJECT[owner.gender] : 'a person'}, `;
+        // Avec une référence, le prompt la désigne : c'est ce qui garde le visage ou la pièce d'une image à l'autre.
+        const lead = reference ? (kind === 'place' ? 'the same place as in image 1, ' : 'the same person as in image 1, same face and hair, ') : '';
 
         const draws = drawVariants(kind, axis, count);
         const threadId = await masterThread(owner);
@@ -190,14 +194,14 @@ export function mastersRoutes(kind: CreatorKind) {
               personaId: kind === 'character' ? owner.id : null,
               prompt: '',
               params: fromReference ? { ...params, strength } : params,
-              referenceAssetIds: fromReference ? [owner.avatarAssetId!] : [],
+              referenceAssetIds: fromReference || reference ? [owner.avatarAssetId!] : [],
               faceAssetId: kind === 'character' && face ? owner.avatarAssetId : null,
               count,
               traitIds: existing.map(o => o.id),
               contextIds: [],
             },
             i => ({
-              prompt: `${subject}${draws[i].variant.fragment}`,
+              prompt: `${subject}${lead}${draws[i].variant.fragment}`,
               variation: {
                 axis: draws[i].axis,
                 variantId: draws[i].variant.id,
