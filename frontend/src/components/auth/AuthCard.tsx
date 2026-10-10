@@ -84,7 +84,7 @@ export function AuthCard({ mode }: { mode: 'login' | 'signup' }) {
 
         {error && <p className="text-sm text-destructive-foreground">{error}</p>}
 
-        <Button type="submit" disabled={pending} className="w-full bg-[linear-gradient(to_right,#fcfcfc_40%,#b4b4b4)] text-[#0a0a0b] hover:opacity-90">
+        <Button type="submit" variant="primary" disabled={pending} className="w-full bg-[linear-gradient(to_right,#fcfcfc_40%,#b4b4b4)] text-[#0a0a0b] hover:opacity-90">
           {pending ? (
             <Loader2 aria-label="Connexion en cours" className="size-4 animate-spin" strokeWidth={1.5} />
           ) : mode === 'login' ? (

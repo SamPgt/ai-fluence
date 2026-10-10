@@ -298,7 +298,11 @@ function ContextTag({
   onRemove: () => void
 }) {
   return (
-    <span className={cn(TAG, 'group/tag gap-1 px-1.5')} title={context.text}>
+    <span
+      data-testid="context-tag"
+      className={cn(TAG, 'group/tag gap-1 px-1.5')}
+      title={context.text}
+    >
       {/* Croix au survol, à gauche : retire ce contexte. */}
       <button
         type="button"

@@ -46,6 +46,7 @@ import {
 
 import { assetsApi, personasApi, trashApi } from '@/lib/api'
 import { personasQuery, qk } from '@/lib/queries'
+import { composer } from '@/lib/composer-store'
 import { ModelField } from '@/components/composer/ModelField'
 import { cn } from '@/lib/utils'
 import { useUiPref } from '@/components/providers/ui-prefs'
@@ -238,6 +239,8 @@ function PersonaEditor({ persona }: { persona: Persona }) {
   const remove = useMutation({
     mutationFn: () => personasApi.remove(persona.id),
     onSuccess: () => {
+      // Ses fils partent à la corbeille avec lui : leurs brouillons aussi.
+      composer.dropPersonaDrafts(persona.id)
       const refresh = () => {
         queryClient.invalidateQueries({ queryKey: qk.personas })
         queryClient.invalidateQueries({ queryKey: qk.threadsAll })
@@ -357,6 +360,7 @@ function PersonaEditor({ persona }: { persona: Persona }) {
                     value={draft.name}
                     onChange={(e) => set('name', e.target.value)}
                     maxLength={40}
+                    aria-label="Nom du persona"
                   />
                 </div>
                 {/* Couleur de fond des initiales : seulement sans photo. */}
@@ -596,6 +600,14 @@ function PersonaEditor({ persona }: { persona: Persona }) {
   )
 }
 
+// Bouton de souris enfoncé en ce moment (cf. fermeture d'un bloc de contexte).
+let pointerHeld = false
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerdown', () => (pointerHeld = true), true)
+  document.addEventListener('pointerup', () => (pointerHeld = false), true)
+  document.addEventListener('pointercancel', () => (pointerHeld = false), true)
+}
+
 /**
  * Bloc de contexte : en lecture une fois rempli (texte replié, « Voir plus »),
  * en édition pour un bloc vide ou après un clic sur le crayon. Le champ texte
@@ -654,12 +666,21 @@ function ContextBlockEditor({
   return (
     <div
       className="group/block rounded-lg border border-transparent bg-background/60 transition-colors focus-within:border-ring/50"
-      // En quittant le bloc, un texte rempli repasse en lecture.
+      // En quittant le bloc, un texte rempli repasse en lecture. Pendant un clic
+      // (bouton de souris enfoncé), on attend qu'il soit relâché : sinon le bloc
+      // rétrécit sous la souris et le clic visé (Ajouter, Supprimer…) tombe à côté.
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget) && b.text.trim()) {
+        if (e.currentTarget.contains(e.relatedTarget) || !b.text.trim()) return
+        const block = e.currentTarget
+        const close = () => {
+          if (block.contains(document.activeElement)) return
           setEditing(false)
           setExpanded(false)
         }
+        if (!pointerHeld) return close()
+        document.addEventListener('pointerup', () => setTimeout(close, 0), {
+          once: true,
+        })
       }}
     >
       <div className="flex items-center gap-0.5 pr-1.5">

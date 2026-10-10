@@ -74,6 +74,7 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
 
   return (
     <aside
+      data-testid="thread-panel"
       className={cn(
         'shrink-0 overflow-hidden border-r border-border/40 bg-panel transition-[width] duration-200 ease-out',
         collapsed ? 'w-0 border-r-0' : 'w-72',

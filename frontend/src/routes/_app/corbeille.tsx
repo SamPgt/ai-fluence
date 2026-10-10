@@ -277,7 +277,7 @@ function Row({
   onPurge: () => void
 }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
+    <div data-testid="trash-row" className="flex items-center gap-3 px-4 py-3">
       <div className="shrink-0">{media}</div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{title}</div>
@@ -373,6 +373,7 @@ function TypedConfirmDialog({
             <Button
               type="submit"
               disabled={!ok || pending}
+              variant="primary"
               className="bg-red-600 text-white hover:bg-red-500"
             >
               {pending && <Loader2 className="h-4 w-4 animate-spin" />}

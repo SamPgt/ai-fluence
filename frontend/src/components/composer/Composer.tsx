@@ -156,9 +156,14 @@ export function Composer({
     null
 
   // Le modèle choisi est propre à chaque fil (déclaré avant la cascade ci-dessous).
+  // Garde : en développement, React monte deux fois chaque composant ; le
+  // brouillon ne doit être chargé qu'une fois par fil affiché.
+  const enteredFor = useRef<string | null | undefined>(undefined)
   useEffect(() => {
-    composer.enterThread(threadId ?? null)
-  }, [threadId])
+    if (enteredFor.current === (threadId ?? null)) return
+    enteredFor.current = threadId ?? null
+    composer.enterThread(threadId ?? null, personaId)
+  }, [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Jamais sans modèle : si le modèle courant manque ou n'est plus disponible
   // (catalogue pas encore chargé, modèle retiré…), on applique la cascade.
@@ -234,6 +239,12 @@ export function Composer({
   const imageInfo = family
     ? imageInputInfo(family.media, family.tasks, state.refMode)
     : { max: 0, mode: 'none' as const }
+  // Plus d'images que le modèle n'en accepte : envoi bloqué (jamais d'image
+  // ignorée sans que la personne le décide).
+  const extraImages =
+    imageInfo.max > 0
+      ? Math.max(0, state.attachments.length - imageInfo.max)
+      : 0
   // Vidéo : le modèle sait animer une image de départ ET partir de références.
   const canChooseRefMode = Boolean(
     family?.media === 'video' &&
@@ -328,10 +339,20 @@ export function Composer({
   })
 
   const onFiles = async (files: FileList | File[] | null) => {
-    const list = Array.from(files ?? []).filter(
-      (f) => f.type.startsWith('image/') || f.type.startsWith('video/'),
-    )
-    if (!list.length) return
+    const all = Array.from(files ?? [])
+    const isMedia = (f: File) =>
+      f.type.startsWith('image/') || f.type.startsWith('video/')
+    // Ni image ni vidéo : même message que le serveur pour un format refusé.
+    for (const f of all.filter((f) => !isMedia(f))) {
+      toast.error(
+        `${f.name} : Formats acceptés : JPEG, PNG, WebP, GIF, MP4, WebM.`,
+      )
+    }
+    const list = all.filter(isMedia)
+    if (!list.length) {
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
     setUploading((n) => n + list.length)
     for (const f of list) {
       try {
@@ -347,7 +368,7 @@ export function Composer({
   }
 
   const send = () => {
-    if (!request || !canQuote || create.isPending) return
+    if (!request || !canQuote || create.isPending || extraImages > 0) return
     if (!quoteIsCurrent || !quote.data) {
       toast.info('Calcul du prix en cours…')
       return
@@ -377,7 +398,12 @@ export function Composer({
     notices.push({ text: (catalogError as Error).message, tone: 'error' })
   if (resolution && !resolution.ok)
     notices.push({ text: resolution.reason, tone: 'warn' })
-  if (quoteIsCurrent && quote.data && quote.data.dropped > 0) {
+  if (extraImages > 0) {
+    notices.push({
+      text: `Trop d'images pour ce modèle (${imageInfo.max} au maximum) : retire-en ${extraImages} pour envoyer.`,
+      tone: 'warn',
+    })
+  } else if (quoteIsCurrent && quote.data && quote.data.dropped > 0) {
     notices.push({
       text: `${quote.data.dropped} fichier(s) ignoré(s) : trop de références pour ce modèle`,
       tone: 'warn',
@@ -423,6 +449,7 @@ export function Composer({
               {state.attachments.map((a, i) => (
                 <div
                   key={a.id}
+                  data-testid="attachment"
                   className="group relative overflow-hidden rounded-xl border border-border/30"
                 >
                   <AssetThumb asset={a} className="h-20 w-20" />
@@ -430,11 +457,12 @@ export function Composer({
                       l'image tel que le prompt peut le citer (« image 2 »), ou le
                       crayon sur l'image à modifier. */}
                   {startEnd && i < 2 ? (
-                    <span className={THUMB_TAG}>
+                    <span data-testid="attachment-tag" className={THUMB_TAG}>
                       {i === 0 ? 'Début' : 'Fin'}
                     </span>
                   ) : a.mediaType === 'image' && !startEnd ? (
                     <span
+                      data-testid="attachment-tag"
                       className={cn(
                         THUMB_TAG,
                         // Crayon : pastille carrée, comme celle d'un numéro.
@@ -664,10 +692,12 @@ export function Composer({
                 onClick={send}
                 disabled={
                   !canQuote ||
+                  extraImages > 0 ||
                   create.isPending ||
                   !quoteIsCurrent ||
                   !quote.data
                 }
+                variant="primary"
                 className="h-9 w-9 rounded-full brand-gradient hover:opacity-90"
                 aria-label={
                   quoteIsCurrent && quote.data

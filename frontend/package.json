@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3070 --strictPort",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev:test": "cross-env VITE_BACKEND_URL=http://localhost:3471 vite dev --port 3071 --strictPort"
   },
   "dependencies": {
     "@ai-fluence/shared": "*",

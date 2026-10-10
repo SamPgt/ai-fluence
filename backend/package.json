@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "dev:test": "cross-env NODE_ENV=test DATABASE_URL=postgresql://localhost:5432/ai-fluence-test API_PORT=3471 CLIENT_URL=http://localhost:3071 DATA_DIR=../.e2e-data APP_SECRET=0000000000000000000000000000000000000000000000000000000000000000 SPICY_FAKE=true CIVITAI_KEY= tsx src/index.ts"
   },
   "engines": {
     "node": ">=22.13"

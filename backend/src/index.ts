@@ -8,6 +8,10 @@ import { resumeWatchers } from './services/generation.service.js';
 import { schedulePurge } from './services/trash.service.js';
 
 async function main() {
+  // Garde-fou : un serveur de test ne parle jamais au vrai SpicyAPI (aucun coût).
+  if (env.NODE_ENV === 'test' && !env.SPICY_FAKE) {
+    throw new Error('Refus : en NODE_ENV=test, SPICY_FAKE doit être actif.');
+  }
   await db.execute(sql`select 1`);
   const dbUrl = new URL(env.DATABASE_URL);
   console.log(`Connecté à PostgreSQL (${dbUrl.pathname.slice(1)}@${dbUrl.hostname})`);

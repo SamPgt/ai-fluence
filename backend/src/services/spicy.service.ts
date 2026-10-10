@@ -12,8 +12,11 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { env } from '../env.js';
 import { requireApiKey } from './settings.service.js';
+import { fakeSpicyClient } from './spicy.fake.js';
 
 export function clientFor(apiKey: string): SpicyClient {
+  // Tests : faux client, sans réseau ni coût.
+  if (env.SPICY_FAKE) return fakeSpicyClient;
   return new SpicyClient({ apiKey, apiBaseUrl: env.SPICY_API_BASE_URL });
 }
 

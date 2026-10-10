@@ -84,11 +84,12 @@ const presetsRoutes = new Hono<AppEnv>()
       }),
     ),
     async c => {
-    const [row] = await db
-      .update(promptPresets)
-      .set(c.req.valid('json'))
-      .where(and(eq(promptPresets.id, c.req.param('id')), eq(promptPresets.userId, c.get('user').id)))
-      .returning();
+    const patch = c.req.valid('json');
+    const owned = and(eq(promptPresets.id, c.req.param('id')), eq(promptPresets.userId, c.get('user').id));
+    // Rien à modifier : le raccourci tel quel (Drizzle refuse une mise à jour vide).
+    const [row] = Object.values(patch).some(v => v !== undefined)
+      ? await db.update(promptPresets).set(patch).where(owned).returning()
+      : await db.select().from(promptPresets).where(owned).limit(1);
     if (!row) return c.json({ error: 'Raccourci introuvable.' }, 404);
     return c.json({ preset: toPreset(row) });
   })

@@ -15,6 +15,8 @@ const envSchema = z.object({
   SPICY_API_BASE_URL: z.string().optional(),
   /** Optionnel : bibliothèque LoRA Civitai (recherche + téléchargements protégés). Ne quitte jamais le backend. */
   CIVITAI_KEY: z.string().optional(),
+  /** Tests uniquement : remplace SpicyAPI par un faux client (cf. services/spicy.fake). */
+  SPICY_FAKE: z.stringbool().default(false),
 });
 
 const parsed = envSchema.parse(process.env);

@@ -26,9 +26,11 @@ import {
   type TaskKind,
 } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
+import { env } from '../env.js';
 import { assets, generations, personas, promptPresets, threads, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
+import { assemblePrompt } from './prompt.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { resolveLoraUrl } from './civitai.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
@@ -148,38 +150,14 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
   // Contexte du persona : toujours envoyé, en lignes étiquetées.
   const blocks = (persona?.contextBlocks ?? []).filter(b => b.text.trim());
 
-  // Prompt structuré par ordre d'importance : la LoRA d'abord (le mot déclencheur
-  // agit mieux en tête), puis la demande, les raccourcis et le contexte général.
-  const oneLine = (t: string) => t.trim().replace(/\s+/g, ' ');
-  const sections: [string, string][] = [
-    ['Lora', triggers.join(', ')],
-    ['Prompt (important)', req.prompt.trim()],
-    // « Éditer » : l'image à modifier est toujours la première envoyée. En anglais,
-    // mieux suivi par les modèles ; jamais affiché dans la bulle (seul finalPrompt la contient).
-    [
-      'Images',
-      req.editAssetId && images[0]?.id === req.editAssetId
-        ? 'Edit image 1: it is the image to modify. Any other images are references only.'
-        : '',
-    ],
-    [
-      'Détails',
-      contexts
-        .filter(c => c.text.trim())
-        .map(c => `${c.label.trim() ? `${c.label.trim()} : ` : ''}${oneLine(c.text)}`)
-        .join('\n'),
-    ],
-    [
-      'Contexte général',
-      blocks.map(b => `- ${b.title.trim() ? `${b.title.trim()} : ` : ''}${oneLine(b.text)}`).join('\n'),
-    ],
-  ];
-  const filled = sections.filter(([, body]) => body);
-  // Prompt seul : on l'envoie tel quel, sans titre.
-  const finalPrompt =
-    filled.length === 1 && filled[0][0] === 'Prompt (important)'
-      ? filled[0][1]
-      : filled.map(([title, body]) => `# ${title}\n${body}`).join('\n\n');
+  const finalPrompt = assemblePrompt({
+    prompt: req.prompt,
+    triggers,
+    contexts,
+    blocks,
+    // « Éditer » : l'image à modifier est toujours la première envoyée.
+    editFirstImage: Boolean(req.editAssetId && images[0]?.id === req.editAssetId),
+  });
 
   const built = buildInput({
     schema: endpoint.schema,
@@ -557,7 +535,8 @@ export async function watchGeneration(generationId: string): Promise<void> {
       .set({ status: 'failed', errorCode: 'timeout', errorMessage: 'Suivi interrompu : la tâche est trop longue.', completedAt: new Date() })
       .where(eq(generations.id, row.id));
   } catch (err) {
-    console.error(`[watch] ${generationId}:`, (err as Error).message);
+    // Pas de bruit dans la sortie des tests (les échecs simulés sont attendus).
+    if (env.NODE_ENV !== 'test') console.error(`[watch] ${generationId}:`, (err as Error).message);
     await db
       .update(generations)
       .set({ status: 'failed', errorCode: 'watch_failed', errorMessage: (err as Error).message, completedAt: new Date() })

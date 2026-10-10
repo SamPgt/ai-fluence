@@ -6,7 +6,9 @@
  * fichiers locaux partent dans la Corbeille du système, jamais effacés d'office.
  */
 import { and, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { unlink } from 'node:fs/promises';
 import trash from 'trash';
+import { env } from '../env.js';
 import type { TrashResponse } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { assets, personas, threads } from '../db/schema.js';
@@ -31,7 +33,8 @@ export async function trashPersona(userId: string, personaId: string): Promise<b
     await tx
       .update(threads)
       .set({ deletedAt: now })
-      .where(and(eq(threads.personaId, personaId), isNull(threads.deletedAt)));
+      // Filtre par utilisateur : jamais les fils d'un autre compte, même rattachés à ce persona.
+      .where(and(eq(threads.userId, userId), eq(threads.personaId, personaId), isNull(threads.deletedAt)));
     return true;
   });
 }
@@ -48,7 +51,7 @@ export async function restorePersona(userId: string, personaId: string): Promise
     await tx
       .update(threads)
       .set({ deletedAt: null })
-      .where(and(eq(threads.personaId, personaId), eq(threads.deletedAt, p.deletedAt)));
+      .where(and(eq(threads.userId, userId), eq(threads.personaId, personaId), eq(threads.deletedAt, p.deletedAt)));
     await tx.update(personas).set({ deletedAt: null }).where(eq(personas.id, personaId));
     return true;
   });
@@ -197,7 +200,10 @@ export async function purge(target: PurgeTarget): Promise<{ personas: number; th
       and(
         or(
           sql`${assets.generationId} in (select g.id from generations g where ${isIn(sql`g.thread_id`, threadIds)})`,
-          isIn(sql`${assets.personaId}`, personaIds),
+          // Médias propres au persona (imports, références, avatar) : pas les résultats
+          // de génération, qui suivent leur fil (un fil déplacé vers un autre persona
+          // garde ses images).
+          and(isIn(sql`${assets.personaId}`, personaIds), isNull(assets.generationId)),
         ),
         sql`not (${assets.isReference} and ${assets.personaId} is not null and ${notIn(sql`${assets.personaId}`, personaIds)})`,
         sql`not exists (select 1 from generations g where g.reference_asset_ids ? ${assets.id}::text and ${notIn(sql`g.thread_id`, threadIds)})`,
@@ -210,7 +216,9 @@ export async function purge(target: PurgeTarget): Promise<{ personas: number; th
   const paths = [...new Set(doomed.map(a => a.filePath))];
   if (paths.length) {
     try {
-      await trash(paths, { glob: false });
+      // Tests : fichiers de test supprimés directement (pas dans la corbeille du Mac).
+      if (env.NODE_ENV === 'test') await Promise.all(paths.map(p => unlink(p).catch(() => {})));
+      else await trash(paths, { glob: false });
       files = paths.length;
     } catch (err) {
       // Fichier déjà absent ou corbeille indisponible : on garde les fichiers, on supprime quand même les entrées.

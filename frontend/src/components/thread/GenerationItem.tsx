@@ -244,32 +244,37 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
 
   return (
     <div className="space-y-3">
-      {/* Demande (côté utilisateur) : la bulle ne contient que les références et le texte,
-          les actions et les infos du modèle sont en dessous, sur le fond. */}
+      {/* Demande (côté utilisateur) : les images sources au-dessus, sur le fond,
+          puis la bulle réservée au texte ; actions et infos du modèle en dessous. */}
       <div className="ml-auto flex w-fit max-w-[85%] flex-col items-end gap-1.5">
-        {(g.references.length > 0 || g.prompt.trim()) && (
-          <div className="space-y-2 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3">
-            {g.references.length > 0 && (
-              <div className="flex flex-wrap justify-end gap-1.5">
-                {g.references.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => setViewing(r)}
-                    className="overflow-hidden rounded-lg"
-                  >
-                    <AssetThumb asset={r} className="h-14 w-14" />
-                  </button>
-                ))}
-              </div>
-            )}
-            {g.prompt.trim() && (
-              <p className="text-[15px] whitespace-pre-wrap">
-                {g.prompt.trim()}
-              </p>
-            )}
+        {g.references.length > 0 && (
+          <div
+            data-testid="request-references"
+            className="flex flex-wrap justify-end gap-1.5"
+          >
+            {g.references.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => setViewing(r)}
+                className="overflow-hidden rounded-xl"
+              >
+                <AssetThumb asset={r} className="h-16 w-16" />
+              </button>
+            ))}
           </div>
         )}
-        <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        {g.prompt.trim() && (
+          <div
+            data-testid="request-bubble"
+            className="rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3"
+          >
+            <p className="text-[15px] whitespace-pre-wrap">{g.prompt.trim()}</p>
+          </div>
+        )}
+        <div
+          data-testid="request-history"
+          className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-muted-foreground"
+        >
           {/* Modifier la demande | modèle, paramètres, puis tags */}
           <div className="flex flex-wrap items-center justify-end gap-1.5 pr-1">
             {!isUpscale && (
@@ -288,7 +293,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                 />
               </>
             )}
-            <span className="flex items-center gap-1.5 font-medium text-foreground/80">
+            <span
+              data-testid="request-model"
+              className="flex items-center gap-1.5 font-medium text-foreground/80"
+            >
               {def?.provider && (
                 <ProviderLogo
                   provider={def.provider}
@@ -323,7 +331,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
         <div className="w-full max-w-[85%] space-y-2">
           {/* Au-dessus du résultat : coût, puis « Série · N images » pour une série. */}
           {(costText || series) && (
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+            <div
+              data-testid="result-cost"
+              className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums"
+            >
               {costText && <span>{costText}</span>}
               {costText && series && (
                 <span

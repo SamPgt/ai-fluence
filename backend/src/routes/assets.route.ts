@@ -22,6 +22,24 @@ import {
 } from '../services/storage.service.js';
 import type { AppEnv } from '../types.js';
 
+const PG_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?([+-]\d{2}(:?\d{2})?|Z)?$/;
+
+/** Curseur de la galerie : date exacte (à la microseconde, en texte Postgres) et id. */
+function encodeCursor(at: string, id: string): string {
+  return Buffer.from(JSON.stringify([at, id])).toString('base64url');
+}
+function decodeCursor(raw: string): { at: string; id: string } | null {
+  try {
+    const [at, id] = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (typeof at !== 'string' || !PG_TIMESTAMP_RE.test(at) || !UUID_RE.test(String(id))) return null;
+    return { at, id };
+  } catch {
+    return null;
+  }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function ownedPersona(userId: string, personaId: string | null | undefined) {
   if (!personaId) return null;
   const [p] = await db
@@ -47,7 +65,10 @@ export const assetsRoutes = new Hono<AppEnv>()
     if (file.size > (mediaType === 'video' ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES)) {
       return c.json({ error: mediaType === 'video' ? 'Vidéo trop lourde (90 Mo max).' : 'Image trop lourde (10 Mo max).' }, 400);
     }
-    const persona = await ownedPersona(user.id, typeof body.personaId === 'string' ? body.personaId : null);
+    const personaId = typeof body.personaId === 'string' && body.personaId ? body.personaId : null;
+    // Un id mal formé ferait planter Postgres : refusé avant.
+    if (personaId && !UUID_RE.test(personaId)) return c.json({ error: 'Persona invalide.' }, 400);
+    const persona = await ownedPersona(user.id, personaId);
     const dir = join(
       mediaDirOf(user, await getSettingsRow(user.id)),
       'references',
@@ -132,7 +153,8 @@ export const assetsRoutes = new Hono<AppEnv>()
       z.object({
         personaId: z.uuid().optional(),
         media: z.enum(['image', 'video']).optional(),
-        before: z.iso.datetime().optional(),
+        /** Curseur opaque renvoyé par la page précédente (`nextBefore`). */
+        before: z.string().max(200).optional(),
       }),
     ),
     async c => {
@@ -146,13 +168,20 @@ export const assetsRoutes = new Hono<AppEnv>()
       ];
       if (q.personaId) where.push(eq(assets.personaId, q.personaId));
       if (q.media) where.push(eq(assets.mediaType, q.media));
-      if (q.before) where.push(lt(assets.createdAt, new Date(q.before)));
+      if (q.before) {
+        const cursor = decodeCursor(q.before);
+        if (!cursor) return c.json({ error: 'Curseur invalide.' }, 400);
+        // (date, id) strictement avant le dernier élément de la page précédente :
+        // aucun saut, même pour des résultats créés dans la même milliseconde.
+        where.push(sql`(${assets.createdAt}, ${assets.id}) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)`);
+      }
       const rows = await db
-        .select()
+        .select({ asset: assets, at: sql<string>`${assets.createdAt}::text` })
         .from(assets)
         .where(and(...where))
-        .orderBy(desc(assets.createdAt))
-        .limit(60);
+        .orderBy(desc(assets.createdAt), desc(assets.id))
+        .limit(60)
+        .then(list => list.map(({ asset, at }) => Object.assign(asset, { cursorAt: at })));
       const genIds = [...new Set(rows.map(r => r.generationId).filter((id): id is string => Boolean(id)))];
       const gens = genIds.length
         ? await db
@@ -163,7 +192,7 @@ export const assetsRoutes = new Hono<AppEnv>()
       const byGen = new Map(gens.map(g => [g.id, g]));
       return c.json({
         items: rows.map(r => ({ asset: toAsset(r), generation: r.generationId ? (byGen.get(r.generationId) ?? null) : null })),
-        nextBefore: rows.length === 60 ? rows[rows.length - 1].createdAt.toISOString() : null,
+        nextBefore: rows.length === 60 ? encodeCursor(rows[rows.length - 1].cursorAt, rows[rows.length - 1].id) : null,
       });
     },
   );
@@ -191,8 +220,10 @@ export const mediaRoutes = new Hono<AppEnv>().use(auth).get('/:id', async c => {
   const range = c.req.header('range');
   const match = range && /bytes=(\d*)-(\d*)/.exec(range);
   if (match) {
-    const start = match[1] ? Number(match[1]) : 0;
-    const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+    // `bytes=-N` : les N derniers octets ; `bytes=N-` : de N à la fin.
+    const suffix = !match[1] && match[2] ? Math.min(Number(match[2]), size) : null;
+    const start = suffix !== null ? size - suffix : match[1] ? Number(match[1]) : 0;
+    const end = suffix !== null ? size - 1 : match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
     if (start >= size || start > end) {
       return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
     }

@@ -493,6 +493,7 @@ function AccountTab() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={60}
+            aria-label="Nom"
           />
           <Button
             variant="outline"

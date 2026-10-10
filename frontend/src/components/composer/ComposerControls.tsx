@@ -2,7 +2,7 @@
  * Contrôles de la barre du composer, sans bordure ni fond (fond au survol) :
  * bascule photo / vidéo, résolution, ratio, et compteurs − valeur + .
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Image as ImageIcon, Minus, Play, Plus } from 'lucide-react'
 import type { MediaKind } from '@ai-fluence/shared'
 
@@ -236,10 +236,17 @@ export function Stepper({
   onChange: (v: number) => void
 }) {
   const [draft, setDraft] = useState<string | null>(null)
+  // Échap : la sortie du champ qui suit ne doit pas enregistrer la saisie.
+  const cancelled = useRef(false)
   useEffect(() => setDraft(null), [value])
   const down = prev(value)
   const up = next(value)
   const commit = () => {
+    if (cancelled.current) {
+      cancelled.current = false
+      setDraft(null)
+      return
+    }
     if (draft === null) return
     const n = Number(draft.replace(/[^\d.-]/g, ''))
     if (Number.isFinite(n) && draft.trim() !== '') onChange(normalize(n))
@@ -276,6 +283,7 @@ export function Stepper({
             ;(e.target as HTMLInputElement).blur()
           }
           if (e.key === 'Escape') {
+            cancelled.current = true
             setDraft(null)
             ;(e.target as HTMLInputElement).blur()
           }

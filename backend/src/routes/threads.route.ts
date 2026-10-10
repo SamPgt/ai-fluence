@@ -4,7 +4,7 @@ import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { SearchResult, ThreadDetailResponse } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { generations, threads } from '../db/schema.js';
+import { personas, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { loadGenerations } from '../services/generation.service.js';
 import { toThread } from '../services/serialize.js';
@@ -20,7 +20,8 @@ const aggregates = {
 
 const threadsRoutes = new Hono<AppEnv>()
   .use(auth)
-  .get('/', zValidator('query', z.object({ personaId: z.string().optional() })), async c => {
+  // `none` = fils sans persona ; sinon un id de persona (un id mal formé ferait planter Postgres).
+  .get('/', zValidator('query', z.object({ personaId: z.union([z.literal('none'), z.uuid()]).optional() })), async c => {
     const { personaId } = c.req.valid('query');
     const where = [eq(threads.userId, c.get('user').id), isNull(threads.deletedAt)];
     if (personaId === 'none') where.push(sql`${threads.personaId} is null`);
@@ -35,27 +36,25 @@ const threadsRoutes = new Hono<AppEnv>()
   })
   .get('/search', zValidator('query', z.object({ q: z.string().trim().min(1).max(200) })), async c => {
     const pattern = `%${c.req.valid('query').q.replace(/[%_]/g, m => `\\${m}`)}%`;
+    // Les 30 fils les plus récents qui correspondent (titre ou un de leurs prompts),
+    // avec le dernier prompt qui correspond.
+    const matchedPrompt = sql<string | null>`(select g.prompt from generations g where g.thread_id = "threads"."id" and g.prompt ilike ${pattern} order by g.created_at desc limit 1)`;
     const rows = await db
-      .selectDistinctOn([threads.id], {
-        threadId: threads.id,
-        threadTitle: threads.title,
-        matchedPrompt: generations.prompt,
-        updatedAt: threads.updatedAt,
-      })
+      .select({ threadId: threads.id, threadTitle: threads.title, matchedPrompt })
       .from(threads)
-      .leftJoin(generations, and(eq(generations.threadId, threads.id), ilike(generations.prompt, pattern)))
       .where(
         and(
           eq(threads.userId, c.get('user').id),
           isNull(threads.deletedAt),
-          or(ilike(threads.title, pattern), ilike(generations.prompt, pattern)),
+          or(
+            ilike(threads.title, pattern),
+            sql`exists (select 1 from generations g where g.thread_id = "threads"."id" and g.prompt ilike ${pattern})`,
+          ),
         ),
       )
-      .orderBy(threads.id)
+      .orderBy(desc(threads.updatedAt))
       .limit(30);
-    const results: SearchResult[] = rows
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-      .map(r => ({ threadId: r.threadId, threadTitle: r.threadTitle, matchedPrompt: r.matchedPrompt }));
+    const results: SearchResult[] = rows;
     return c.json({ results });
   })
   .get('/:id', async c => {
@@ -80,11 +79,22 @@ const threadsRoutes = new Hono<AppEnv>()
       }),
     ),
     async c => {
-      const [row] = await db
-        .update(threads)
-        .set(c.req.valid('json'))
-        .where(and(eq(threads.id, c.req.param('id')), eq(threads.userId, c.get('user').id), isNull(threads.deletedAt)))
-        .returning();
+      const user = c.get('user');
+      const patch = c.req.valid('json');
+      // Le persona doit être à cet utilisateur (et pas à la corbeille).
+      if (patch.personaId) {
+        const [p] = await db
+          .select({ id: personas.id })
+          .from(personas)
+          .where(and(eq(personas.id, patch.personaId), eq(personas.userId, user.id), isNull(personas.deletedAt)))
+          .limit(1);
+        if (!p) return c.json({ error: 'Persona introuvable.' }, 404);
+      }
+      const owned = and(eq(threads.id, c.req.param('id')), eq(threads.userId, user.id), isNull(threads.deletedAt));
+      // Rien à modifier : le fil tel quel (Drizzle refuse une mise à jour vide).
+      const [row] = Object.values(patch).some(v => v !== undefined)
+        ? await db.update(threads).set(patch).where(owned).returning()
+        : await db.select().from(threads).where(owned).limit(1);
       if (!row) return c.json({ error: 'Fil introuvable.' }, 404);
       return c.json({ thread: toThread(row) });
     },

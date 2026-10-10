@@ -98,6 +98,7 @@ function GalleryPage() {
           {items.map(({ asset, generation }) => (
             <div
               key={asset.id}
+              data-testid="gallery-item"
               className="group relative mb-3 break-inside-avoid overflow-hidden rounded-xl border border-border/40"
             >
               <button

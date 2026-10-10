@@ -46,15 +46,29 @@ const contextBlockSchema = z.object({
   text: z.string().max(CONTEXT_BLOCK_MAX).default(''),
 });
 
-const personaSchema = z.object({
+const personaFields = {
   name: z.string().trim().min(1).max(40),
-  color: z.string().regex(/^#[0-9a-f]{6}$/i).default('#8b5cf6'),
-  avatarAssetId: z.uuid().nullable().default(null),
-  contextBlocks: z.array(contextBlockSchema).max(10).default([]),
-  loras: z.array(loraSchema).max(12).default([]),
-  defaultImageFamily: z.string().nullable().default(null),
-  defaultVideoFamily: z.string().nullable().default(null),
+  color: z.string().regex(/^#[0-9a-f]{6}$/i),
+  avatarAssetId: z.uuid().nullable(),
+  contextBlocks: z.array(contextBlockSchema).max(10),
+  loras: z.array(loraSchema).max(12),
+  defaultImageFamily: z.string().nullable(),
+  defaultVideoFamily: z.string().nullable(),
+};
+
+/** Création : valeurs par défaut pour les champs absents. */
+const personaSchema = z.object({
+  ...personaFields,
+  color: personaFields.color.default('#8b5cf6'),
+  avatarAssetId: personaFields.avatarAssetId.default(null),
+  contextBlocks: personaFields.contextBlocks.default([]),
+  loras: personaFields.loras.default([]),
+  defaultImageFamily: personaFields.defaultImageFamily.default(null),
+  defaultVideoFamily: personaFields.defaultVideoFamily.default(null),
 });
+
+/** Modification : seuls les champs envoyés changent (aucune valeur par défaut). */
+const personaUpdateSchema = z.object(personaFields).partial();
 
 /** Garantit un id stable à chaque LoRA et à chaque bloc de contexte. */
 const withIds = <T extends { id?: string }>(items: T[]) => items.map(i => ({ ...i, id: i.id || randomUUID() }));
@@ -98,7 +112,7 @@ const personasRoutes = new Hono<AppEnv>()
       .returning();
     return c.json({ persona: toPersona(row) }, 201);
   })
-  .patch('/:id', zValidator('json', personaSchema.partial()), async c => {
+  .patch('/:id', zValidator('json', personaUpdateSchema), async c => {
     const user = c.get('user');
     const body = c.req.valid('json');
     if (!(await assertAvatar(user.id, body.avatarAssetId))) return c.json({ error: 'Avatar introuvable.' }, 400);

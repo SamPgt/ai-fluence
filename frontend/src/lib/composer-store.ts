@@ -35,6 +35,8 @@ export interface Draft {
    * (un clic par erreur ne laisse rien au retour).
    */
   fromAction: boolean
+  /** Persona du fil : ses brouillons partent avec lui à la corbeille. */
+  personaId: string | null
 }
 
 export interface ComposerState extends Draft {
@@ -64,6 +66,7 @@ const BLANK: Draft = {
   loras: {},
   editAssetId: null,
   fromAction: false,
+  personaId: null,
 }
 
 /**
@@ -94,6 +97,15 @@ function readDrafts(): Record<string, Draft> {
   }
 }
 
+// Brouillons lus une seule fois, à la première action qui en a besoin (sur
+// n'importe quelle page : la corbeille d'un fil peut venir sans composer affiché).
+let hydrated = false
+function withStoredDrafts(s: ComposerState): ComposerState {
+  if (hydrated || typeof window === 'undefined') return s
+  hydrated = true
+  return { ...s, drafts: { ...readDrafts(), ...s.drafts } }
+}
+
 /** Nouveau modèle courant, mémorisé pour son type. */
 function withFamily(s: Draft, family: string): Partial<Draft> {
   const media = getFamily(family)?.media
@@ -115,23 +127,34 @@ export const composerStore = new Store<ComposerState>({
 
 // Brouillons enregistrés dans le navigateur (survivent au rechargement).
 // Un brouillon vide n'est pas gardé : on repartira du générique.
-let persistTimer: ReturnType<typeof setTimeout> | undefined
-composerStore.subscribe(() => {
-  if (typeof window === 'undefined') return
-  clearTimeout(persistTimer)
-  persistTimer = setTimeout(() => {
-    const s = composerStore.state
-    if (!s.threadKey) return
-    const drafts = { ...s.drafts }
+function persistDrafts() {
+  // Jamais avant la lecture : on écraserait les brouillons enregistrés.
+  if (!hydrated) return
+  const s = composerStore.state
+  const drafts = { ...s.drafts }
+  if (s.threadKey) {
     if (isEmptyDraft(s)) delete drafts[s.threadKey]
     else drafts[s.threadKey] = draftOf(s)
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts))
-    } catch {
-      // Stockage indisponible (navigation privée…) : brouillons en mémoire seulement.
-    }
-  }, 300)
-})
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts))
+  } catch {
+    // Stockage indisponible (navigation privée…) : brouillons en mémoire seulement.
+  }
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | undefined
+if (typeof window !== 'undefined') {
+  composerStore.subscribe(() => {
+    clearTimeout(persistTimer)
+    persistTimer = setTimeout(persistDrafts, 300)
+  })
+  // Page quittée ou rechargée juste après une frappe : on enregistre tout de suite.
+  window.addEventListener('pagehide', () => {
+    clearTimeout(persistTimer)
+    persistDrafts()
+  })
+}
 
 export const composer = {
   setFamily: (family: string) =>
@@ -140,13 +163,13 @@ export const composer = {
    * Affiche le brouillon d'un fil (null = nouveau fil). Brouillon vide ou
    * absent : on repart du générique, le composer applique sa cascade de modèle.
    */
-  enterThread: (threadId: string | null) =>
-    composerStore.setState((s) => {
+  enterThread: (threadId: string | null, personaId: string | null = null) =>
+    composerStore.setState((prev) => {
+      const s = withStoredDrafts(prev)
       const key = threadId ?? NEW_THREAD
       if (s.keepOnEnter && s.threadKey === key)
         return { ...s, keepOnEnter: false }
-      // Premier affichage : on lit les brouillons enregistrés.
-      const drafts = s.threadKey ? { ...s.drafts } : readDrafts()
+      const drafts = { ...s.drafts }
       if (s.threadKey) {
         if (isEmptyDraft(s)) delete drafts[s.threadKey]
         else drafts[s.threadKey] = draftOf(s)
@@ -155,6 +178,8 @@ export const composer = {
       return {
         ...s,
         ...(saved && !isEmptyDraft(saved) ? saved : BLANK),
+        // Le nouveau fil n'a qu'un brouillon, quel que soit le persona choisi.
+        personaId: threadId ? personaId : null,
         threadKey: key,
         drafts,
         keepOnEnter: false,
@@ -169,10 +194,22 @@ export const composer = {
     }),
   /** Fil mis à la corbeille : son brouillon part avec lui. */
   dropDraft: (threadId: string) =>
-    composerStore.setState((s) => {
+    composerStore.setState((prev) => {
+      const s = withStoredDrafts(prev)
       const drafts = { ...s.drafts }
       delete drafts[threadId]
       return s.threadKey === threadId
+        ? { ...s, ...BLANK, personaId: s.personaId, drafts }
+        : { ...s, drafts }
+    }),
+  /** Persona mis à la corbeille (avec ses fils) : leurs brouillons partent aussi. */
+  dropPersonaDrafts: (personaId: string) =>
+    composerStore.setState((prev) => {
+      const s = withStoredDrafts(prev)
+      const drafts = Object.fromEntries(
+        Object.entries(s.drafts).filter(([, d]) => d.personaId !== personaId),
+      )
+      return s.personaId === personaId
         ? { ...s, ...BLANK, drafts }
         : { ...s, drafts }
     }),
@@ -188,6 +225,7 @@ export const composer = {
     composerStore.setState((s) => ({
       ...s,
       ...BLANK,
+      personaId: s.personaId,
       ...(family ? withFamily(BLANK, family) : {}),
       attachments: [asset],
       editAssetId: mode === 'edit' ? asset.id : null,

@@ -40,12 +40,44 @@ function ThreadPage() {
     return out
   }, [data?.generations])
 
-  // Défile en bas à l'ouverture et à chaque nouvelle génération.
+  // Défilement : tout en bas à l'ouverture du fil, et on y reste pendant que les
+  // images se chargent (elles agrandissent la page). Si la personne remonte, on
+  // la laisse ; une nouvelle génération ramène en bas, en douceur.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const stick = useRef(true)
+  const shownCount = useRef<{ threadId: string; count: number } | null>(null)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: count > 1 ? 'smooth' : 'auto',
-    })
+    const el = scrollRef.current
+    if (!el || !count) return
+    const opened = shownCount.current?.threadId !== threadId
+    const grew = !opened && count > shownCount.current!.count
+    shownCount.current = { threadId, count }
+    if (opened) {
+      stick.current = true
+      el.scrollTop = el.scrollHeight
+    } else if (grew) {
+      stick.current = true
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [count, threadId])
+  useEffect(() => {
+    const el = scrollRef.current
+    const content = contentRef.current
+    if (!el || !content) return
+    const onScroll = () => {
+      stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    }
+    const observer = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight
+    })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    observer.observe(content)
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      observer.disconnect()
+    }
+  }, [])
 
   return (
     <>
@@ -101,8 +133,15 @@ function ThreadPage() {
         </div>
       </PageHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[810px] space-y-8 px-4 py-6">
+      <div
+        ref={scrollRef}
+        data-testid="thread-scroll"
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        <div
+          ref={contentRef}
+          className="mx-auto max-w-[810px] space-y-8 px-4 py-6"
+        >
           {isLoading && (
             <div className="flex justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

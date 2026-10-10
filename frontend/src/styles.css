@@ -143,6 +143,14 @@ code {
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Barres de défilement : même gris que le menu des modèles (.thin-scrollbar). */
+    scrollbar-color: rgb(255 255 255 / 0.14) transparent;
+  }
+
+  /* App en sombre uniquement : les barres de défilement natives (y compris au
+     survol) suivent le thème sombre au lieu du clair du système. */
+  :root {
+    color-scheme: dark;
   }
 
   body {

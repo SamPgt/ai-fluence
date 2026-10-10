@@ -289,6 +289,7 @@ function SubMenu({
           onOpenChange(false)
           onClickOutside(e.target)
         }}
+        data-testid="model-submenu"
         className="thin-scrollbar max-h-96 w-80 overflow-y-auto rounded-2xl p-0 py-1 pr-1"
       >
         {children}
@@ -400,7 +401,11 @@ export function ModelPicker({
     >
       <PopoverTrigger asChild>
         {trigger ?? (
-          <button type="button" className={cn(BAR_BUTTON, 'pr-1.5')}>
+          <button
+            type="button"
+            data-testid="model-picker"
+            className={cn(BAR_BUTTON, 'pr-1.5')}
+          >
             {current && <ProviderLogo provider={current.provider} size="sm" />}
             <span className="max-w-40 truncate">
               {current?.label ?? TEXT.choose}
@@ -421,6 +426,7 @@ export function ModelPicker({
       </PopoverTrigger>
       <PopoverContent
         ref={contentRef}
+        data-testid="model-menu"
         side="top"
         align={align}
         className="w-80 overflow-hidden rounded-2xl p-0"

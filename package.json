@@ -13,14 +13,25 @@
     "dev": "concurrently -k -n hono,web -c green,blue \"npm --workspace=backend run dev\" \"wait-on -t 90000 http-get://localhost:3470/health && npm --workspace=frontend run dev\"",
     "db:generate": "npm --workspace=backend run db:generate",
     "db:migrate": "npm --workspace=backend run db:migrate",
-    "typecheck": "npm --workspace=shared run typecheck && npm --workspace=backend run typecheck && npm --workspace=frontend run typecheck"
+    "typecheck": "npm --workspace=shared run typecheck && npm --workspace=backend run typecheck && npm --workspace=frontend run typecheck",
+    "test:e2e": "playwright test --grep @core",
+    "test:unit": "vitest run",
+    "test": "npm run test:db && npm run test:unit && npm run test:e2e",
+    "test:db": "(createdb ai-fluence-test 2>/dev/null || true) && cross-env DATABASE_URL=postgresql://localhost:5432/ai-fluence-test?client_min_messages=warning npm --workspace=backend run db:migrate",
+    "dev:test": "concurrently -k -n hono-test,web-test -c green,blue \"npm --workspace=backend run dev:test\" \"wait-on -t 90000 http-get://localhost:3471/health && npm --workspace=frontend run dev:test\"",
+    "test:full": "npm run test:db && npm run test:unit && npm run test:e2e:full",
+    "test:e2e:full": "playwright test"
   },
   "overrides": {
     "vite": "^8.0.13"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "concurrently": "^9.2.1",
-    "wait-on": "^8.0.4",
-    "vite": "^8.0.13"
+    "cross-env": "^10.1.0",
+    "happy-dom": "^20.14.6",
+    "vite": "^8.0.13",
+    "vitest": "^5.0.3",
+    "wait-on": "^8.0.4"
   }
 }

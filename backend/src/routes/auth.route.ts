@@ -78,7 +78,10 @@ const authRoutes = new Hono<AppEnv>()
         .limit(1);
       if (!owned) return c.json({ error: 'Image introuvable.' }, 400);
     }
-    const [row] = await db.update(users).set(body).where(eq(users.id, user.id)).returning();
+    // Rien à modifier : l'utilisateur tel quel (Drizzle refuse une mise à jour vide).
+    const [row] = Object.values(body).some(v => v !== undefined)
+      ? await db.update(users).set(body).where(eq(users.id, user.id)).returning()
+      : await db.select().from(users).where(eq(users.id, user.id)).limit(1);
     return c.json({ user: toUser(row) } satisfies AuthResponse);
   });
 

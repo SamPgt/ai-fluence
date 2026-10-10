@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { Balance, CreditsResponse, Settings } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { generations, userSettings } from '../db/schema.js';
-import { expandHome } from '../env.js';
+import { env, expandHome } from '../env.js';
 import { apiKeyHint, encryptSecret } from '../lib/crypto.js';
 import { auth } from '../middleware/auth.js';
 import { defaultMediaDir, getSettingsRow, mediaDirOf, type SettingsRow } from '../services/settings.service.js';
@@ -51,8 +51,12 @@ const settingsRoutes = new Hono<AppEnv>()
     const patch: Partial<SettingsRow> = { updatedAt: new Date() };
     if (body.mediaDir !== undefined) {
       if (body.mediaDir) {
-        const dir = expandHome(body.mediaDir);
-        if (!isAbsolute(dir)) return c.json({ error: 'Le dossier doit être un chemin absolu.' }, 400);
+        // Vérifié avant de compléter `~` : expandHome rend tout chemin absolu.
+        const raw = body.mediaDir.trim();
+        if (raw !== '~' && !raw.startsWith('~/') && !isAbsolute(raw)) {
+          return c.json({ error: 'Le dossier doit être un chemin absolu.' }, 400);
+        }
+        const dir = expandHome(raw);
         try {
           await mkdir(dir, { recursive: true });
         } catch {
@@ -94,8 +98,8 @@ const settingsRoutes = new Hono<AppEnv>()
     const user = c.get('user');
     const dir = mediaDirOf(user, await getSettingsRow(user.id));
     await mkdir(dir, { recursive: true });
-    // Outil local : ouvre le dossier dans le Finder.
-    execFile('open', [dir]);
+    // Outil local : ouvre le dossier dans le Finder (jamais pendant les tests).
+    if (env.NODE_ENV !== 'test') execFile('open', [dir]);
     return c.json({ ok: true });
   })
   .get('/balance', async c => {
