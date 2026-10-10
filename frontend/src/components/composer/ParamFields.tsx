@@ -5,6 +5,7 @@
 import { RotateCcw, SlidersHorizontal } from 'lucide-react'
 import {
   COMPOSER_FIELDS,
+  appDefault,
   type InputSchema,
   type JsonSchemaProp,
 } from '@ai-fluence/shared'
@@ -96,7 +97,10 @@ function asChoices(prop: JsonSchemaProp): JsonSchemaProp {
   if (prop.enum || prop.type !== 'integer') return prop
   const { minimum: min, maximum: max } = prop
   if (min === undefined || max === undefined || max - min > 30) return prop
-  return { ...prop, enum: Array.from({ length: max - min + 1 }, (_, i) => min + i) }
+  return {
+    ...prop,
+    enum: Array.from({ length: max - min + 1 }, (_, i) => min + i),
+  }
 }
 
 export function ParamField({
@@ -107,7 +111,7 @@ export function ParamField({
   compact,
 }: FieldProps) {
   const prop = asChoices(raw)
-  const current = value ?? prop.default
+  const current = value ?? appDefault(name, prop)
 
   if (prop.enum) {
     return (
@@ -208,7 +212,7 @@ export function ParamsPopover({
   )
   // Point « modifié » : seulement les réglages du popover qui diffèrent de leur valeur par défaut.
   const changed = fields.filter(
-    ([k, prop]) => values[k] !== undefined && values[k] !== prop.default,
+    ([k, prop]) => values[k] !== undefined && values[k] !== appDefault(k, prop),
   ).length
 
   return (
@@ -217,7 +221,7 @@ export function ParamsPopover({
         <button
           type="button"
           disabled={!fields.length}
-          className="relative flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background/40 transition-colors hover:bg-accent disabled:opacity-30"
+          className="relative flex h-8 w-8 items-center justify-center rounded-xl text-foreground/80 transition-colors outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 data-[state=open]:bg-accent/60"
           aria-label="Paramètres du modèle"
           title="Paramètres du modèle"
         >

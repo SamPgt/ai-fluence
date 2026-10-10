@@ -24,6 +24,31 @@ export type TaskKind =
   | 'reference-to-video'
   | 'upscale';
 
+/** Fournisseur affiché dans le menu des modèles (logo dans public/providers). */
+export type ProviderId =
+  | 'openai'
+  | 'google'
+  | 'bytedance'
+  | 'alibaba'
+  | 'black-forest-labs'
+  | 'kling'
+  | 'minimax'
+  | 'lightricks'
+  | 'spicyapi';
+
+/** L'ordre des clés est celui du menu des modèles (section Fournisseurs). */
+export const PROVIDERS: Record<ProviderId, { label: string; logo: string | null }> = {
+  openai: { label: 'OpenAI', logo: '/providers/openai.svg' },
+  bytedance: { label: 'ByteDance', logo: '/providers/bytedance.svg' },
+  alibaba: { label: 'Alibaba', logo: '/providers/alibaba.svg' },
+  google: { label: 'Google', logo: '/providers/google.svg' },
+  'black-forest-labs': { label: 'Black Forest Labs', logo: '/providers/black-forest-labs.svg' },
+  kling: { label: 'Kling', logo: '/providers/kling.svg' },
+  minimax: { label: 'MiniMax', logo: '/providers/minimax.svg' },
+  lightricks: { label: 'Lightricks', logo: '/providers/lightricks.svg' },
+  spicyapi: { label: 'SpicyAPI', logo: null },
+};
+
 export interface ModelFamilyDef {
   /** Préfixe des model IDs SpicyAPI, ex. `bytedance/seedream-5.0-pro`. */
   id: string;
@@ -32,6 +57,11 @@ export interface ModelFamilyDef {
   badges: ModelBadge[];
   /** Une phrase courte affichée sous le nom dans le dropdown. */
   hint: string;
+  provider: ProviderId;
+  /** Rang dans la section « Modèles recommandés » du menu (1 = en haut). Absent : pas recommandé. */
+  recommended?: number;
+  /** Groupe « Low cost » du menu. */
+  lowCost?: boolean;
   /**
    * Elo du classement Artificial Analysis (text-to-image pour la photo,
    * text-to-video pour la vidéo). Sert uniquement à trier, jamais affiché.
@@ -47,7 +77,8 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Qwen Image 2512 LoRA',
     media: 'image',
     badges: ['REF', 'LORA'],
-    hint: 'Ta LoRA de personnage, base Qwen-Image-2512',
+    hint: "Pour tes LoRA sur la base Qwen Image.",
+    provider: 'alibaba',
     score: 999, // Elo AA de Qwen Image Max 2512 (modèle le plus proche)
   },
   {
@@ -55,7 +86,8 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Z-Image Turbo LoRA',
     media: 'image',
     badges: ['EDIT', 'LORA'],
-    hint: 'LoRA réaliste et pas chère',
+    hint: "Pour tes LoRA réalistes, très peu cher.",
+    provider: 'alibaba',
     score: 941,
   },
   {
@@ -63,7 +95,8 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'FLUX.1 Dev LoRA',
     media: 'image',
     badges: ['EDIT', 'LORA'],
-    hint: 'LoRA FLUX.1 [dev], base la plus connue',
+    hint: "Pour tes LoRA FLUX.1, la base la plus répandue.",
+    provider: 'black-forest-labs',
     score: 840,
   },
   {
@@ -71,7 +104,9 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Seedream 5.0 Pro',
     media: 'image',
     badges: ['REF', 'PERF'],
-    hint: "Jusqu'à 10 images de référence",
+    hint: "Le meilleur de ByteDance : photos réalistes, fidèles à tes références.",
+    provider: 'bytedance',
+    recommended: 3,
     score: 1081,
   },
   {
@@ -79,7 +114,9 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Seedream 5.0 Flash',
     media: 'image',
     badges: ['REF', 'PERF'],
-    hint: 'Rapide, 2K',
+    hint: "Rapide et économe, très bon rapport qualité-prix.",
+    provider: 'bytedance',
+    lowCost: true,
     score: 1040, // guess score
   },
   {
@@ -87,7 +124,9 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Qwen Image 3.0 Pro',
     media: 'image',
     badges: ['REF', 'PERF'],
-    hint: 'Très bon suivi du prompt',
+    hint: "Le modèle d'Alibaba qui suit le plus fidèlement ta demande.",
+    provider: 'alibaba',
+    recommended: 2,
     score: 1088,
   },
   {
@@ -95,17 +134,52 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'GPT Image 2.5',
     media: 'image',
     badges: ['REF', 'PERF'],
-    hint: "Texte dans l'image, jusqu'à 16 références (filtré)",
+    hint: "Le modèle phare d'OpenAI : très haute qualité, texte lisible dans l'image.",
+    provider: 'openai',
+    recommended: 1,
     score: 1198,
   },
 
+  {
+    id: 'google/nano-banana-pro',
+    label: 'Nano Banana Pro',
+    media: 'image',
+    badges: ['REF', 'PERF'],
+    hint: "Le modèle le plus abouti de Google, pour des photos de très haute qualité.",
+    provider: 'google',
+    recommended: 4,
+    score: 1190, // guess score (sous GPT Image 2.5, n°1 d'Artificial Analysis)
+  },
+
+  {
+    id: 'google/nano-banana-2.1',
+    label: 'Nano Banana 2.1',
+    media: 'image',
+    badges: ['REF'],
+    hint: "Le modèle économe de Google : très bon rapport qualité-prix.",
+    provider: 'google',
+    lowCost: true,
+    score: 1100, // guess score (sur la ligne de Pareto qualité / prix d'Artificial Analysis)
+  },
+
   // ── VIDÉO ────────────────────────────────────────────────
+  {
+    id: 'bytedance/seedance-2.0-mini',
+    label: 'Seedance 2.0 Mini',
+    media: 'video',
+    badges: ['REF'],
+    hint: "Le modèle vidéo le plus économe de ByteDance, avec références.",
+    provider: 'bytedance',
+    lowCost: true,
+    score: 1050, // guess score
+  },
   {
     id: 'minimax/h3-lora',
     label: 'MiniMax H3 LoRA',
     media: 'video',
     badges: ['REF', 'LORA'],
-    hint: 'LoRA vidéo + références, avec audio',
+    hint: "Pour tes LoRA vidéo MiniMax, avec le son.",
+    provider: 'minimax',
     score: 1137, // Elo AA de MiniMax H3 (768p)
   },
   {
@@ -113,7 +187,8 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Wan 2.2 LoRA',
     media: 'video',
     badges: ['LORA'],
-    hint: 'LoRA HIGH/LOW noise',
+    hint: "Pour tes LoRA Wan 2.2 (passes HIGH et LOW).",
+    provider: 'alibaba',
     score: 940, // guess score
   },
   {
@@ -121,7 +196,8 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'LTX 2.3 Spicy LoRA',
     media: 'video',
     badges: ['LORA'],
-    hint: 'Image de départ obligatoire',
+    hint: "Pour tes LoRA LTX, image de départ obligatoire.",
+    provider: 'lightricks',
     score: 892, // Elo AA de LTX-2.3 Pro
   },
   {
@@ -129,7 +205,9 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Seedance 2.5',
     media: 'video',
     badges: ['REF', 'PERF'],
-    hint: "Jusqu'à 30 images de référence",
+    hint: "Le meilleur modèle vidéo de ByteDance, jusqu'à 30 références.",
+    provider: 'bytedance',
+    recommended: 1,
     score: 1143,
   },
   {
@@ -137,7 +215,9 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Wan 3.0',
     media: 'video',
     badges: ['REF', 'PERF'],
-    hint: "Jusqu'à 10 références, avec audio",
+    hint: "Vidéo avec le son, bon rapport qualité-prix.",
+    provider: 'alibaba',
+    recommended: 4,
     score: 1156,
   },
   {
@@ -145,7 +225,9 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Wan 3.0 Prime',
     media: 'video',
     badges: ['REF', 'PERF'],
-    hint: 'Version haut de gamme de Wan 3.0',
+    hint: "La version haut de gamme de Wan, avec le son.",
+    provider: 'alibaba',
+    recommended: 2,
     score: 1165, // guess score
   },
   {
@@ -153,7 +235,8 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'HappyHorse 1.1',
     media: 'video',
     badges: ['REF'],
-    hint: "Jusqu'à 9 images de référence",
+    hint: "Vidéo d'Alibaba, jusqu'à 9 images de référence.",
+    provider: 'alibaba',
     score: 1042,
   },
   {
@@ -161,7 +244,8 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Wan 2.6',
     media: 'video',
     badges: ['REF'],
-    hint: 'Référence = vidéos (pas images)',
+    hint: "Vidéo d'Alibaba, références en vidéo.",
+    provider: 'alibaba',
     score: 1005, // guess score
   },
   {
@@ -169,7 +253,9 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Kling 3.0',
     media: 'video',
     badges: ['PERF'],
-    hint: "Mouvements réalistes, jusqu'en 4K",
+    hint: "Des mouvements très naturels, jusqu'en 4K.",
+    provider: 'kling',
+    recommended: 3,
     score: 1000, // Kling 3.0 1080p (Pro)
   },
 ];
@@ -212,6 +298,7 @@ export const TOOL_FAMILIES: ModelFamilyDef[] = [
     media: 'image',
     badges: [],
     hint: 'Agrandit et affine une image',
+    provider: 'spicyapi',
     score: 0, // outil hors classement
   },
   {
@@ -220,6 +307,7 @@ export const TOOL_FAMILIES: ModelFamilyDef[] = [
     media: 'video',
     badges: [],
     hint: 'Passe une vidéo en haute résolution',
+    provider: 'spicyapi',
     score: 0, // outil hors classement
   },
 ];
@@ -280,6 +368,15 @@ export function deriveBadges(
   }
   return BADGE_ORDER.filter(b => badges.has(b));
 }
+
+/**
+ * Modèle choisi quand rien d'autre ne s'applique (ni persona, ni dernier choix) :
+ * économique exprès, les modèles haut de gamme restent un choix volontaire.
+ */
+export const APP_DEFAULT_FAMILY: Record<MediaKind, string> = {
+  image: 'bytedance/seedream-5.0-flash',
+  video: 'bytedance/seedance-2.0-mini',
+};
 
 export function getFamily(id: string): ModelFamilyDef | undefined {
   return MODEL_FAMILIES.find(f => f.id === id) ?? TOOL_FAMILIES.find(f => f.id === id);

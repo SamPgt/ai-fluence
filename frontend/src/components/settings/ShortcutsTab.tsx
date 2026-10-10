@@ -170,7 +170,7 @@ function ShortcutDialog({
             <Button
               type="submit"
               disabled={!valid || save.isPending}
-              className="brand-gradient hover:opacity-90"
+              variant="outline"
             >
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {shortcut ? 'Enregistrer' : 'Ajouter'}

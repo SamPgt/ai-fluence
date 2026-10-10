@@ -154,6 +154,14 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
   const sections: [string, string][] = [
     ['Lora', triggers.join(', ')],
     ['Prompt (important)', req.prompt.trim()],
+    // « Éditer » : l'image à modifier est toujours la première envoyée. En anglais,
+    // mieux suivi par les modèles ; jamais affiché dans la bulle (seul finalPrompt la contient).
+    [
+      'Images',
+      req.editAssetId && images[0]?.id === req.editAssetId
+        ? 'Edit image 1: it is the image to modify. Any other images are references only.'
+        : '',
+    ],
     [
       'Détails',
       contexts

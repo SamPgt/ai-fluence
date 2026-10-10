@@ -8,6 +8,8 @@ import {
   type CatalogResponse,
   type InputSchema,
 } from '@ai-fluence/shared';
+import { sql } from 'drizzle-orm';
+import { db } from '../db/index.js';
 import { env } from '../env.js';
 import { requireApiKey } from './settings.service.js';
 
@@ -37,8 +39,23 @@ export async function getModels(userId: string): Promise<ApiModel[]> {
   return list.items;
 }
 
+/** Durée médiane (secondes) des 50 dernières générations réussies de chaque modèle. */
+async function typicalDurations(userId: string): Promise<Map<string, number>> {
+  const rows = await db.execute<{ family: string; seconds: number }>(sql`
+    select family, percentile_cont(0.5) within group (order by seconds)::float as seconds
+    from (
+      select family, extract(epoch from (completed_at - created_at)) as seconds,
+             row_number() over (partition by family order by created_at desc) as n
+      from generations
+      where user_id = ${userId} and status = 'succeeded' and completed_at is not null
+    ) last
+    where n <= 50
+    group by family`);
+  return new Map((rows as unknown as { family: string; seconds: number }[]).map(r => [r.family, Math.round(r.seconds)]));
+}
+
 export async function getCatalog(userId: string): Promise<CatalogResponse> {
-  const models = await getModels(userId);
+  const [models, durations] = await Promise.all([getModels(userId), typicalDurations(userId)]);
   const families: CatalogFamily[] = MODEL_FAMILIES.map(def => {
     const tasks: CatalogFamily['tasks'] = {};
     for (const m of models) {
@@ -57,7 +74,13 @@ export async function getCatalog(userId: string): Promise<CatalogResponse> {
     }
     // Badges recalculés depuis les schémas live : toujours justes, même si le catalogue évolue.
     const badges = Object.keys(tasks).length ? deriveBadges(tasks, def.badges) : def.badges;
-    return { ...def, badges, tasks, available: Object.keys(tasks).length > 0 };
+    return {
+      ...def,
+      badges,
+      tasks,
+      available: Object.keys(tasks).length > 0,
+      typicalSeconds: durations.get(def.id) ?? null,
+    };
   });
   const textModels = models.filter(m => m.modality === 'text' && m.enabled).map(m => m.model);
   return { families, textModels };

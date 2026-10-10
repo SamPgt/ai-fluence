@@ -46,13 +46,8 @@ export const userSettings = pgTable('user_settings', {
   /** Clé SpicyAPI chiffrée (AES-256-GCM, cf. lib/crypto). */
   spicyApiKeyEnc: text('spicy_api_key_enc'),
   spicyApiKeyHint: text('spicy_api_key_hint'),
-  /** Clé fal chiffrée : entraînement des LoRA. */
-  falApiKeyEnc: text('fal_api_key_enc'),
-  falApiKeyHint: text('fal_api_key_hint'),
   /** Dossier des médias ; null = dossier par défaut sous DATA_DIR. */
   mediaDir: text('media_dir'),
-  defaultImageFamily: text('default_image_family'),
-  defaultVideoFamily: text('default_video_family'),
   // Modèle rapide (~5 s) : Grok 4.7 réfléchit longtemps (~30 s) pour une simple reformulation.
   enhanceModel: text('enhance_model').notNull().default('deepseek/v4.1-flash/chat'),
   updatedAt: updatedAt(),

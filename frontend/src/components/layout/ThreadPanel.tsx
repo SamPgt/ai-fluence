@@ -4,6 +4,7 @@ import { Plus, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { threadsApi, trashApi } from '@/lib/api'
+import { composer } from '@/lib/composer-store'
 import {
   balanceQuery,
   personasQuery,
@@ -45,6 +46,8 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
   const remove = useMutation({
     mutationFn: (id: string) => threadsApi.remove(id),
     onSuccess: (_, id) => {
+      // Le brouillon du fil part avec lui (un fil restauré n'en a pas).
+      composer.dropDraft(id)
       invalidate()
       queryClient.invalidateQueries({ queryKey: qk.trash })
       if (id === params.threadId) navigate({ to: '/' })

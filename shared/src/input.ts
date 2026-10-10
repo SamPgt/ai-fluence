@@ -50,7 +50,21 @@ export const COMPOSER_FIELDS = new Set([
   'swap_targets',
   // Le nombre d'images passe par le menu 1 / 4 / 8 du composer (séries), jamais par ce champ.
   'num_outputs',
+  // Format imposé (PNG, voir buildInput) et compression inutile : jamais demandés à l'utilisateur.
+  'output_format',
+  'output_quality',
+  // Relance au prix officiel si la tâche échoue : toujours activée, jamais demandée.
+  'official_fallback',
 ]);
+
+/**
+ * Valeur par défaut de l'app pour un paramètre, quand elle diffère de celle du modèle :
+ * qualité « high » quand le modèle la propose. Utilisée par le formulaire et par buildInput.
+ */
+export function appDefault(name: string, prop: JsonSchemaProp): unknown {
+  if (name === 'quality' && prop.enum?.includes('high')) return 'high';
+  return prop.default;
+}
 
 /** Mode d'utilisation des pièces jointes pour la vidéo. */
 export type VideoRefMode = 'start-frame' | 'reference';
@@ -164,6 +178,15 @@ export function buildInput(args: BuildInputArgs): BuiltInput {
   if (props.prompt && args.prompt.trim()) input.prompt = args.prompt.trim();
   // Toujours une image par tâche : SpicyAPI facture à l'image, une série = N tâches.
   if (props.num_outputs) input.num_outputs = 1;
+  // PNG partout où le modèle le propose : sans perte, et les réseaux sociaux recompressent.
+  if (props.output_format?.enum?.includes('png')) input.output_format = 'png';
+  if (props.official_fallback) input.official_fallback = true;
+  // Défauts de l'app (ex. qualité high) quand l'utilisateur n'a rien choisi.
+  for (const [key, prop] of Object.entries(props)) {
+    if (input[key] !== undefined || COMPOSER_FIELDS.has(key)) continue;
+    const def = appDefault(key, prop);
+    if (def !== undefined && def !== prop.default) input[key] = def;
+  }
 
   const images = [...args.images];
   const videos = [...args.videos];

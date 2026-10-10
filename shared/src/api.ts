@@ -3,7 +3,7 @@
  * Les montants sont des chaînes décimales USD (comme SpicyAPI).
  */
 import type { InputSchema, VideoRefMode } from './input';
-import type { MediaKind, ModelBadge, TaskKind } from './models';
+import type { MediaKind, ModelBadge, ProviderId, TaskKind } from './models';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -36,20 +36,13 @@ export interface Settings {
   hasApiKey: boolean;
   /** Ex. `sk-spicy-••••1a2b`. Jamais la clé en clair. */
   apiKeyHint: string | null;
-  /** Clé fal (entraînement des LoRA). */
-  hasFalKey: boolean;
-  falKeyHint: string | null;
   mediaDir: string;
   defaultMediaDir: string;
-  defaultImageFamily: string | null;
-  defaultVideoFamily: string | null;
   enhanceModel: string;
 }
 
 export interface UpdateSettingsRequest {
   mediaDir?: string | null;
-  defaultImageFamily?: string | null;
-  defaultVideoFamily?: string | null;
   enhanceModel?: string;
 }
 
@@ -86,8 +79,13 @@ export interface CatalogFamily {
   media: MediaKind;
   badges: ModelBadge[];
   hint: string;
+  provider: ProviderId;
+  recommended?: number;
+  lowCost?: boolean;
   available: boolean;
   tasks: Partial<Record<TaskKind, CatalogTask>>;
+  /** Durée typique d'une génération (médiane de tes générations réussies), en secondes. */
+  typicalSeconds: number | null;
 }
 
 export interface CatalogResponse {
@@ -310,6 +308,8 @@ export interface GenerationRequest {
   prompt: string;
   params: Record<string, unknown>;
   referenceAssetIds: string[];
+  /** Image à modifier (posée par « Éditer ») : la première image envoyée. Une consigne le précise au modèle. */
+  editAssetId?: string;
   /** Contextes activés : leur texte est ajouté au prompt, dans la section « # Détails ». */
   contextIds?: string[];
   /** LoRA du persona cochées (aucune si absent, 3 max). */

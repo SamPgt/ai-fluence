@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { personasQuery } from '@/lib/queries'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { LogoMark } from '@/components/ui/logo-mark'
 import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
 import { Composer } from '@/components/composer/Composer'
 
@@ -34,12 +35,7 @@ function NewThread() {
             className="mb-4 rounded-2xl"
           />
         ) : (
-          <img
-            src="/logo.svg"
-            alt=""
-            className="mb-4 h-14 w-14 select-none"
-            draggable={false}
-          />
+          <LogoMark className="mb-4 h-14 w-14 select-none" />
         )}
         <h1 className="text-2xl font-semibold">
           {persona ? persona.name : 'Que veux-tu créer ?'}

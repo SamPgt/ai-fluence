@@ -10,10 +10,9 @@ import {
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { MediaKind } from '@ai-fluence/shared'
 
 import { assetsApi, authApi, settingsApi } from '@/lib/api'
-import { catalogQuery, qk, settingsQuery } from '@/lib/queries'
+import { qk, settingsQuery } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { SESSION_QUERY_KEY, sessionQueryOptions } from '@/server/auth'
 import { initials } from '@/components/personas/PersonaAvatar'
@@ -21,26 +20,11 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ModelBadge } from '@/components/ui/model-badge'
 import { ShortcutsTab } from '@/components/settings/ShortcutsTab'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
-const TABS = [
-  'account',
-  'models',
-  'shortcuts',
-  'credits',
-  'storage',
-  'api-key',
-] as const
+const TABS = ['account', 'shortcuts', 'credits', 'storage', 'api-key'] as const
 type Tab = (typeof TABS)[number]
 
 export const Route = createFileRoute('/_app/parametres')({
@@ -90,7 +74,6 @@ function SettingsPage() {
           >
             <TabsList className="w-full justify-start overflow-x-auto">
               <TabsTrigger value="account">Compte</TabsTrigger>
-              <TabsTrigger value="models">Modèles</TabsTrigger>
               <TabsTrigger value="shortcuts">Raccourcis</TabsTrigger>
               <TabsTrigger value="credits">Crédits</TabsTrigger>
               <TabsTrigger value="storage">Stockage</TabsTrigger>
@@ -101,9 +84,6 @@ function SettingsPage() {
             </TabsContent>
             <TabsContent value="storage">
               <StorageTab />
-            </TabsContent>
-            <TabsContent value="models">
-              <ModelsTab />
             </TabsContent>
             <TabsContent value="credits">
               <CreditsTab />
@@ -144,8 +124,6 @@ function ApiKeyTab() {
     queryClient.invalidateQueries({ queryKey: qk.catalog })
     queryClient.invalidateQueries({ queryKey: qk.balance })
   }
-  const refreshSettings = () =>
-    queryClient.invalidateQueries({ queryKey: qk.settings })
 
   return (
     <div className="space-y-5">
@@ -160,18 +138,6 @@ function ApiKeyTab() {
         onSave={settingsApi.setApiKey}
         onRemove={settingsApi.removeApiKey}
         onChanged={refreshSpicy}
-      />
-      <ApiKeySection
-        title="Fal"
-        description="Service d’entraînement de LoRA pour les modèles utilisés."
-        hint={settings?.hasFalKey ? settings.falKeyHint : null}
-        placeholder="Clé fal…"
-        consoleUrl="https://fal.ai/dashboard/keys"
-        consoleLabel="Créer une clé dans le tableau de bord fal"
-        removeDescription="Tu ne pourras plus entraîner de LoRA tant que tu n’as pas ajouté une nouvelle clé."
-        onSave={settingsApi.setFalKey}
-        onRemove={settingsApi.removeFalKey}
-        onChanged={refreshSettings}
       />
       <p className="px-1 text-xs text-muted-foreground">
         Les clés sont vérifiées, puis stockées chiffrées en base. Elles ne
@@ -259,7 +225,11 @@ function ApiKeySection({
               onChange={(e) => setKey(e.target.value)}
               aria-label={`Clé ${title}`}
             />
-            <Button type="submit" disabled={!key.trim() || save.isPending}>
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={!key.trim() || save.isPending}
+            >
               {save.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -310,6 +280,7 @@ function StorageTab() {
           className="font-mono text-xs"
         />
         <Button
+          variant="outline"
           onClick={() => save.mutate(value.trim() || null)}
           disabled={!dir || save.isPending}
         >
@@ -342,101 +313,6 @@ function StorageTab() {
         un fil ne supprime jamais les fichiers.
       </p>
     </Section>
-  )
-}
-
-function FamilySelect({
-  media,
-  value,
-  onChange,
-}: {
-  media: MediaKind
-  value: string | null
-  onChange: (v: string | null) => void
-}) {
-  const { data: catalog } = useQuery(catalogQuery())
-  const families =
-    catalog?.families.filter((f) => f.media === media && f.available) ?? []
-  return (
-    <Select
-      value={value ?? '__none'}
-      onValueChange={(v) => onChange(v === '__none' ? null : v)}
-    >
-      <SelectTrigger className="w-full">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__none">Automatique</SelectItem>
-        {families.map((f) => (
-          <SelectItem key={f.id} value={f.id}>
-            <span className="flex items-center gap-2">
-              {f.label}
-              {f.badges.map((b) => (
-                <ModelBadge key={b} badge={b} />
-              ))}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
-
-function ModelsTab() {
-  const { data: settings } = useQuery(settingsQuery())
-  const { data: catalog } = useQuery(catalogQuery(Boolean(settings?.hasApiKey)))
-  const save = useSettingsMutation(
-    (patch: Parameters<typeof settingsApi.update>[0]) =>
-      settingsApi.update(patch),
-    'Enregistré',
-  )
-  if (!settings) return null
-  return (
-    <div className="space-y-4">
-      <Section
-        title="Modèles par défaut"
-        description="Utilisés quand un persona n’a pas son propre modèle par défaut."
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Photo</Label>
-            <FamilySelect
-              media="image"
-              value={settings.defaultImageFamily}
-              onChange={(v) => save.mutate({ defaultImageFamily: v })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Vidéo</Label>
-            <FamilySelect
-              media="video"
-              value={settings.defaultVideoFamily}
-              onChange={(v) => save.mutate({ defaultVideoFamily: v })}
-            />
-          </div>
-        </div>
-      </Section>
-      <Section
-        title="Reformulation du prompt"
-        description="Modèle texte SpicyAPI utilisé par le bouton « Reformuler »."
-      >
-        <Select
-          value={settings.enhanceModel}
-          onValueChange={(v) => save.mutate({ enhanceModel: v })}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(catalog?.textModels ?? [settings.enhanceModel]).map((m) => (
-              <SelectItem key={m} value={m}>
-                {m}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Section>
-    </div>
   )
 }
 
@@ -619,6 +495,7 @@ function AccountTab() {
             maxLength={60}
           />
           <Button
+            variant="outline"
             onClick={() => update.mutate({ name })}
             disabled={!name.trim() || name === user.name}
           >

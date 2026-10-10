@@ -97,7 +97,7 @@ export function ReferencePicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex h-8 items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-3 text-xs transition-colors hover:bg-accent"
+          className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60"
           title={
             info.mode === 'edit'
               ? `Image à retoucher, depuis les références de ${persona.name}`

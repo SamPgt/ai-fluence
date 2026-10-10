@@ -1,7 +1,8 @@
 import { Fragment, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, X } from 'lucide-react'
+import { Command as CommandPrimitive } from 'cmdk'
+import { Plus, Search, X } from 'lucide-react'
 import {
   MAX_LORAS_PER_GENERATION,
   type MediaKind,
@@ -16,7 +17,6 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
@@ -26,6 +26,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+
+// Même style que le menu des modèles (ModelPicker), qui fait référence :
+// titres de section, lignes arrondies, survol discret, barre de recherche.
+const GROUP =
+  'p-0 [&_[cmdk-group-heading]]:px-3.5 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5 [&_[cmdk-group-heading]]:text-[12px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:select-none [&_[cmdk-group-items]]:flex [&_[cmdk-group-items]]:flex-col [&_[cmdk-group-items]]:gap-1'
+const ITEM =
+  'mx-1 gap-2 rounded-xl p-2 text-[13px] text-foreground data-[selected=true]:bg-white/[0.05] data-[selected=true]:text-foreground'
 
 /** Nombre de tags affichés avant le badge « N+ ». */
 const MAX_VISIBLE = 5
@@ -149,21 +156,33 @@ export function ContextChips({
         </div>
       </PopoverAnchor>
 
-      <PopoverContent side="top" align="start" className="w-72 p-0">
-        <Command>
-          <CommandInput
-            placeholder={
-              loras.length ? 'Rechercher…' : 'Rechercher un raccourci…'
-            }
-            className="text-[13px]"
-          />
-          <CommandList className="max-h-80 pr-1">
-            <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+      <PopoverContent
+        side="top"
+        align="start"
+        className="w-80 overflow-hidden rounded-2xl p-0"
+      >
+        <Command className="rounded-none bg-transparent">
+          <div className="flex h-11 items-center gap-2 border-b border-border/60 pr-2 pl-4">
+            <Search className="size-3.5 shrink-0 text-muted-foreground" />
+            <CommandPrimitive.Input
+              autoFocus
+              placeholder={
+                loras.length
+                  ? 'Rechercher une LoRA ou un raccourci'
+                  : 'Rechercher un raccourci'
+              }
+              className="w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+          {/* Marge à droite : la barre de défilement ne déborde pas sur les lignes. */}
+          <CommandList className="thin-scrollbar max-h-96 pr-1 pb-1.5">
+            <CommandEmpty className="px-4 py-6 text-center text-[12px] text-muted-foreground">
               Aucun résultat.
             </CommandEmpty>
             {loras.length > 0 && (
               <CommandGroup
                 heading={`LoRA · ${activeLoras.length} / ${MAX_LORAS_PER_GENERATION}`}
+                className={GROUP}
               >
                 {loras.map((l) => {
                   const checked = l.id in chosen
@@ -175,7 +194,7 @@ export function ContextChips({
                         value={`lora ${l.id} ${l.label}`}
                         disabled={blocked}
                         onSelect={() => onToggleLora?.(l.id, words.slice(0, 1))}
-                        className="gap-2"
+                        className={ITEM}
                         title={
                           blocked
                             ? `${MAX_LORAS_PER_GENERATION} LoRA maximum par génération`
@@ -201,7 +220,7 @@ export function ContextChips({
                           value={`lora ${l.id} ${l.label} ${w}`}
                           disabled={blocked}
                           onSelect={() => onToggleLoraWord?.(l.id, w)}
-                          className="gap-2 py-1.5 pl-8"
+                          className={cn(ITEM, 'py-1.5 pl-9')}
                         >
                           <CheckMark
                             checked={chosen[l.id]?.includes(w) ?? false}
@@ -218,7 +237,7 @@ export function ContextChips({
                 })}
               </CommandGroup>
             )}
-            <CommandGroup heading="Contexte supplémentaire">
+            <CommandGroup heading="Contexte supplémentaire" className={GROUP}>
               {available.map((c) => {
                 const checked = activeIds.includes(c.id)
                 return (
@@ -226,7 +245,7 @@ export function ContextChips({
                     key={c.id}
                     value={`${c.label} ${c.text}`}
                     onSelect={() => onToggle(c.id)}
-                    className="gap-2"
+                    className={ITEM}
                   >
                     <CheckMark checked={checked} />
                     <span className="min-w-0 flex-1">
@@ -242,7 +261,7 @@ export function ContextChips({
               })}
             </CommandGroup>
           </CommandList>
-          <div className="flex items-center justify-between border-t px-3 py-2 text-[12px] text-muted-foreground">
+          <div className="flex h-10 items-center justify-between border-t border-border/60 px-4 text-[12px] text-muted-foreground">
             <Link
               to="/parametres"
               search={{ tab: 'shortcuts' }}

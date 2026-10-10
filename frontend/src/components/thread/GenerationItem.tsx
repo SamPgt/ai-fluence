@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
+  APP_DEFAULT_FAMILY,
   getFamily,
   type Asset,
   type Generation,
@@ -22,10 +23,9 @@ import {
 
 import { assetsApi } from '@/lib/api'
 import { composer } from '@/lib/composer-store'
-import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
+import { catalogQuery, personasQuery, qk } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { ModelBadge } from '@/components/ui/model-badge'
 import {
   Popover,
   PopoverContent,
@@ -33,13 +33,7 @@ import {
 } from '@/components/ui/popover'
 import { AssetThumb } from '@/components/composer/ReferencePicker'
 import { formatOption } from '@/components/composer/ParamFields'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { ModelPicker, ProviderLogo } from '@/components/composer/ModelPicker'
 import { MediaViewer } from './MediaViewer'
 import { UpscaleDialog } from './UpscaleDialog'
 import { RelaunchDialog } from './RelaunchDialog'
@@ -113,7 +107,6 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     }
   }
   const { data: catalog } = useQuery(catalogQuery())
-  const { data: settings } = useQuery(settingsQuery())
   const { data: personas = [] } = useQuery(personasQuery())
   const persona = personas.find((p) => p.id === g.personaId) ?? null
   const def = getFamily(g.family)
@@ -143,23 +136,26 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
   })
 
   const families = catalog?.families.filter((f) => f.available) ?? []
+  /**
+   * Modèle pour Éditer (image → image) ou Animer (image → vidéo) : le modèle de
+   * cette génération s'il sait faire l'action (éditer = même demande, petite
+   * modification), sinon celui du persona, sinon celui de l'app.
+   */
   const pickFamily = (
     media: 'image' | 'video',
     needs: 'image-to-image' | 'image-to-video',
   ) => {
-    const candidates = [
-      media === 'image'
-        ? persona?.defaultImageFamily
-        : persona?.defaultVideoFamily,
-      media === 'image'
-        ? settings?.defaultImageFamily
-        : settings?.defaultVideoFamily,
-      def?.media === media ? g.family : null,
-    ]
     const ok = (id: string | null | undefined) =>
-      families.find((f) => f.id === id && f.tasks[needs])
+      families.find((f) => f.id === id && f.media === media && f.tasks[needs])
     return (
-      candidates.map(ok).find(Boolean) ??
+      ok(g.family) ??
+      ok(
+        media === 'image'
+          ? persona?.defaultImageFamily
+          : persona?.defaultVideoFamily,
+      ) ??
+      ok(APP_DEFAULT_FAMILY[media]) ??
+      // Filet de sécurité : le modèle de l'app a été retiré du catalogue.
       families.find((f) => f.media === media && f.tasks[needs])
     )?.id
   }
@@ -195,19 +191,19 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       params,
     })
   }
+  // Éditer / Animer : nouvelle intention, le composer repart de zéro avec cette image.
   const edit = (asset: Asset) =>
-    composer.load({
-      family: pickFamily('image', 'image-to-image'),
-      prompt: '',
-      attachments: [asset],
-    })
+    composer.startFromImage(
+      asset,
+      pickFamily('image', 'image-to-image'),
+      'edit',
+    )
   const animate = (asset: Asset) =>
-    composer.load({
-      family: pickFamily('video', 'image-to-video'),
-      prompt: '',
-      attachments: [asset],
-      refMode: 'start-frame',
-    })
+    composer.startFromImage(
+      asset,
+      pickFamily('video', 'image-to-video'),
+      'animate',
+    )
 
   // Actions au survol d'un résultat (image seule ou case d'une série).
   const outputActions = (asset: Asset) => (
@@ -292,12 +288,16 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                 />
               </>
             )}
-            <span className="font-medium text-foreground/80">
+            <span className="flex items-center gap-1.5 font-medium text-foreground/80">
+              {def?.provider && (
+                <ProviderLogo
+                  provider={def.provider}
+                  size="sm"
+                  className="opacity-70"
+                />
+              )}
               {def?.label ?? g.family}
             </span>
-            {def?.badges.map((b) => (
-              <ModelBadge key={b} badge={b} />
-            ))}
             {Object.entries(g.params)
               .filter(([k, v]) => v !== undefined && k !== 'seed')
               .slice(0, 4)
@@ -429,41 +429,21 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                   >
                     <RefreshCw className="h-3 w-3" /> Relancer
                   </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                  {/* Même menu que le composer, limité au type de média de cette génération. */}
+                  <ModelPicker
+                    families={families}
+                    media={def?.media ?? 'image'}
+                    value={g.family}
+                    onChange={(id) => setRelaunch(relaunchRequest(id))}
+                    trigger={
                       <button
                         className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
                         title="Relancer la même demande avec un autre modèle"
                       >
                         <Shuffle className="h-3 w-3" /> Relancer avec…
                       </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-64">
-                      <DropdownMenuLabel className="text-[11px] font-bold text-zinc-300 uppercase">
-                        {def?.media === 'video'
-                          ? 'Modèles vidéo'
-                          : 'Modèles photo'}
-                      </DropdownMenuLabel>
-                      {families
-                        .filter(
-                          (f) => f.media === def?.media && f.id !== g.family,
-                        )
-                        .map((f) => (
-                          <DropdownMenuItem
-                            key={f.id}
-                            onClick={() => setRelaunch(relaunchRequest(f.id))}
-                            className="justify-between"
-                          >
-                            {f.label}
-                            <span className="flex gap-1">
-                              {f.badges.map((b) => (
-                                <ModelBadge key={b} badge={b} />
-                              ))}
-                            </span>
-                          </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    }
+                  />
                 </>
               )}
               {!isUpscale &&

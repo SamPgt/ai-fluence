@@ -22,6 +22,7 @@ const generationSchema = z.object({
   prompt: z.string().max(5000).trim().default(''),
   params: z.record(z.string(), z.unknown()).default({}),
   referenceAssetIds: z.array(z.uuid()).max(30).default([]),
+  editAssetId: z.uuid().optional(),
   contextIds: z.array(z.uuid()).max(20).default([]),
   count: z.number().int().min(1).max(12).optional(),
   loraIds: z.array(z.string().max(64)).max(12).optional(),

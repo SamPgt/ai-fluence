@@ -13,27 +13,20 @@ import { apiKeyHint, encryptSecret } from '../lib/crypto.js';
 import { auth } from '../middleware/auth.js';
 import { defaultMediaDir, getSettingsRow, mediaDirOf, type SettingsRow } from '../services/settings.service.js';
 import { callSpicy, clientFor, clientForUser, invalidateCatalog } from '../services/spicy.service.js';
-import { verifyFalKey } from '../services/fal.service.js';
 import type { AppEnv, SessionUser } from '../types.js';
 
 function toSettings(user: SessionUser, row: SettingsRow): Settings {
   return {
     hasApiKey: Boolean(row.spicyApiKeyEnc),
     apiKeyHint: row.spicyApiKeyHint,
-    hasFalKey: Boolean(row.falApiKeyEnc),
-    falKeyHint: row.falApiKeyHint,
     mediaDir: mediaDirOf(user, row),
     defaultMediaDir: defaultMediaDir(user),
-    defaultImageFamily: row.defaultImageFamily,
-    defaultVideoFamily: row.defaultVideoFamily,
     enhanceModel: row.enhanceModel,
   };
 }
 
 const updateSchema = z.object({
   mediaDir: z.string().trim().max(500).nullable().optional(),
-  defaultImageFamily: z.string().nullable().optional(),
-  defaultVideoFamily: z.string().nullable().optional(),
   enhanceModel: z.string().min(3).optional(),
 });
 
@@ -68,8 +61,6 @@ const settingsRoutes = new Hono<AppEnv>()
         patch.mediaDir = dir;
       } else patch.mediaDir = null;
     }
-    if (body.defaultImageFamily !== undefined) patch.defaultImageFamily = body.defaultImageFamily;
-    if (body.defaultVideoFamily !== undefined) patch.defaultVideoFamily = body.defaultVideoFamily;
     if (body.enhanceModel !== undefined) patch.enhanceModel = body.enhanceModel;
     const [row] = await db.update(userSettings).set(patch).where(eq(userSettings.userId, user.id)).returning();
     return c.json({ settings: toSettings(user, row) });
@@ -97,29 +88,6 @@ const settingsRoutes = new Hono<AppEnv>()
       .where(eq(userSettings.userId, user.id))
       .returning();
     invalidateCatalog(user.id);
-    return c.json({ settings: toSettings(user, row) });
-  })
-  .put('/fal-key', zValidator('json', z.object({ apiKey: z.string().trim().min(10).max(400) })), async c => {
-    const user = c.get('user');
-    const { apiKey } = c.req.valid('json');
-    // On vérifie la clé avant de l'enregistrer (appel gratuit).
-    await verifyFalKey(apiKey);
-    await getSettingsRow(user.id);
-    const [row] = await db
-      .update(userSettings)
-      .set({ falApiKeyEnc: encryptSecret(apiKey), falApiKeyHint: apiKeyHint(apiKey), updatedAt: new Date() })
-      .where(eq(userSettings.userId, user.id))
-      .returning();
-    return c.json({ settings: toSettings(user, row) });
-  })
-  .delete('/fal-key', async c => {
-    const user = c.get('user');
-    await getSettingsRow(user.id);
-    const [row] = await db
-      .update(userSettings)
-      .set({ falApiKeyEnc: null, falApiKeyHint: null, updatedAt: new Date() })
-      .where(eq(userSettings.userId, user.id))
-      .returning();
     return c.json({ settings: toSettings(user, row) });
   })
   .post('/open-media-dir', async c => {

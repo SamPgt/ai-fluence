@@ -6,20 +6,24 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Film, ImagePlus, Info, Loader2, Wand2, X } from 'lucide-react'
+import { ArrowUp, Film, Info, Loader2, Pencil, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
   resolveTask,
   schemaSupportsLoras,
   MAX_LORAS_PER_GENERATION,
+  appDefault,
+  APP_DEFAULT_FAMILY,
   type GenerationRequest,
+  type JsonSchemaProp,
+  type MediaKind,
   type PriceChangedResponse,
   type TaskKind,
 } from '@ai-fluence/shared'
 
-import { ApiError, assetsApi, generationsApi, promptsApi } from '@/lib/api'
-import { composer, composerStore } from '@/lib/composer-store'
+import { ApiError, assetsApi, generationsApi } from '@/lib/api'
+import { composer, composerStore, isEmptyDraft } from '@/lib/composer-store'
 import {
   catalogQuery,
   personasQuery,
@@ -30,23 +34,14 @@ import {
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { ModelPicker } from './ModelPicker'
 import {
-  ParamField,
-  ParamsPopover,
-  QUICK_FIELDS,
-  editableFields,
-  labelOf,
-} from './ParamFields'
+  AspectRatioPicker,
+  MediaSwitch,
+  ResolutionToggle,
+  Stepper,
+} from './ComposerControls'
+import { ParamsPopover } from './ParamFields'
 import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 
@@ -61,6 +56,49 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /** Tailles de série proposées dans le composer. */
 const SERIES_SIZES = [1, 4, 8]
+
+/** Étiquette en bas à gauche d'une vignette jointe (numéro, crayon, Début / Fin). */
+const THUMB_TAG =
+  'absolute bottom-1 left-1 flex h-4 min-w-4 items-center justify-center rounded bg-black/85 px-1 text-[10px] font-medium text-white tabular-nums'
+
+/** Durée vidéo en − valeur + : pas des valeurs proposées par le modèle, saisie bornée. */
+function durationControl(prop: JsonSchemaProp | undefined, raw: unknown) {
+  if (!prop) return null
+  const values = (
+    prop.enum
+      ? prop.enum.map(Number)
+      : prop.type === 'integer' &&
+          prop.minimum !== undefined &&
+          prop.maximum !== undefined
+        ? Array.from(
+            { length: prop.maximum - prop.minimum + 1 },
+            (_, i) => prop.minimum! + i,
+          )
+        : []
+  ).filter(Number.isFinite)
+  if (!values.length) return null
+  const fallback = Number(
+    appDefault('duration_seconds', prop) ??
+      values.find((v) => v > 0) ??
+      values[0],
+  )
+  const value = typeof raw === 'number' && values.includes(raw) ? raw : fallback
+  const i = values.indexOf(value)
+  const real = values.filter((v) => v > 0)
+  return {
+    value,
+    prev: () => (i > 0 ? values[i - 1] : null),
+    next: () => (i >= 0 && i < values.length - 1 ? values[i + 1] : null),
+    // Au-delà du maximum : on prend le maximum ; sinon la valeur proposée la plus proche.
+    normalize: (v: number) => {
+      if (v >= Math.max(...real)) return Math.max(...real)
+      return real.reduce(
+        (best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best),
+        real[0],
+      )
+    },
+  }
+}
 
 interface ComposerProps {
   threadId?: string
@@ -86,33 +124,82 @@ export function Composer({
   const { data: catalog, error: catalogError } = useQuery(
     catalogQuery(Boolean(settings?.hasApiKey)),
   )
-  const { data: personas = [] } = useQuery(personasQuery())
+  const { data: personas = [], status: personasStatus } =
+    useQuery(personasQuery())
   const { data: contexts = [] } = useQuery(presetsQuery())
   const persona = personas.find((p) => p.id === personaId) ?? null
   const families = catalog?.families ?? []
 
-  // Modèle par défaut : dernier du fil > persona > paramètres > premier modèle photo dispo.
+  const personasLoaded = personasStatus === 'success'
+  const usable = (id: string | null | undefined, media: MediaKind) =>
+    id && families.some((f) => f.id === id && f.available && f.media === media)
+      ? id
+      : null
+  // Modèle par défaut, dans l'ordre : dernier modèle du fil > modèle du persona
+  // > dernier choix dans ce fil (type photo / vidéo) > modèle économique de l'app
+  // > premier dispo. Le choix fait dans le fil lui-même est repris en premier
+  // (cf. enterThread), cette cascade ne sert que s'il n'y en a pas.
+  const pickFamily = (
+    media: MediaKind,
+    { memory = true, suggested = true } = {},
+  ) =>
+    (suggested ? usable(suggestedFamily, media) : null) ??
+    usable(
+      media === 'image'
+        ? persona?.defaultImageFamily
+        : persona?.defaultVideoFamily,
+      media,
+    ) ??
+    (memory ? usable(state.familyByMedia[media], media) : null) ??
+    usable(APP_DEFAULT_FAMILY[media], media) ??
+    families.find((f) => f.media === media && f.available)?.id ??
+    null
+
+  // Le modèle choisi est propre à chaque fil (déclaré avant la cascade ci-dessous).
   useEffect(() => {
-    if (
-      !catalog ||
-      (state.family && families.some((f) => f.id === state.family))
-    )
-      return
-    const preferred = [
-      suggestedFamily,
-      persona?.defaultImageFamily,
-      settings?.defaultImageFamily,
-    ].find((id) => id && families.some((f) => f.id === id && f.available))
-    const fallback = families.find((f) => f.media === 'image' && f.available)
-    if (preferred || fallback)
-      composer.setFamily((preferred ?? fallback!.id) as string)
-  }, [catalog, persona?.id, suggestedFamily]) // eslint-disable-line react-hooks/exhaustive-deps
+    composer.enterThread(threadId ?? null)
+  }, [threadId])
+
+  // Jamais sans modèle : si le modèle courant manque ou n'est plus disponible
+  // (catalogue pas encore chargé, modèle retiré…), on applique la cascade.
+  useEffect(() => {
+    if (!catalog || !personasLoaded) return
+    const current = families.find((f) => f.id === state.family)
+    if (current?.available) return
+    const pick = pickFamily(current?.media ?? 'image')
+    if (pick) composer.setFamily(pick)
+  }, [catalog, personasLoaded, state.family]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Changer de persona reprend son modèle par défaut (le choix manuel ne vaut
+  // que pour le persona en cours).
+  const lastPersona = useRef(personaId)
+  useEffect(() => {
+    // Dans un fil, le persona est fixe : seul un nouveau fil change de persona.
+    if (threadId) return
+    if (lastPersona.current === personaId || !catalog || !personasLoaded) return
+    lastPersona.current = personaId
+    // Demande commencée : on garde le modèle choisi avec elle.
+    if (!isEmptyDraft(state)) return
+    const current = families.find((f) => f.id === state.family)
+    const pick = pickFamily(current?.media ?? 'image', {
+      memory: false,
+      suggested: false,
+    })
+    if (pick && pick !== state.family) composer.setFamily(pick)
+  }, [personaId, catalog, personasLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (state.focusTick) textareaRef.current?.focus()
   }, [state.focusTick])
 
   const family = families.find((f) => f.id === state.family)
+  const media: MediaKind = family?.media ?? 'image'
+  // Bascule photo / vidéo : même cascade, pour le nouveau type.
+  const switchMedia = (next: MediaKind) => {
+    if (next === media) return
+    const pick = pickFamily(next, { suggested: false })
+    if (pick) composer.setFamily(pick)
+  }
   const params = (state.family && state.paramsByFamily[state.family]) || {}
   const counts = {
     images: state.attachments.filter((a) => a.mediaType === 'image').length,
@@ -127,6 +214,12 @@ export function Composer({
       )
     : null
   const task = resolution?.ok ? resolution.task : null
+  // Vidéo à partir d'images : les deux premières sont le début et la fin.
+  const startEnd = family?.media === 'video' && task === 'image-to-video'
+  // Numéro d'une image jointe parmi les images (l'ordre d'envoi au modèle).
+  const imageNumber = (i: number) =>
+    state.attachments.slice(0, i + 1).filter((a) => a.mediaType === 'image')
+      .length
   const schema = task ? family?.tasks[task]?.schema : undefined
   const requiresPrompt = schema?.required?.includes('prompt') ?? true
   const supportsLoras = schemaSupportsLoras(schema)
@@ -171,6 +264,11 @@ export function Composer({
         prompt: state.prompt,
         params,
         referenceAssetIds: state.attachments.map((a) => a.id),
+        // Image posée par « Éditer », toujours en position 1.
+        editAssetId:
+          state.editAssetId && state.attachments[0]?.id === state.editAssetId
+            ? state.editAssetId
+            : undefined,
         contextIds: activeContextIds,
         // Séries ×N : photo uniquement.
         count: family.media === 'image' ? state.count : 1,
@@ -212,6 +310,7 @@ export function Composer({
       queryClient.invalidateQueries({ queryKey: qk.threadsAll })
       queryClient.invalidateQueries({ queryKey: qk.thread(thread.id) })
       queryClient.invalidateQueries({ queryKey: qk.balance })
+      if (!threadId) composer.adoptNewThread(thread.id)
       if (!threadId)
         navigate({ to: '/t/$threadId', params: { threadId: thread.id } })
     },
@@ -226,28 +325,6 @@ export function Composer({
       }
       toast.error((err as Error).message)
     },
-  })
-
-  const enhance = useMutation({
-    mutationFn: () =>
-      promptsApi
-        .enhance({
-          prompt: state.prompt,
-          personaId,
-          media: family?.media ?? 'image',
-        })
-        .then((r) => r.prompt),
-    onSuccess: (next) => {
-      const previous = state.prompt
-      composer.setPrompt(next)
-      toast.success('Prompt reformulé', {
-        action: {
-          label: 'Annuler',
-          onClick: () => composer.setPrompt(previous),
-        },
-      })
-    },
-    onError: (e) => toast.error((e as Error).message),
   })
 
   const onFiles = async (files: FileList | File[] | null) => {
@@ -285,10 +362,15 @@ export function Composer({
     }
   }
 
-  // Ordre fixe (ratio, résolution, durée), quel que soit l'ordre du schéma du modèle.
-  const quickFields = editableFields(schema)
-    .filter(([k]) => QUICK_FIELDS.includes(k))
-    .sort(([a], [b]) => QUICK_FIELDS.indexOf(a) - QUICK_FIELDS.indexOf(b))
+  const setParam = (key: string, v: unknown) =>
+    state.family && composer.setParam(state.family, key, v)
+  // Réglages rapides de la barre (les autres restent dans le panneau Paramètres).
+  const resolutionProp = schema?.properties?.resolution
+  const ratioProp = schema?.properties?.aspect_ratio
+  const duration = durationControl(
+    schema?.properties?.duration_seconds,
+    params.duration_seconds,
+  )
   const quoteError = quote.error ? (quote.error as Error).message : null
   const notices: { text: string; tone: 'error' | 'warn' }[] = []
   if (catalogError)
@@ -344,13 +426,33 @@ export function Composer({
                   className="group relative overflow-hidden rounded-xl border border-border/30"
                 >
                   <AssetThumb asset={a} className="h-20 w-20" />
-                  {family?.media === 'video' &&
-                    task === 'image-to-video' &&
-                    i < 2 && (
-                      <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
-                        {i === 0 ? 'Début' : 'Fin'}
-                      </span>
-                    )}
+                  {/* En bas à gauche : Début / Fin (vidéo), sinon le numéro de
+                      l'image tel que le prompt peut le citer (« image 2 »), ou le
+                      crayon sur l'image à modifier. */}
+                  {startEnd && i < 2 ? (
+                    <span className={THUMB_TAG}>
+                      {i === 0 ? 'Début' : 'Fin'}
+                    </span>
+                  ) : a.mediaType === 'image' && !startEnd ? (
+                    <span
+                      className={cn(
+                        THUMB_TAG,
+                        // Crayon : pastille carrée, comme celle d'un numéro.
+                        a.id === state.editAssetId && i === 0 && 'w-4 px-0',
+                      )}
+                      title={
+                        a.id === state.editAssetId
+                          ? 'Image à modifier'
+                          : `Image ${imageNumber(i)}`
+                      }
+                    >
+                      {a.id === state.editAssetId && i === 0 ? (
+                        <Pencil className="size-2" strokeWidth={2.5} />
+                      ) : (
+                        imageNumber(i)
+                      )}
+                    </span>
+                  ) : null}
                   {a.mediaType === 'video' && (
                     <Film className="absolute top-1 left-1 h-3.5 w-3.5 text-white drop-shadow" />
                   )}
@@ -372,26 +474,6 @@ export function Composer({
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </div>
               ))}
-              {/* Compteur réel du modèle : images envoyées / maximum accepté. */}
-              {imageInfo.max > 0 && (
-                <span
-                  className={cn(
-                    'ml-auto self-start text-[11px] tabular-nums',
-                    state.attachments.length > imageInfo.max
-                      ? 'text-amber-300'
-                      : 'text-muted-foreground',
-                  )}
-                  title={
-                    imageInfo.mode === 'edit'
-                      ? 'Ce modèle retouche une seule image'
-                      : imageInfo.mode === 'start-frame'
-                        ? 'Image de début (et de fin si le modèle le permet)'
-                        : 'Images de référence acceptées par ce modèle'
-                  }
-                >
-                  {state.attachments.length} / {imageInfo.max}
-                </span>
-              )}
             </div>
           )}
 
@@ -409,8 +491,8 @@ export function Composer({
             }}
             placeholder={
               family?.media === 'video'
-                ? 'Décris la scène et le mouvement… (glisse une image pour l’animer)'
-                : 'Décris l’image… (glisse des images de référence ici)'
+                ? 'Décris la scène ou ajoute des références'
+                : 'Décris l’image ou ajoute des références'
             }
             className="field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none"
             rows={1}
@@ -428,14 +510,33 @@ export function Composer({
                 className="hidden"
                 onChange={(e) => onFiles(e.target.files)}
               />
+              {/* Ajouter un fichier, avec le compteur d'images du modèle (n / max). */}
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background/40 transition-colors hover:bg-accent"
-                title="Ajouter une image ou une vidéo"
+                className={cn(
+                  'flex h-8 shrink-0 items-center justify-center gap-1 rounded-full text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60',
+                  imageInfo.max > 0 ? 'px-2.5' : 'w-8',
+                )}
+                title={
+                  imageInfo.max > 0
+                    ? `Ajouter des images (${imageInfo.max} au maximum pour ce modèle)`
+                    : 'Ajouter un fichier'
+                }
                 aria-label="Ajouter un fichier"
               >
-                <ImagePlus className="h-3.5 w-3.5" />
+                <Plus className="size-3.5" />
+                {imageInfo.max > 0 && (
+                  <span
+                    className={cn(
+                      'tabular-nums',
+                      state.attachments.length > imageInfo.max &&
+                        'text-amber-300',
+                    )}
+                  >
+                    {state.attachments.length}/{imageInfo.max}
+                  </span>
+                )}
               </button>
               {persona && (
                 <ReferencePicker
@@ -454,7 +555,9 @@ export function Composer({
                   }
                 />
               )}
+              <MediaSwitch value={media} onChange={switchMedia} />
               <ModelPicker
+                media={media}
                 families={families}
                 value={state.family}
                 onChange={composer.setFamily}
@@ -471,43 +574,49 @@ export function Composer({
                     : null
                 }
               />
-              {quickFields.map(([key, prop]) => (
-                <div key={key} title={labelOf(key)}>
-                  <ParamField
-                    name={key}
-                    prop={prop}
-                    value={params[key]}
-                    compact
-                    onChange={(v) =>
-                      state.family && composer.setParam(state.family, key, v)
-                    }
-                  />
-                </div>
-              ))}
-              {/* Série : nombre d'images générées avec cette demande (photo uniquement). */}
-              {family?.media === 'image' && (
-                <Select
-                  value={String(state.count)}
-                  onValueChange={(v) => composer.setCount(Number(v))}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    aria-label="Nombre d'images"
-                    className="h-8 rounded-full border-border/60 bg-background/40 px-3 text-xs text-foreground tabular-nums hover:bg-accent dark:bg-background/40 dark:hover:bg-accent"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>Nombre d’images</SelectLabel>
-                      {SERIES_SIZES.map((n) => (
-                        <SelectItem key={n} value={String(n)}>
-                          {n}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+              {resolutionProp?.enum && (
+                <ResolutionToggle
+                  values={resolutionProp.enum}
+                  value={
+                    params.resolution ??
+                    appDefault('resolution', resolutionProp) ??
+                    resolutionProp.enum[0]
+                  }
+                  onChange={(v) => setParam('resolution', v)}
+                />
+              )}
+              {ratioProp?.enum && (
+                <AspectRatioPicker
+                  values={ratioProp.enum}
+                  value={
+                    params.aspect_ratio ??
+                    appDefault('aspect_ratio', ratioProp) ??
+                    ratioProp.enum[0]
+                  }
+                  onChange={(v) => setParam('aspect_ratio', v)}
+                />
+              )}
+              {duration && (
+                <Stepper
+                  label="Durée"
+                  value={duration.value}
+                  format={(v) => (v === -1 ? 'Auto' : `${v}s`)}
+                  prev={duration.prev}
+                  next={duration.next}
+                  normalize={duration.normalize}
+                  onChange={(v) => setParam('duration_seconds', v)}
+                />
+              )}
+              {/* Série : nombre d'images (photo), un clic passe à x1, x4 puis x8. */}
+              {media === 'image' && (
+                <ResolutionToggle
+                  name="Nombre d'images"
+                  bars={false}
+                  values={SERIES_SIZES}
+                  value={SERIES_SIZES.includes(state.count) ? state.count : 1}
+                  format={(v) => `x${v}`}
+                  onChange={(v) => composer.setCount(v as number)}
+                />
               )}
               <ParamsPopover
                 schema={schema}
@@ -538,24 +647,6 @@ export function Composer({
                   ))}
                 </div>
               )}
-              <button
-                type="button"
-                onClick={() => enhance.mutate()}
-                disabled={
-                  !state.prompt.trim() ||
-                  enhance.isPending ||
-                  !settings?.hasApiKey
-                }
-                className="flex h-8 items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 text-xs transition-colors hover:bg-accent disabled:opacity-30"
-                title="Reformuler ton texte en un prompt plus visuel (le contexte du persona n’est pas modifié)"
-              >
-                {enhance.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Wand2 className="h-3.5 w-3.5" />
-                )}
-                Reformuler
-              </button>
             </div>
 
             {/* Générer : prix à gauche du bouton, sans infobulle. */}
@@ -577,7 +668,7 @@ export function Composer({
                   !quoteIsCurrent ||
                   !quote.data
                 }
-                className="h-9 w-9 rounded-full brand-gradient brand-shadow hover:opacity-90"
+                className="h-9 w-9 rounded-full brand-gradient hover:opacity-90"
                 aria-label={
                   quoteIsCurrent && quote.data
                     ? `Générer pour ${formatUsd(quote.data.estimatedCost)}`

@@ -34,6 +34,7 @@ import {
 import { toast } from 'sonner'
 import {
   CONTEXT_BLOCK_MAX,
+  APP_DEFAULT_FAMILY,
   MODEL_FAMILIES,
   getFamily,
   type Asset,
@@ -44,7 +45,8 @@ import {
 } from '@ai-fluence/shared'
 
 import { assetsApi, personasApi, trashApi } from '@/lib/api'
-import { catalogQuery, personasQuery, qk } from '@/lib/queries'
+import { personasQuery, qk } from '@/lib/queries'
+import { ModelField } from '@/components/composer/ModelField'
 import { cn } from '@/lib/utils'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -54,7 +56,6 @@ import { AssetThumb } from '@/components/composer/ReferencePicker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ModelBadge } from '@/components/ui/model-badge'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ShortcutsTab } from '@/components/settings/ShortcutsTab'
@@ -1171,34 +1172,16 @@ function DefaultFamily({
   value: string | null
   onChange: (v: string | null) => void
 }) {
-  const { data: catalog } = useQuery(catalogQuery())
-  const families =
-    catalog?.families.filter((f) => f.media === media) ??
-    MODEL_FAMILIES.filter((f) => f.media === media)
+  const auto = getFamily(APP_DEFAULT_FAMILY[media])?.label
   return (
     <div className="space-y-1.5">
       <Label>{media === 'image' ? 'Photo' : 'Vidéo'}</Label>
-      <Select
-        value={value ?? '__none'}
-        onValueChange={(v) => onChange(v === '__none' ? null : v)}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__none">Comme les paramètres généraux</SelectItem>
-          {families.map((f) => (
-            <SelectItem key={f.id} value={f.id}>
-              <span className="flex items-center gap-2">
-                {f.label}
-                {f.badges.map((b) => (
-                  <ModelBadge key={b} badge={b} />
-                ))}
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <ModelField
+        media={media}
+        value={value}
+        onChange={onChange}
+        emptyLabel={auto ? `Automatique (${auto})` : 'Automatique'}
+      />
     </div>
   )
 }
@@ -1313,7 +1296,7 @@ function References({ persona }: { persona: Persona }) {
   return (
     <Card
       title="Bibliothèque de références"
-      description="Photos du personnage ou de la DA ajoutables lors de l'écriture des prompts."
+      description="Images de référence du persona à ajouter dans les prompts pour des résultats fidèles."
     >
       <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
         <DndContext

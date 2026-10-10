@@ -94,9 +94,6 @@ export const settingsApi = {
   setApiKey: (apiKey: string) =>
     apiFetch<{ settings: Settings }>('/settings/api-key', { method: 'PUT', body: { apiKey } }),
   removeApiKey: () => apiFetch<{ settings: Settings }>('/settings/api-key', { method: 'DELETE' }),
-  setFalKey: (apiKey: string) =>
-    apiFetch<{ settings: Settings }>('/settings/fal-key', { method: 'PUT', body: { apiKey } }),
-  removeFalKey: () => apiFetch<{ settings: Settings }>('/settings/fal-key', { method: 'DELETE' }),
   openMediaDir: () => apiFetch<{ ok: true }>('/settings/open-media-dir', { method: 'POST' }),
   balance: () => apiFetch<{ balance: Balance | null }>('/settings/balance'),
   credits: () => apiFetch<CreditsResponse>('/settings/credits'),
