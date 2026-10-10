@@ -3,6 +3,7 @@ import { BADGE_INFO, type ModelBadge as Badge } from '@ai-fluence/shared'
 import { cn } from '@/lib/utils'
 
 const CLASS: Record<Badge, string> = {
+  EDIT: 'badge-edit',
   LORA: 'badge-lora',
   REF: 'badge-ref',
   PERF: 'badge-perf',

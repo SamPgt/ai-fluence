@@ -18,6 +18,8 @@ import charactersRoutes from './routes/characters.route.js';
 import { mastersRoutes } from './routes/masters.route.js';
 import placesRoutes from './routes/places.route.js';
 import scenesRoutes from './routes/scenes.route.js';
+import civitaiRoutes from './routes/civitai.route.js';
+import trashRoutes from './routes/trash.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -37,7 +39,7 @@ const app = new Hono<AppEnv>()
     const segments = c.req.path.split('/');
     const idx = segments.findIndex(s => ['media', 'threads', 'generations', 'personas', 'places', 'scenes', 'assets', 'presets'].includes(s));
     const id = idx >= 0 ? segments[idx + 1] : undefined;
-    if (id && !['search', 'references', 'gallery', 'quote', 'upscale'].includes(id) && !UUID_RE.test(id)) {
+    if (id && !['search', 'references', 'gallery', 'quote', 'upscale', 'order'].includes(id) && !UUID_RE.test(id)) {
       return c.json({ error: 'Introuvable.' }, 404);
     }
     await next();
@@ -59,7 +61,9 @@ const app = new Hono<AppEnv>()
   .route('/prompts', promptsRoutes)
   .route('/comfy', comfyRoutes)
   .route('/library', libraryRoutes)
-  .route('/characters', charactersRoutes);
+  .route('/characters', charactersRoutes)
+  .route('/civitai', civitaiRoutes)
+  .route('/trash', trashRoutes);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {

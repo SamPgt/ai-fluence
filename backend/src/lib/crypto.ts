@@ -27,7 +27,7 @@ export function randomToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-/** `sk-spicy-abcdef…1234` → `sk-spicy-••••1234`. */
+/** `sk-spicy-abcdef…1234` → `sk-spicy-••••1234` (autres clés : 4 premiers caractères). */
 export function apiKeyHint(key: string): string {
   const prefix = key.startsWith('sk-spicy-') ? 'sk-spicy-' : key.slice(0, 4);
   return `${prefix}••••${key.slice(-4)}`;

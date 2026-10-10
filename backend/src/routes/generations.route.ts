@@ -33,7 +33,10 @@ const generationSchema = z.object({
     .optional(),
   placeId: z.uuid().nullable().optional(),
   gender: z.enum(['female', 'male']).nullable().optional(),
+  editAssetId: z.uuid().optional(),
   contextIds: z.array(z.uuid()).max(20).default([]),
+  loraIds: z.array(z.string().max(64)).max(12).optional(),
+  loraWords: z.record(z.string().max(64), z.array(z.string().max(60)).max(20)).optional(),
   expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
 });
 

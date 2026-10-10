@@ -138,7 +138,7 @@ export function UpscaleDialog({
             <Button
               onClick={() => create.mutate()}
               disabled={!quote.data || quote.isFetching || create.isPending}
-              className="brand-gradient hover:opacity-90"
+              variant="outline"
             >
               {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageUpscale className="h-4 w-4" />}
               Upscaler

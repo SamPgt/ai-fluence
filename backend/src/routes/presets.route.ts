@@ -4,11 +4,11 @@ import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { PromptPreset } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { promptPresets } from '../db/schema.js';
+import { personas, promptPresets } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
 
-const DEFAULT_PRESETS: Omit<PromptPreset, 'id' | 'position' | 'enabled'>[] = [
+const DEFAULT_PRESETS: Omit<PromptPreset, 'id' | 'position' | 'enabled' | 'personaId'>[] = [
   { label: 'Photo iPhone', text: 'candid iPhone photo, natural daylight, slight grain, realistic skin texture', media: 'image' },
   { label: 'Lumière dorée', text: 'golden hour lighting, warm tones, soft shadows', media: 'all' },
   { label: 'Studio', text: 'studio portrait, softbox lighting, clean background, sharp focus', media: 'image' },
@@ -24,7 +24,15 @@ export async function seedDefaultPresets(userId: string) {
 }
 
 function toPreset(r: typeof promptPresets.$inferSelect): PromptPreset {
-  return { id: r.id, label: r.label, text: r.text, media: r.media, enabled: r.enabled, position: r.position };
+  return {
+    id: r.id,
+    label: r.label,
+    text: r.text,
+    media: r.media,
+    enabled: r.enabled,
+    personaId: r.personaId,
+    position: r.position,
+  };
 }
 
 const presetSchema = z.object({
@@ -32,6 +40,8 @@ const presetSchema = z.object({
   text: z.string().trim().min(1).max(1000),
   media: z.enum(['image', 'video', 'all']).default('all'),
   enabled: z.boolean().default(true),
+  /** Persona propriétaire ; absent ou null = disponible pour tous les personas. */
+  personaId: z.uuid().nullable().default(null),
 });
 
 const presetsRoutes = new Hono<AppEnv>()
@@ -46,6 +56,15 @@ const presetsRoutes = new Hono<AppEnv>()
   })
   .post('/', zValidator('json', presetSchema), async c => {
     const userId = c.get('user').id;
+    const { personaId } = c.req.valid('json');
+    if (personaId) {
+      const [owned] = await db
+        .select({ id: personas.id })
+        .from(personas)
+        .where(and(eq(personas.id, personaId), eq(personas.userId, userId)))
+        .limit(1);
+      if (!owned) return c.json({ error: 'Persona introuvable.' }, 404);
+    }
     const count = await db.$count(promptPresets, eq(promptPresets.userId, userId));
     const [row] = await db
       .insert(promptPresets)

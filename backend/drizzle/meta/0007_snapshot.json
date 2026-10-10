@@ -1,6 +1,6 @@
 {
-  "id": "ddc0cdca-0d9d-456a-ac14-42b638c38d11",
-  "prevId": "5749c1f6-e7cc-467c-9148-fcb23b242c7e",
+  "id": "27f020d5-5a31-44cd-addf-ea325f7857cf",
+  "prevId": "d836b169-4cf7-4232-b6a7-bf67c4fce165",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -296,12 +296,6 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "face_asset_id": {
-          "name": "face_asset_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "loras_applied": {
           "name": "loras_applied",
           "type": "integer",
@@ -325,19 +319,6 @@
         },
         "spicy_task_id": {
           "name": "spicy_task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'spicy'"
-        },
-        "comfy_prompt_id": {
-          "name": "comfy_prompt_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -369,12 +350,6 @@
         },
         "seed": {
           "name": "seed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "duration_ms": {
-          "name": "duration_ms",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -513,13 +488,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'influencer'"
-        },
         "color": {
           "name": "color",
           "type": "text",
@@ -533,33 +501,12 @@
           "primaryKey": false,
           "notNull": false
         },
-        "description": {
-          "name": "description",
-          "type": "text",
+        "context_blocks": {
+          "name": "context_blocks",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "''"
-        },
-        "personality": {
-          "name": "personality",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "prompt_suffix": {
-          "name": "prompt_suffix",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "trigger_word": {
-          "name": "trigger_word",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
+          "default": "'[]'::jsonb"
         },
         "loras": {
           "name": "loras",
@@ -676,6 +623,12 @@
           "notNull": true,
           "default": "'all'"
         },
+        "persona_id": {
+          "name": "persona_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "enabled": {
           "name": "enabled",
           "type": "boolean",
@@ -722,6 +675,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "prompt_presets_persona_id_personas_id_fk": {
+          "name": "prompt_presets_persona_id_personas_id_fk",
+          "tableFrom": "prompt_presets",
+          "tableTo": "personas",
+          "columnsFrom": [
+            "persona_id"
           ],
           "columnsTo": [
             "id"

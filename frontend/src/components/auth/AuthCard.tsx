@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
+import { Loader2 } from 'lucide-react'
 
 import { authApi } from '@/lib/api'
 import { SESSION_QUERY_KEY } from '@/server/auth'
@@ -83,8 +84,14 @@ export function AuthCard({ mode }: { mode: 'login' | 'signup' }) {
 
         {error && <p className="text-sm text-destructive-foreground">{error}</p>}
 
-        <Button type="submit" disabled={pending} className="w-full brand-gradient brand-shadow hover:opacity-90">
-          {pending ? '…' : mode === 'login' ? 'Se connecter' : 'Créer le compte'}
+        <Button type="submit" disabled={pending} className="w-full bg-[linear-gradient(to_right,#fcfcfc_40%,#b4b4b4)] text-[#0a0a0b] hover:opacity-90">
+          {pending ? (
+            <Loader2 aria-label="Connexion en cours" className="size-4 animate-spin" strokeWidth={1.5} />
+          ) : mode === 'login' ? (
+            'Se connecter'
+          ) : (
+            'Créer le compte'
+          )}
         </Button>
 
         <p className="text-center text-sm text-muted-foreground">

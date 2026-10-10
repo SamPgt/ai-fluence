@@ -3,13 +3,30 @@
  * Ajouter un modèle ne demande aucun code ici.
  */
 import { RotateCcw, SlidersHorizontal } from 'lucide-react'
-import { COMPOSER_FIELDS, type InputSchema, type JsonSchemaProp } from '@ai-fluence/shared'
+import {
+  COMPOSER_FIELDS,
+  appDefault,
+  type InputSchema,
+  type JsonSchemaProp,
+} from '@ai-fluence/shared'
 
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -17,7 +34,6 @@ const LABELS: Record<string, string> = {
   aspect_ratio: 'Proportions',
   resolution: 'Résolution',
   duration_seconds: 'Durée',
-  num_outputs: "Nombre d'images",
   output_format: 'Fichier',
   seed: 'Seed',
   generate_audio: "Générer l'audio",
@@ -49,10 +65,12 @@ const LABELS: Record<string, string> = {
 export const QUICK_FIELDS = ['model', 'aspect_ratio', 'resolution', 'duration_seconds']
 
 export function labelOf(key: string): string {
-  return LABELS[key] ?? key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+  return (
+    LABELS[key] ?? key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+  )
 }
 
-function formatOption(key: string, v: unknown): string {
+export function formatOption(key: string, v: unknown): string {
   if (key === 'duration_seconds') return v === -1 ? 'Auto' : `${v} s`
   // Fichiers ComfyUI (modèles, LoRA) : sans l'extension.
   if (key === 'face_restore' && v === 'none') return 'Aucune'
@@ -61,9 +79,14 @@ function formatOption(key: string, v: unknown): string {
   return String(v)
 }
 
-export function editableFields(schema: InputSchema | undefined): [string, JsonSchemaProp][] {
+export function editableFields(
+  schema: InputSchema | undefined,
+): [string, JsonSchemaProp][] {
   return Object.entries(schema?.properties ?? {}).filter(
-    ([key, prop]) => !COMPOSER_FIELDS.has(key) && prop.type !== 'array' && prop.type !== 'object',
+    ([key, prop]) =>
+      !COMPOSER_FIELDS.has(key) &&
+      prop.type !== 'array' &&
+      prop.type !== 'object',
   )
 }
 
@@ -75,27 +98,51 @@ interface FieldProps {
   compact?: boolean
 }
 
-export function ParamField({ name, prop, value, onChange, compact }: FieldProps) {
-  const current = value ?? prop.default
+/**
+ * Entier à petite plage (ex. durée 3 à 10 s) : proposé en menu déroulant,
+ * comme les autres réglages, plutôt qu'en champ numérique à flèches.
+ */
+function asChoices(prop: JsonSchemaProp): JsonSchemaProp {
+  if (prop.enum || prop.type !== 'integer') return prop
+  const { minimum: min, maximum: max } = prop
+  if (min === undefined || max === undefined || max - min > 30) return prop
+  return {
+    ...prop,
+    enum: Array.from({ length: max - min + 1 }, (_, i) => min + i),
+  }
+}
+
+export function ParamField({
+  name,
+  prop: raw,
+  value,
+  onChange,
+  compact,
+}: FieldProps) {
+  const prop = asChoices(raw)
+  const current = value ?? appDefault(name, prop)
 
   if (prop.enum) {
     return (
-      <Select value={current === undefined ? undefined : String(current)} onValueChange={(v) => {
-        const match = prop.enum!.find((o) => String(o) === v)
-        onChange(match)
-      }}>
+      <Select
+        value={current === undefined ? undefined : String(current)}
+        onValueChange={(v) => {
+          const match = prop.enum!.find((o) => String(o) === v)
+          onChange(match)
+        }}
+      >
         <SelectTrigger
           size="sm"
           // Dans la barre, une valeur longue (nom de fichier d'un modèle) est coupée ; complète au survol et dans la liste.
           title={compact && current !== undefined ? `${labelOf(name)} : ${formatOption(name, current)}` : undefined}
           className={cn(
             compact &&
-              'h-8 max-w-36 rounded-full border-border/60 bg-background/40 px-3 text-xs *:data-[slot=select-value]:block *:data-[slot=select-value]:truncate',
+              'h-8 max-w-36 rounded-full border-border/60 bg-background/40 px-3 text-xs text-foreground hover:bg-accent dark:bg-background/40 dark:hover:bg-accent *:data-[slot=select-value]:block *:data-[slot=select-value]:truncate',
           )}
         >
           <SelectValue placeholder={labelOf(name)} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="max-h-[250px]">
           <SelectGroup>
             {/* Dans la barre, le bouton n'affiche que la valeur : le titre dit de quoi il s'agit. */}
             {compact && <SelectLabel>{labelOf(name)}</SelectLabel>}
@@ -111,7 +158,9 @@ export function ParamField({ name, prop, value, onChange, compact }: FieldProps)
   }
 
   if (prop.type === 'boolean') {
-    return <Switch checked={current === true} onCheckedChange={(v) => onChange(v)} />
+    return (
+      <Switch checked={current === true} onCheckedChange={(v) => onChange(v)} />
+    )
   }
 
   if (prop.type === 'integer' || prop.type === 'number') {
@@ -122,9 +171,17 @@ export function ParamField({ name, prop, value, onChange, compact }: FieldProps)
         min={prop.minimum}
         max={prop.maximum}
         step={prop.type === 'integer' ? 1 : 0.05}
-        placeholder={prop.default !== undefined ? String(prop.default) : name === 'seed' ? 'aléatoire' : ''}
+        placeholder={
+          prop.default !== undefined
+            ? String(prop.default)
+            : name === 'seed'
+              ? 'aléatoire'
+              : ''
+        }
         value={value === undefined || value === null ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+        onChange={(e) =>
+          onChange(e.target.value === '' ? undefined : Number(e.target.value))
+        }
       />
     )
   }
@@ -141,7 +198,11 @@ export function ParamField({ name, prop, value, onChange, compact }: FieldProps)
   }
 
   return (
-    <Input className="h-8" value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value || undefined)} />
+    <Input
+      className="h-8"
+      value={(value as string) ?? ''}
+      onChange={(e) => onChange(e.target.value || undefined)}
+    />
   )
 }
 
@@ -157,9 +218,13 @@ export function ParamsPopover({
   onChange: (key: string, v: unknown) => void
   onReset: () => void
 }) {
-  const fields = editableFields(schema).filter(([k]) => !QUICK_FIELDS.includes(k))
+  const fields = editableFields(schema).filter(
+    ([k]) => !QUICK_FIELDS.includes(k),
+  )
   // Point « modifié » : seulement les réglages du popover qui diffèrent de leur valeur par défaut.
-  const changed = fields.filter(([k, prop]) => values[k] !== undefined && values[k] !== prop.default).length
+  const changed = fields.filter(
+    ([k, prop]) => values[k] !== undefined && values[k] !== appDefault(k, prop),
+  ).length
 
   return (
     <Popover>
@@ -167,7 +232,7 @@ export function ParamsPopover({
         <button
           type="button"
           disabled={!fields.length}
-          className="relative flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background/40 transition-colors hover:bg-accent disabled:opacity-30"
+          className="relative flex h-8 w-8 items-center justify-center rounded-xl text-foreground/80 transition-colors outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 data-[state=open]:bg-accent/60"
           aria-label="Paramètres du modèle"
           title="Paramètres du modèle"
         >
@@ -183,22 +248,43 @@ export function ParamsPopover({
       <PopoverContent side="top" align="start" className="w-80 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold">Paramètres</span>
-          <button type="button" onClick={onReset} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <button
+            type="button"
+            onClick={onReset}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
             <RotateCcw className="h-3 w-3" /> Réinitialiser
           </button>
         </div>
         <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1">
           {fields.map(([key, prop]) => (
-            <div key={key} className={cn(prop.type === 'boolean' ? 'flex items-center justify-between gap-3' : 'space-y-1.5')}>
-              <Label className="text-xs text-muted-foreground" title={prop.description}>
+            <div
+              key={key}
+              className={cn(
+                prop.type === 'boolean'
+                  ? 'flex items-center justify-between gap-3'
+                  : 'space-y-1.5',
+              )}
+            >
+              <Label
+                className="text-xs text-muted-foreground"
+                title={prop.description}
+              >
                 {labelOf(key)}
-                {prop.minimum !== undefined && prop.maximum !== undefined && !prop.enum && (
-                  <span className="text-muted-foreground/60">
-                    ({prop.minimum}–{prop.maximum})
-                  </span>
-                )}
+                {prop.minimum !== undefined &&
+                  prop.maximum !== undefined &&
+                  !prop.enum && (
+                    <span className="text-muted-foreground/60">
+                      ({prop.minimum}–{prop.maximum})
+                    </span>
+                  )}
               </Label>
-              <ParamField name={key} prop={prop} value={values[key]} onChange={(v) => onChange(key, v)} />
+              <ParamField
+                name={key}
+                prop={prop}
+                value={values[key]}
+                onChange={(v) => onChange(key, v)}
+              />
             </div>
           ))}
         </div>

@@ -361,7 +361,7 @@ function CategoryPanel({
   const thumbFamilies = (catalog?.families ?? []).filter((f) => f.media === 'image' && f.tasks['text-to-image'])
   const thumbFamilyId = category.thumbnailFamily ?? 'local/z-image-turbo'
   const thumbFamily = thumbFamilies.find((f) => f.id === thumbFamilyId)
-  const thumbIsApi = thumbFamily ? thumbFamily.provider !== 'comfy' : false
+  const thumbIsApi = thumbFamily ? thumbFamily.runtime !== 'comfy' : false
   /** Lancement à confirmer : tout régénérer, ou des miniatures payantes (modèle API). */
   const [confirmGenerate, setConfirmGenerate] = useState<'missing' | 'all' | null>(null)
   const thumbQuote = useQuery({
@@ -635,7 +635,7 @@ function CategoryPanel({
                     {thumbFamilies.map((f) => (
                       <SelectItem key={f.id} value={f.id} disabled={!f.available}>
                         {f.label}
-                        {f.provider !== 'comfy' && ' · payant'}
+                        {f.runtime !== 'comfy' && ' · payant'}
                       </SelectItem>
                     ))}
                   </SelectContent>

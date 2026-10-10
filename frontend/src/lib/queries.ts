@@ -19,6 +19,7 @@ export const qk = {
   masters: (id: string) => ['masters', id] as const,
   places: ['places'] as const,
   scenes: ['scenes'] as const,
+  trash: ['trash'] as const,
   gallery: (personaId: string | null, media: string | null) => ['gallery', personaId ?? 'all', media ?? 'all'] as const,
 }
 

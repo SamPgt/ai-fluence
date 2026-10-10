@@ -56,7 +56,7 @@ export function MastersScreen({ owner, header, headerRight }: { owner: MastersOw
   const family =
     families.find((f) => f.id === familyId) ??
     families.find((f) => f.id === owner.defaultImageFamily) ??
-    families.find((f) => f.provider === 'comfy') ??
+    families.find((f) => f.runtime === 'comfy') ??
     families[0]
   // Modèle à références (klein, Qwen Edit…) : la référence est donnée au modèle. Sinon, personnage : visage
   // de la référence (ReActor) ; lieu : image → image depuis la référence.
@@ -117,6 +117,12 @@ export function MastersScreen({ owner, header, headerRight }: { owner: MastersOw
     onSuccess: refresh,
     onError: (e) => toast.error((e as Error).message),
   })
+
+  // Visionneuse : les images du lot affiché, puis les masters (le panneau de gauche).
+  const viewable = [...lot.flatMap((g) => g.outputs), ...masters.map((m) => m.asset)].filter(
+    (a, i, all) => all.findIndex((b) => b.id === a.id) === i,
+  )
+  const viewingIndex = viewing ? viewable.findIndex((a) => a.id === viewing.id) : -1
 
   const chip = (active: boolean) =>
     cn(
@@ -280,9 +286,8 @@ export function MastersScreen({ owner, header, headerRight }: { owner: MastersOw
       <MediaViewer
         asset={viewing}
         onClose={() => setViewing(null)}
-        // Les images du lot affiché, puis les masters (le panneau de gauche).
-        assets={[...lot.flatMap((g) => g.outputs), ...masters.map((m) => m.asset)].filter((a, i, all) => all.findIndex((b) => b.id === a.id) === i)}
-        onNavigate={setViewing}
+        onPrev={viewingIndex > 0 ? () => setViewing(viewable[viewingIndex - 1]) : undefined}
+        onNext={viewingIndex >= 0 && viewingIndex < viewable.length - 1 ? () => setViewing(viewable[viewingIndex + 1]) : undefined}
       />
     </>
   )

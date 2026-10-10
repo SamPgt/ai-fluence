@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
 import type { Generation } from '@ai-fluence/shared'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 
@@ -78,13 +78,20 @@ function ThreadPage() {
         right={
           data && (
             <span className="text-xs text-muted-foreground tabular-nums">
-              Total du fil : <span className="text-foreground">{formatUsd(data.thread.totalCost)}</span>
+              Total du fil :{' '}
+              <span className="text-foreground">
+                {formatUsd(data.thread.totalCost)}
+              </span>
             </span>
           )
         }
       >
         {persona && (
-          <Link to="/personas/$personaId" params={{ personaId: persona.id }} className="flex items-center gap-2">
+          <Link
+            to="/personas/$personaId"
+            params={{ personaId: persona.id }}
+            className="flex items-center gap-2"
+          >
             <PersonaAvatar persona={persona} size={24} className="rounded-md" />
           </Link>
         )}

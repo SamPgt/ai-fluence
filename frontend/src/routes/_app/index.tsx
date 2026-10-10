@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { personasQuery } from '@/lib/queries'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { LogoMark } from '@/components/ui/logo-mark'
 import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
 import { Composer } from '@/components/composer/Composer'
 
@@ -34,22 +35,14 @@ function NewThread() {
             className="mb-4 rounded-2xl"
           />
         ) : (
-          <img
-            src="/logo.svg"
-            alt=""
-            className="mb-4 h-14 w-14 select-none"
-            draggable={false}
-          />
+          <LogoMark className="mb-4 h-14 w-14 select-none" />
         )}
         <h1 className="text-2xl font-semibold">
-          {persona
-            ? `Que fait ${persona.name} aujourd’hui ?`
-            : 'Que veux-tu créer ?'}
+          {persona ? persona.name : 'Que veux-tu créer ?'}
         </h1>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
           {persona
-            ? persona.description ||
-              'Choisis un modèle LORA ou REF pour garder le personnage cohérent.'
+            ? 'Que veux-tu créer aujourd’hui ?'
             : 'Photo ou vidéo : choisis un modèle, ajoute des références si besoin, et décris la scène.'}
         </p>
       </div>

@@ -1,1 +1,0 @@
-ALTER TABLE "library_categories" ADD COLUMN "zone" text DEFAULT 'character' NOT NULL;

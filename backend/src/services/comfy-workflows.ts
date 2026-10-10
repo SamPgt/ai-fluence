@@ -435,7 +435,8 @@ export async function getLocalFamilies(): Promise<CatalogFamily[]> {
       const ready = running && Object.keys(tasks).length > 0 && missing.length === 0;
       return {
         ...def,
-        provider: 'comfy',
+        runtime: 'comfy',
+        typicalSeconds: null,
         supportsFace: faces && endpoints.some(e => e.faceSwap),
         tasks,
         available: ready,

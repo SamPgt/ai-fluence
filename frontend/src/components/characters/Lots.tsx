@@ -48,7 +48,7 @@ export function LotProgress({ lot, onCancel }: { lot: Generation[]; onCancel: ()
   const done = lot.length - pending.length
   const durations = lot.filter((g) => !isPending(g)).map((g) => g.durationMs).filter((d): d is number => d !== null)
   const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
-  const local = lot[0]?.provider === 'comfy'
+  const local = lot[0]?.runtime === 'comfy'
   return (
     <div className="flex items-center gap-3 border-b border-border/40 px-4 py-2 text-[11px] text-muted-foreground">
       <span className="tabular-nums">

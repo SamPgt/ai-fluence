@@ -6,37 +6,42 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Dice5, Film, ImageIcon, ImagePlus, Info, Loader2, ScanFace, Shapes, Wand2, X } from 'lucide-react'
+import { ArrowUp, Dice5, Film, Info, Loader2, Pencil, Plus, Shapes, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
-  TASK_LABEL,
-  buildInput,
+  imageInputInfo,
   resolveTask,
   schemaSupportsLoras,
+  MAX_LORAS_PER_GENERATION,
+  appDefault,
+  APP_DEFAULT_FAMILY,
   type GenerationRequest,
+  type JsonSchemaProp,
+  type MediaKind,
   type PriceChangedResponse,
   type TaskKind,
 } from '@ai-fluence/shared'
 
-import { ApiError, assetsApi, generationsApi, promptsApi } from '@/lib/api'
-import { composer, composerStore } from '@/lib/composer-store'
-import { catalogQuery, personasQuery, presetsQuery, qk, settingsQuery } from '@/lib/queries'
-import { formatUnit, formatUsd } from '@/lib/format'
+import { ApiError, assetsApi, generationsApi } from '@/lib/api'
+import { composer, composerStore, isEmptyDraft } from '@/lib/composer-store'
+import {
+  catalogQuery,
+  personasQuery,
+  presetsQuery,
+  qk,
+  settingsQuery,
+} from '@/lib/queries'
+import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { ModelPicker } from './ModelPicker'
 import {
-  ParamField,
-  ParamsPopover,
-  QUICK_FIELDS,
-  editableFields,
-  labelOf,
-} from './ParamFields'
+  AspectRatioPicker,
+  MediaSwitch,
+  ResolutionToggle,
+  Stepper,
+} from './ComposerControls'
+import { ParamsPopover } from './ParamFields'
 import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 import { TraitPicker } from './TraitPicker'
@@ -53,6 +58,49 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /** Tailles de série proposées dans le composer. */
 const SERIES_SIZES = [1, 4, 8]
+
+/** Étiquette en bas à gauche d'une vignette jointe (numéro, crayon, Début / Fin). */
+const THUMB_TAG =
+  'absolute bottom-1 left-1 flex h-4 min-w-4 items-center justify-center rounded bg-black/85 px-1 text-[10px] font-medium text-white tabular-nums'
+
+/** Durée vidéo en − valeur + : pas des valeurs proposées par le modèle, saisie bornée. */
+function durationControl(prop: JsonSchemaProp | undefined, raw: unknown) {
+  if (!prop) return null
+  const values = (
+    prop.enum
+      ? prop.enum.map(Number)
+      : prop.type === 'integer' &&
+          prop.minimum !== undefined &&
+          prop.maximum !== undefined
+        ? Array.from(
+            { length: prop.maximum - prop.minimum + 1 },
+            (_, i) => prop.minimum! + i,
+          )
+        : []
+  ).filter(Number.isFinite)
+  if (!values.length) return null
+  const fallback = Number(
+    appDefault('duration_seconds', prop) ??
+      values.find((v) => v > 0) ??
+      values[0],
+  )
+  const value = typeof raw === 'number' && values.includes(raw) ? raw : fallback
+  const i = values.indexOf(value)
+  const real = values.filter((v) => v > 0)
+  return {
+    value,
+    prev: () => (i > 0 ? values[i - 1] : null),
+    next: () => (i >= 0 && i < values.length - 1 ? values[i + 1] : null),
+    // Au-delà du maximum : on prend le maximum ; sinon la valeur proposée la plus proche.
+    normalize: (v: number) => {
+      if (v >= Math.max(...real)) return Math.max(...real)
+      return real.reduce(
+        (best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best),
+        real[0],
+      )
+    },
+  }
+}
 
 interface ComposerProps {
   threadId?: string
@@ -75,50 +123,101 @@ export function Composer({
 
   const state = useSelector(composerStore, (s) => s)
   const { data: settings } = useQuery(settingsQuery())
+  // Catalogue chargé même sans clé SpicyAPI : les modèles locaux (ComfyUI) suffisent à générer.
   const { data: catalog, error: catalogError } = useQuery(
     catalogQuery(Boolean(settings)),
   )
-  const { data: personas = [] } = useQuery(personasQuery())
+  const { data: personas = [], status: personasStatus } =
+    useQuery(personasQuery())
   const { data: contexts = [] } = useQuery(presetsQuery())
   const persona = personas.find((p) => p.id === personaId) ?? null
-  // Persona créé avec le créateur : sa fiche d'identité arrive en bulles, si aucune n'est déjà posée.
-  useEffect(() => {
-    if (persona?.identity.length && composerStore.state.traits.length === 0) composer.load({ traits: persona.identity })
-  }, [persona?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const families = catalog?.families ?? []
 
-  // Modèle par défaut : dernier du fil > persona > paramètres > premier modèle photo dispo.
+  const personasLoaded = personasStatus === 'success'
+  const usable = (id: string | null | undefined, media: MediaKind) =>
+    id && families.some((f) => f.id === id && f.available && f.media === media)
+      ? id
+      : null
+  // Modèle par défaut, dans l'ordre : dernier modèle du fil > modèle du persona
+  // > dernier choix dans ce fil (type photo / vidéo) > modèle économique de l'app
+  // > premier dispo. Le choix fait dans le fil lui-même est repris en premier
+  // (cf. enterThread), cette cascade ne sert que s'il n'y en a pas.
+  const pickFamily = (
+    media: MediaKind,
+    { memory = true, suggested = true } = {},
+  ) =>
+    (suggested ? usable(suggestedFamily, media) : null) ??
+    usable(
+      media === 'image'
+        ? persona?.defaultImageFamily
+        : persona?.defaultVideoFamily,
+      media,
+    ) ??
+    (memory ? usable(state.familyByMedia[media], media) : null) ??
+    usable(APP_DEFAULT_FAMILY[media], media) ??
+    families.find((f) => f.media === media && f.available)?.id ??
+    null
+
+  // Le modèle choisi est propre à chaque fil (déclaré avant la cascade ci-dessous).
   useEffect(() => {
-    if (
-      !catalog ||
-      (state.family && families.some((f) => f.id === state.family))
-    )
-      return
-    const preferred = [
-      suggestedFamily,
-      persona?.defaultImageFamily,
-      settings?.defaultImageFamily,
-    ].find((id) => id && families.some((f) => f.id === id && f.available))
-    const fallback = families.find((f) => f.media === 'image' && f.available)
-    if (preferred || fallback)
-      composer.setFamily((preferred ?? fallback!.id) as string)
-  }, [catalog, persona?.id, suggestedFamily]) // eslint-disable-line react-hooks/exhaustive-deps
+    composer.enterThread(threadId ?? null)
+  }, [threadId])
+
+  // Jamais sans modèle : si le modèle courant manque ou n'est plus disponible
+  // (catalogue pas encore chargé, modèle retiré…), on applique la cascade.
+  useEffect(() => {
+    if (!catalog || !personasLoaded) return
+    const current = families.find((f) => f.id === state.family)
+    if (current?.available) return
+    const pick = pickFamily(current?.media ?? 'image')
+    if (pick) composer.setFamily(pick)
+  }, [catalog, personasLoaded, state.family]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Changer de persona reprend son modèle par défaut (le choix manuel ne vaut
+  // que pour le persona en cours).
+  const lastPersona = useRef(personaId)
+  useEffect(() => {
+    // Dans un fil, le persona est fixe : seul un nouveau fil change de persona.
+    if (threadId) return
+    if (lastPersona.current === personaId || !catalog || !personasLoaded) return
+    lastPersona.current = personaId
+    // Demande commencée : on garde le modèle choisi avec elle.
+    if (!isEmptyDraft(state)) return
+    const current = families.find((f) => f.id === state.family)
+    const pick = pickFamily(current?.media ?? 'image', {
+      memory: false,
+      suggested: false,
+    })
+    if (pick && pick !== state.family) composer.setFamily(pick)
+  }, [personaId, catalog, personasLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (state.focusTick) textareaRef.current?.focus()
   }, [state.focusTick])
 
-  const family = families.find((f) => f.id === state.family)
-  const isLocal = family?.provider === 'comfy'
-  const params = (state.family && state.paramsByFamily[state.family]) || {}
+  // Persona créé avec le créateur : sa fiche d'identité arrive en bulles, si aucune n'est déjà posée.
+  useEffect(() => {
+    if (persona?.identity.length && composerStore.state.traits.length === 0) composer.load({ traits: persona.identity })
+  }, [persona?.id, state.threadKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Visage (modèles locaux avec ReActor) : une image jointe peut servir de visage plutôt que d'image de départ.
+  const family = families.find((f) => f.id === state.family)
+  const media: MediaKind = family?.media ?? 'image'
+  // Bascule photo / vidéo : même cascade, pour le nouveau type.
+  const switchMedia = (next: MediaKind) => {
+    if (next === media) return
+    const pick = pickFamily(next, { suggested: false })
+    if (pick) composer.setFamily(pick)
+  }
+  const params = (state.family && state.paramsByFamily[state.family]) || {}
+  const isLocal = family?.runtime === 'comfy'
+  // Visage (modèles locaux avec ReActor) : une image jointe peut servir de visage plutôt que d'entrée.
   const imageAttachments = state.attachments.filter((a) => a.mediaType === 'image')
-  const faceId = !family?.supportsFace || state.faceChoice === 'none'
-    ? null
-    : state.faceChoice !== 'auto' && imageAttachments.some((a) => a.id === state.faceChoice)
-      ? state.faceChoice
-      : (imageAttachments[1]?.id ?? null)
+  const faceId =
+    !family?.supportsFace || state.faceChoice === 'none'
+      ? null
+      : state.faceChoice !== 'auto' && imageAttachments.some((a) => a.id === state.faceChoice)
+        ? state.faceChoice
+        : (imageAttachments[1]?.id ?? null)
   const inputs = state.attachments.filter((a) => a.id !== faceId)
   const counts = {
     images: inputs.filter((a) => a.mediaType === 'image').length,
@@ -133,8 +232,14 @@ export function Composer({
       )
     : null
   const task = resolution?.ok ? resolution.task : null
+  // Vidéo à partir d'images : les deux premières sont le début et la fin.
+  const startEnd = family?.media === 'video' && task === 'image-to-video'
+  // Numéro d'une image jointe parmi les images (l'ordre d'envoi au modèle).
+  const imageNumber = (i: number) =>
+    state.attachments.slice(0, i + 1).filter((a) => a.mediaType === 'image')
+      .length
   const schema = task ? family?.tasks[task]?.schema : undefined
-  // Des traits (choisis, 🎲 ou un lieu) suffisent à faire un prompt : le texte libre devient facultatif.
+  // Des bulles (traits, 🎲, lieu) suffisent à faire un prompt : le texte libre devient facultatif.
   const hasTraits = state.traits.length > 0 || state.slots.length > 0 || Boolean(state.placeId)
   const requiresPrompt = (schema?.required?.includes('prompt') ?? true) && !hasTraits
   // Fenêtre des traits : null = fermée ; sinon la catégorie à ouvrir (« '' » = la première).
@@ -143,18 +248,36 @@ export function Composer({
   const [slotPicker, setSlotPicker] = useState<string | null>(null)
   const openSlot = state.slots.find((x) => x.categoryId === slotPicker) ?? null
   const supportsLoras = schemaSupportsLoras(schema)
-  const personaLoras =
-    persona?.loras.filter((l) => l.family === state.family) ?? []
-  const showRefToggle =
+  // LoRA du persona pour ce modèle : rien n'est coché d'office, 3 max.
+  const personaLoras = supportsLoras
+    ? (persona?.loras.filter((l) => l.family === state.family && l.path) ?? [])
+    : []
+  const activeLoras = personaLoras
+    .filter((l) => l.id in state.loras)
+    .slice(0, MAX_LORAS_PER_GENERATION)
+  // Nombre réel d'images acceptées par le modèle choisi (compteur « n / max »).
+  const imageInfo = family
+    ? imageInputInfo(family.media, family.tasks, state.refMode)
+    : { max: 0, mode: 'none' as const }
+  // Vidéo : le modèle sait animer une image de départ ET partir de références.
+  const canChooseRefMode = Boolean(
     family?.media === 'video' &&
-    counts.images > 0 &&
     counts.videos === 0 &&
     family.tasks['image-to-video'] &&
-    family.tasks['reference-to-video']
+    family.tasks['reference-to-video'],
+  )
+  // Sans persona (pas de menu « Réf. »), le choix reste dans la barre dès qu'une image est jointe.
+  const showRefToggle = canChooseRefMode && !persona && counts.images > 0
 
   // Contextes envoyés : ceux qui sont actifs ET proposés pour ce type de média.
   const activeContextIds = contexts
-    .filter((c) => c.enabled && state.contextIds.includes(c.id) && (c.media === 'all' || c.media === (family?.media ?? 'image')))
+    .filter(
+      (c) =>
+        c.enabled &&
+        (c.personaId === null || c.personaId === personaId) &&
+        state.contextIds.includes(c.id) &&
+        (c.media === 'all' || c.media === (family?.media ?? 'image')),
+    )
     .map((c) => c.id)
 
   const request: GenerationRequest | null = family
@@ -167,8 +290,18 @@ export function Composer({
         params,
         referenceAssetIds: inputs.map((a) => a.id),
         faceAssetId: faceId,
+        // Image posée par « Éditer », toujours en position 1.
+        editAssetId:
+          state.editAssetId && state.attachments[0]?.id === state.editAssetId
+            ? state.editAssetId
+            : undefined,
         contextIds: activeContextIds,
-        count: state.count,
+        // Séries ×N : photo uniquement.
+        count: family.media === 'image' ? state.count : 1,
+        loraIds: activeLoras.map((l) => l.id),
+        loraWords: Object.fromEntries(
+          activeLoras.map((l) => [l.id, state.loras[l.id] ?? []]),
+        ),
         traitIds: state.traits.map((t) => t.optionId),
         traitSlots: state.slots.map(({ categoryId, drawFrom, pool }) => ({ categoryId, drawFrom, pool })),
         placeId: state.placeId,
@@ -206,6 +339,7 @@ export function Composer({
       queryClient.invalidateQueries({ queryKey: qk.threadsAll })
       queryClient.invalidateQueries({ queryKey: qk.thread(thread.id) })
       queryClient.invalidateQueries({ queryKey: qk.balance })
+      if (!threadId) composer.adoptNewThread(thread.id)
       if (!threadId)
         navigate({ to: '/t/$threadId', params: { threadId: thread.id } })
     },
@@ -220,28 +354,6 @@ export function Composer({
       }
       toast.error((err as Error).message)
     },
-  })
-
-  const enhance = useMutation({
-    mutationFn: () =>
-      promptsApi
-        .enhance({
-          prompt: state.prompt,
-          personaId,
-          media: family?.media ?? 'image',
-        })
-        .then((r) => r.prompt),
-    onSuccess: (next) => {
-      const previous = state.prompt
-      composer.setPrompt(next)
-      toast.success('Prompt reformulé', {
-        action: {
-          label: 'Annuler',
-          onClick: () => composer.setPrompt(previous),
-        },
-      })
-    },
-    onError: (e) => toast.error((e as Error).message),
   })
 
   const onFiles = async (files: FileList | File[] | null) => {
@@ -279,38 +391,24 @@ export function Composer({
     }
   }
 
-
-  // Ordre fixe (ratio, résolution, durée), quel que soit l'ordre du schéma du modèle.
-  const quickFields = editableFields(schema)
-    .filter(([k]) => QUICK_FIELDS.includes(k))
-    .sort(([a], [b]) => QUICK_FIELDS.indexOf(a) - QUICK_FIELDS.indexOf(b))
+  const setParam = (key: string, v: unknown) =>
+    state.family && composer.setParam(state.family, key, v)
+  // Réglages rapides de la barre (les autres restent dans le panneau Paramètres).
+  const resolutionProp = schema?.properties?.resolution
+  const ratioProp = schema?.properties?.aspect_ratio
+  const duration = durationControl(
+    schema?.properties?.duration_seconds,
+    params.duration_seconds,
+  )
   const quoteError = quote.error ? (quote.error as Error).message : null
   const notices: { text: string; tone: 'error' | 'warn' }[] = []
   if (catalogError)
     notices.push({ text: (catalogError as Error).message, tone: 'error' })
   if (resolution && !resolution.ok)
     notices.push({ text: resolution.reason, tone: 'warn' })
-  // Fichiers ignorés : calculés tout de suite (même logique que le serveur), sans attendre le devis.
-  const dropped =
-    quoteIsCurrent && quote.data
-      ? quote.data.dropped
-      : schema && task
-        ? buildInput({
-            schema,
-            task,
-            prompt: '',
-            params: {},
-            images: inputs.filter((a) => a.mediaType === 'image').map((a) => a.id),
-            videos: inputs.filter((a) => a.mediaType === 'video').map((a) => a.id),
-            loras: [],
-          }).dropped
-        : 0
-  if (dropped > 0) {
+  if (quoteIsCurrent && quote.data && quote.data.dropped > 0) {
     notices.push({
-      text:
-        family?.supportsFace && task === 'image-to-image'
-          ? 'Une seule image de départ possible : passe l’autre en « Visage » ou retire-la.'
-          : `${dropped} fichier(s) ignoré(s) : trop de références pour ce modèle`,
+      text: `${quote.data.dropped} fichier(s) ignoré(s) : trop de références pour ce modèle`,
       tone: 'warn',
     })
   }
@@ -337,14 +435,21 @@ export function Composer({
           onFiles(e.dataTransfer.files)
         }}
       >
-        <ContextChips media={family?.media ?? 'image'} activeIds={state.contextIds} onToggle={composer.toggleContext} />
+        <ContextChips
+          media={family?.media ?? 'image'}
+          personaId={personaId}
+          activeIds={state.contextIds}
+          onToggle={composer.toggleContext}
+          loras={personaLoras}
+          activeLoras={state.loras}
+          onToggleLora={composer.toggleLora}
+          onToggleLoraWord={composer.toggleLoraWord}
+        />
 
         <div
           className={cn(
             'relative flex flex-col rounded-3xl border bg-muted/50 shadow-[0_2px_8px_rgba(0,0,0,0.2)] backdrop-blur-sm transition-colors',
-            dragging
-              ? 'border-brand/70 bg-brand/5'
-              : 'border-border/60',
+            dragging ? 'border-brand/70 bg-brand/5' : 'border-border/60',
           )}
         >
           {/* Pièces jointes */}
@@ -356,31 +461,47 @@ export function Composer({
                   className="group relative overflow-hidden rounded-xl border border-border/30"
                 >
                   <AssetThumb asset={a} className="h-20 w-20" />
-                  {family?.media === 'video' &&
-                    task === 'image-to-video' &&
-                    i < 2 && (
-                      <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
-                        {i === 0 ? 'Début' : 'Fin'}
-                      </span>
-                    )}
+                  {/* En bas à gauche : Début / Fin (vidéo), sinon le numéro de
+                      l'image tel que le prompt peut le citer (« image 2 »), ou le
+                      crayon sur l'image à modifier. */}
+                  {startEnd && i < 2 ? (
+                    <span className={THUMB_TAG}>
+                      {i === 0 ? 'Début' : 'Fin'}
+                    </span>
+                  ) : a.mediaType === 'image' && !startEnd ? (
+                    <span
+                      className={cn(
+                        THUMB_TAG,
+                        // Crayon : pastille carrée, comme celle d'un numéro.
+                        a.id === state.editAssetId && i === 0 && 'w-4 px-0',
+                      )}
+                      title={
+                        a.id === state.editAssetId
+                          ? 'Image à modifier'
+                          : `Image ${imageNumber(i)}`
+                      }
+                    >
+                      {a.id === state.editAssetId && i === 0 ? (
+                        <Pencil className="size-2" strokeWidth={2.5} />
+                      ) : (
+                        imageNumber(i)
+                      )}
+                    </span>
+                  ) : null}
                   {a.mediaType === 'video' && (
                     <Film className="absolute top-1 left-1 h-3.5 w-3.5 text-white drop-shadow" />
                   )}
+                  {/* Modèle local avec ReActor : clic pour passer l'image en « Visage » (appliqué au résultat) ou en entrée. */}
                   {family?.supportsFace && a.mediaType === 'image' && (
                     <button
                       type="button"
                       onClick={() => composer.setFace(a.id === faceId ? 'none' : a.id)}
-                      title={
-                        a.id === faceId
-                          ? 'Visage appliqué au résultat. Cliquer pour en faire l’image de départ.'
-                          : 'Image de départ. Cliquer pour l’utiliser comme visage.'
-                      }
                       className={cn(
-                        'absolute bottom-1 left-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-white transition-colors',
-                        a.id === faceId ? 'bg-emerald-600/90 hover:bg-emerald-600' : 'bg-black/70 hover:bg-black/85',
+                        'absolute top-1 left-1 rounded px-1 text-[10px] font-semibold',
+                        a.id === faceId ? 'bg-brand text-white' : 'bg-black/70 text-white/80 hover:text-white',
                       )}
+                      title={a.id === faceId ? 'Visage appliqué au résultat (ReActor). Clic : image d’entrée' : 'Image d’entrée. Clic : utiliser comme visage'}
                     >
-                      {a.id === faceId ? <ScanFace className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
                       {a.id === faceId ? 'Visage' : 'Départ'}
                     </button>
                   )}
@@ -405,7 +526,7 @@ export function Composer({
             </div>
           )}
 
-          {/* Traits choisis dans la bibliothèque : une bulle par catégorie ; 🎲 : tirée au hasard ; lieu */}
+          {/* Traits de la bibliothèque : une bulle par catégorie ; 🎲 : tirée au hasard ; lieu */}
           {hasTraits && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-3">
               {state.placeId && <PlaceBubble placeId={state.placeId} />}
@@ -475,8 +596,8 @@ export function Composer({
             }}
             placeholder={
               family?.media === 'video'
-                ? 'Décris la scène et le mouvement… (glisse une image pour l’animer)'
-                : 'Décris l’image… (glisse des images de référence ici)'
+                ? 'Décris la scène ou ajoute des références'
+                : 'Décris l’image ou ajoute des références'
             }
             className="field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none"
             rows={1}
@@ -494,19 +615,38 @@ export function Composer({
                 className="hidden"
                 onChange={(e) => onFiles(e.target.files)}
               />
+              {/* Ajouter un fichier, avec le compteur d'images du modèle (n / max). */}
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background/40 transition-colors hover:bg-accent"
-                title="Ajouter une image ou une vidéo"
+                className={cn(
+                  'flex h-8 shrink-0 items-center justify-center gap-1 rounded-full text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60',
+                  imageInfo.max > 0 ? 'px-2.5' : 'w-8',
+                )}
+                title={
+                  imageInfo.max > 0
+                    ? `Ajouter des images (${imageInfo.max} au maximum pour ce modèle)`
+                    : 'Ajouter un fichier'
+                }
                 aria-label="Ajouter un fichier"
               >
-                <ImagePlus className="h-3.5 w-3.5" />
+                <Plus className="size-3.5" />
+                {imageInfo.max > 0 && (
+                  <span
+                    className={cn(
+                      'tabular-nums',
+                      state.attachments.length > imageInfo.max &&
+                        'text-amber-300',
+                    )}
+                  >
+                    {state.attachments.length}/{imageInfo.max}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => setTraitPicker('')}
-                className="flex h-8 items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-3 text-xs font-medium transition-colors hover:bg-accent"
+                className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60"
                 title="Choisir un trait dans la bibliothèque (coiffure, tenue, lieu…)"
               >
                 <Shapes className="h-3.5 w-3.5" /> Trait
@@ -517,6 +657,12 @@ export function Composer({
               {persona && (
                 <ReferencePicker
                   persona={persona}
+                  info={imageInfo}
+                  refMode={
+                    canChooseRefMode
+                      ? { value: state.refMode, onChange: composer.setRefMode }
+                      : undefined
+                  }
                   selectedIds={state.attachments.map((a) => a.id)}
                   onToggle={(a) =>
                     state.attachments.some((x) => x.id === a.id)
@@ -525,32 +671,69 @@ export function Composer({
                   }
                 />
               )}
+              <MediaSwitch value={media} onChange={switchMedia} />
               <ModelPicker
+                media={media}
                 families={families}
                 value={state.family}
                 onChange={composer.setFamily}
+                // Pastille seulement si ce persona a des LoRA pour ce modèle.
                 lora={
-                  persona && supportsLoras && personaLoras.length
+                  personaLoras.length
                     ? {
-                        personaName: persona.name,
-                        triggerWord: persona.triggerWord,
+                        active: activeLoras.flatMap((l) =>
+                          state.loras[l.id]?.length
+                            ? state.loras[l.id]
+                            : [l.label],
+                        ),
                       }
                     : null
                 }
               />
-              {quickFields.map(([key, prop]) => (
-                <div key={key} title={labelOf(key)}>
-                  <ParamField
-                    name={key}
-                    prop={prop}
-                    value={params[key]}
-                    compact
-                    onChange={(v) =>
-                      state.family && composer.setParam(state.family, key, v)
-                    }
-                  />
-                </div>
-              ))}
+              {resolutionProp?.enum && (
+                <ResolutionToggle
+                  values={resolutionProp.enum}
+                  value={
+                    params.resolution ??
+                    appDefault('resolution', resolutionProp) ??
+                    resolutionProp.enum[0]
+                  }
+                  onChange={(v) => setParam('resolution', v)}
+                />
+              )}
+              {ratioProp?.enum && (
+                <AspectRatioPicker
+                  values={ratioProp.enum}
+                  value={
+                    params.aspect_ratio ??
+                    appDefault('aspect_ratio', ratioProp) ??
+                    ratioProp.enum[0]
+                  }
+                  onChange={(v) => setParam('aspect_ratio', v)}
+                />
+              )}
+              {duration && (
+                <Stepper
+                  label="Durée"
+                  value={duration.value}
+                  format={(v) => (v === -1 ? 'Auto' : `${v}s`)}
+                  prev={duration.prev}
+                  next={duration.next}
+                  normalize={duration.normalize}
+                  onChange={(v) => setParam('duration_seconds', v)}
+                />
+              )}
+              {/* Série : nombre d'images (photo), un clic passe à x1, x4 puis x8. */}
+              {media === 'image' && (
+                <ResolutionToggle
+                  name="Nombre d'images"
+                  bars={false}
+                  values={SERIES_SIZES}
+                  value={SERIES_SIZES.includes(state.count) ? state.count : 1}
+                  format={(v) => `x${v}`}
+                  onChange={(v) => composer.setCount(v as number)}
+                />
+              )}
               <ParamsPopover
                 schema={schema}
                 values={params}
@@ -575,109 +758,46 @@ export function Composer({
                           : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
-                      {m === 'start-frame' ? 'Image de départ' : 'Références'}
+                      {m === 'start-frame' ? 'Début / Fin' : 'Références'}
                     </button>
                   ))}
                 </div>
               )}
-              <button
+            </div>
+
+            {/* Générer : prix à gauche du bouton, sans infobulle. */}
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-xs text-foreground/80 tabular-nums">
+                {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                ) : quoteIsCurrent && quote.data ? (
+                  isLocal ? 'Local' : <>≈ {formatUsd(quote.data.estimatedCost)}</>
+                ) : null}
+              </span>
+              <Button
                 type="button"
-                onClick={() => enhance.mutate()}
+                size="icon"
+                onClick={send}
                 disabled={
-                  !state.prompt.trim() ||
-                  enhance.isPending ||
-                  !settings?.hasApiKey
+                  !canQuote ||
+                  create.isPending ||
+                  !quoteIsCurrent ||
+                  !quote.data
                 }
-                className="flex h-8 items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 text-xs transition-colors hover:bg-accent disabled:opacity-30"
-                title={
-                  persona
-                    ? `Reformuler avec la personnalité de ${persona.name}`
-                    : 'Reformuler le prompt'
+                className="h-9 w-9 rounded-full brand-gradient hover:opacity-90"
+                aria-label={
+                  quoteIsCurrent && quote.data
+                    ? `Générer pour ${formatUsd(quote.data.estimatedCost)}`
+                    : 'Générer'
                 }
               >
-                {enhance.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {create.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Wand2 className="h-3.5 w-3.5" />
+                  <ArrowUp className="h-4 w-4" />
                 )}
-                Reformuler
-              </button>
+              </Button>
             </div>
-
-            {/* Série : nombre d'images générées avec cette demande (l'une après l'autre en local). */}
-            <div
-              className="flex h-8 shrink-0 items-center rounded-full border border-border/60 bg-background/40 p-0.5 text-[11px]"
-              title={isLocal ? 'Nombre d’images, générées l’une après l’autre sur ton GPU' : 'Nombre d’images à générer'}
-            >
-              {SERIES_SIZES.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => composer.setCount(n)}
-                  className={cn(
-                    'h-full rounded-full px-2.5 tabular-nums transition-colors',
-                    state.count === n ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  ×{n}
-                </button>
-              ))}
-            </div>
-
-            {/* Générer : prix à gauche du bouton, détail au survol. */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-xs text-foreground/80 tabular-nums">
-                    {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
-                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                    ) : quoteIsCurrent && quote.data ? (
-                      isLocal ? 'Local' : <>≈ {formatUsd(quote.data.estimatedCost)}</>
-                    ) : null}
-                  </span>
-                  <Button
-                    type="button"
-                    size="icon"
-                    onClick={send}
-                    disabled={
-                      !canQuote ||
-                      create.isPending ||
-                      !quoteIsCurrent ||
-                      !quote.data
-                    }
-                    className="h-9 w-9 rounded-full brand-gradient brand-shadow hover:opacity-90"
-                    aria-label={
-                      quoteIsCurrent && quote.data && !isLocal
-                        ? `Générer ${state.count > 1 ? `${state.count} images ` : ''}pour ${formatUsd(quote.data.estimatedCost)}`
-                        : state.count > 1
-                          ? `Générer ${state.count} images`
-                          : 'Générer'
-                    }
-                  >
-                    {create.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <ArrowUp className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </TooltipTrigger>
-              {task && family && (
-                <TooltipContent side="top" align="end" className="text-xs">
-                  <div>
-                    {TASK_LABEL[task]} · {family.label}
-                    {state.count > 1 && ` · série de ${state.count}`}
-                  </div>
-                  {isLocal && <div className="opacity-70">Sur ton GPU via ComfyUI, gratuit</div>}
-                  {quoteIsCurrent && quote.data && !isLocal && (
-                    <div className="opacity-70">
-                      Maximum facturé {formatUsd(quote.data.maxCharge)} ·{' '}
-                      {formatUnit(quote.data.unit, quote.data.quantity)}
-                    </div>
-                  )}
-                </TooltipContent>
-              )}
-            </Tooltip>
           </div>
         </div>
 

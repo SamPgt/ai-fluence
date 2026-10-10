@@ -10,7 +10,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SpicyClient, TaskRecord } from '@spicyapi/sdk';
-import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { HTTPException } from 'hono/http-exception';
 import {
   buildInput,
@@ -19,6 +19,8 @@ import {
   type CreateGenerationResponse,
   type GenerationContext,
   type GenerationTrait,
+  type GenerationLora,
+  MAX_LORAS_PER_GENERATION,
   type Generation,
   type GenerationRequest,
   type GenerationVariation,
@@ -39,6 +41,7 @@ import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
 import { resolveTraits } from './traits.service.js';
 import { drawSlots, resolveWildcards } from './draw.service.js';
+import { resolveLoraUrl } from './civitai.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -61,10 +64,11 @@ async function ensureSpicyUri(client: SpicyClient, asset: AssetRow): Promise<str
 }
 
 interface Prepared {
-  provider: ModelProvider;
+  runtime: ModelProvider;
   /** Null pour un modèle local (ComfyUI). */
   client: SpicyClient | null;
   contexts: GenerationContext[];
+  loras: GenerationLora[];
   task: TaskKind;
   modelId: string;
   input: Record<string, unknown>;
@@ -81,7 +85,7 @@ interface Prepared {
   lorasApplied: number;
 }
 
-async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepared> {
+async function prepare(user: SessionUser, req: GenerationRequest, forCreate = false): Promise<Prepared> {
   const def = getFamily(req.family);
   if (!def) throw new HTTPException(400, { message: 'Modèle inconnu.' });
 
@@ -90,14 +94,14 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   if (!family?.available) {
     throw new HTTPException(400, { message: `${def.label} : ${family?.unavailableReason ?? 'indisponible'}.` });
   }
-  const local = family.provider === 'comfy';
+  const local = family.runtime === 'comfy';
 
   let persona: PersonaRow | null = null;
   if (req.personaId) {
     [persona] = await db
       .select()
       .from(personas)
-      .where(and(eq(personas.id, req.personaId), eq(personas.userId, user.id)))
+      .where(and(eq(personas.id, req.personaId), eq(personas.userId, user.id), isNull(personas.deletedAt)))
       .limit(1);
     if (!persona) throw new HTTPException(404, { message: 'Persona introuvable.' });
   }
@@ -136,9 +140,19 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   if (!resolution.ok) throw new HTTPException(400, { message: resolution.reason });
   const endpoint = family.tasks[resolution.task]!;
 
-  const loras: LoraEntry[] = (persona?.loras ?? [])
-    .filter(l => l.family === req.family && l.path)
-    .map(l => ({ path: l.path, scale: l.scale, noise: l.noise }));
+  // LoRA du persona entraînées pour ce modèle et cochées dans le composer (aucune par défaut, 3 max).
+  const loraIds = new Set(req.loraIds ?? []);
+  const personaLoras = (persona?.loras ?? [])
+    .filter(l => l.family === req.family && l.path && loraIds.has(l.id))
+    .slice(0, MAX_LORAS_PER_GENERATION);
+  // Les liens Civitai sont résolus en lien signé temporaire seulement au lancement (le devis n'en a pas besoin).
+  const loras: LoraEntry[] = await Promise.all(
+    personaLoras.map(async l => ({
+      path: forCreate ? await resolveLoraUrl(l.path) : l.path,
+      scale: l.scale,
+      noise: l.noise,
+    })),
+  );
 
   // En local, les fichiers ne sont envoyés à ComfyUI qu'au lancement : l'input garde une référence à l'asset.
   const client = local ? null : await clientForUser(user.id);
@@ -168,16 +182,20 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   const traits = resolved.traits.map(t => (drawn.includes(t.optionId) ? { ...t, random: true } : t));
   const wildcards = await resolveWildcards(user.id, req.prompt.trim(), gender);
 
-  // Le mot déclencheur n'a de sens que si une LoRA du persona est appliquée.
-  const willApplyLoras = loras.length > 0;
-  // La phrase des traits se prolonge par le texte libre (« …, reading a book »), ou se termine par un point.
+  // Mots déclencheurs choisis dans le composer, parmi ceux de chaque LoRA (jamais tous d'office).
+  const chosenWords = (l: (typeof personaLoras)[number]) =>
+    (req.loraWords?.[l.id] ?? []).filter(w => (l.triggerWords ?? []).includes(w) && !l.hiddenWords?.includes(w));
+  // Si l'utilisateur l'a déjà écrit dans sa phrase, on ne le rajoute pas.
+  const typed = req.prompt.toLowerCase();
+  const triggers = [...new Set(personaLoras.flatMap(chosenWords).map(w => w.trim()).filter(Boolean))].filter(
+    w => !typed.includes(w.toLowerCase()),
+  );
+  // La phrase des traits (lieu et tirages compris) se prolonge par le texte libre (« …, reading a book »),
+  // ou se termine par un point. C'est la demande : section « Prompt » du prompt structuré.
   const text = wildcards.text;
   const body = sentence ? (text ? `${sentence}, ${text}` : `${sentence}.`) : text;
-  const parts = [willApplyLoras && persona?.triggerWord ? persona.triggerWord.trim() : '', body].filter(Boolean);
-  let finalPrompt = parts.join(' ');
-  if (persona?.promptSuffix.trim()) finalPrompt = `${finalPrompt}${finalPrompt ? ', ' : ''}${persona.promptSuffix.trim()}`;
 
-  // Contextes activés : ajoutés à la fin, séparés du texte de l'utilisateur.
+  // Contextes activés (raccourcis).
   let contexts: GenerationContext[] = [];
   if (req.contextIds?.length) {
     const rows = await db
@@ -187,10 +205,42 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
     const byId = new Map(rows.map(r => [r.id, r]));
     contexts = req.contextIds.map(id => byId.get(id)).filter((c): c is GenerationContext => Boolean(c));
   }
-  if (contexts.length) {
-    const details = `Additional details: ${contexts.map(c => c.text.trim()).join(', ')}`;
-    finalPrompt = finalPrompt ? `${finalPrompt}\n\n${details}` : details;
-  }
+
+  // Contexte du persona : toujours envoyé, en lignes étiquetées.
+  const blocks = (persona?.contextBlocks ?? []).filter(b => b.text.trim());
+
+  // Prompt structuré par ordre d'importance : la LoRA d'abord (le mot déclencheur
+  // agit mieux en tête), puis la demande, les raccourcis et le contexte général.
+  const oneLine = (t: string) => t.trim().replace(/\s+/g, ' ');
+  const sections: [string, string][] = [
+    ['Lora', triggers.join(', ')],
+    ['Prompt (important)', body],
+    // « Éditer » : l'image à modifier est toujours la première envoyée. En anglais,
+    // mieux suivi par les modèles ; jamais affiché dans la bulle (seul finalPrompt la contient).
+    [
+      'Images',
+      req.editAssetId && images[0]?.id === req.editAssetId
+        ? 'Edit image 1: it is the image to modify. Any other images are references only.'
+        : '',
+    ],
+    [
+      'Détails',
+      contexts
+        .filter(c => c.text.trim())
+        .map(c => `${c.label.trim() ? `${c.label.trim()} : ` : ''}${oneLine(c.text)}`)
+        .join('\n'),
+    ],
+    [
+      'Contexte général',
+      blocks.map(b => `- ${b.title.trim() ? `${b.title.trim()} : ` : ''}${oneLine(b.text)}`).join('\n'),
+    ],
+  ];
+  const filled = sections.filter(([, body]) => body);
+  // Prompt seul : on l'envoie tel quel, sans titre.
+  const finalPrompt =
+    filled.length === 1 && filled[0][0] === 'Prompt (important)'
+      ? filled[0][1]
+      : filled.map(([title, body]) => `# ${title}\n${body}`).join('\n\n');
 
   const built = buildInput({
     schema: endpoint.schema,
@@ -212,9 +262,10 @@ async function prepare(user: SessionUser, req: GenerationRequest): Promise<Prepa
   }
 
   return {
-    provider: family.provider,
+    runtime: family.runtime,
     client,
     contexts,
+    loras: personaLoras.map(l => ({ id: l.id, label: l.label, triggerWords: chosenWords(l) })),
     task: resolution.task,
     modelId: endpoint.modelId,
     input: built.input,
@@ -282,7 +333,7 @@ export async function createGeneration(
   // Créateur de personnage : chaque image a son propre tirage de traits.
   const traitsFor = (i: number) => req.traitDraws?.[i] ?? req.traitIds;
   const promptFor = (i: number) => perImage?.(i).prompt ?? req.prompt;
-  const p = await prepare(user, { ...req, prompt: promptFor(0), traitIds: traitsFor(0) });
+  const p = await prepare(user, { ...req, prompt: promptFor(0), traitIds: traitsFor(0) }, true);
   const quote = await quoteFor(p);
 
   // Le devis affiché au clic (total de la série) vaut confirmation ; s'il a augmenté entre-temps, on redemande.
@@ -300,7 +351,7 @@ export async function createGeneration(
     // Seed fixé par l'utilisateur : décalé d'une image à l'autre, sinon la série donnerait N fois la même image.
     const params = { ...req.params };
     if (i > 0 && typeof params.seed === 'number') params.seed = (params.seed + i) % MAX_SEED;
-    const pi = i === 0 ? p : await prepare(user, { ...req, params, prompt: promptFor(i), traitIds: traitsFor(i) });
+    const pi = i === 0 ? p : await prepare(user, { ...req, params, prompt: promptFor(i), traitIds: traitsFor(i) }, true);
     const qi = i === 0 ? quote : await quoteFor(pi);
     const res = await launch(user, pi, qi, {
       threadId,
@@ -363,7 +414,7 @@ async function launch(
     [thread] = await db
       .select()
       .from(threads)
-      .where(and(eq(threads.id, meta.threadId), eq(threads.userId, user.id)))
+      .where(and(eq(threads.id, meta.threadId), eq(threads.userId, user.id), isNull(threads.deletedAt)))
       .limit(1);
     if (!thread) throw new HTTPException(404, { message: 'Fil introuvable.' });
   } else {
@@ -389,7 +440,7 @@ async function launch(
       prompt: meta.prompt,
       finalPrompt: p.finalPrompt,
       family: meta.family,
-      provider: p.provider,
+      provider: p.runtime,
       modelId: p.modelId,
       task: p.task,
       refMode: meta.refMode,
@@ -402,6 +453,7 @@ async function launch(
       batchIndex: meta.batchIndex ?? 0,
       variation: meta.variation ?? null,
       contexts: p.contexts,
+      loras: p.loras,
       lorasApplied: p.lorasApplied,
       idempotencyKey,
       estimatedCost: quote.estimatedCost,
@@ -652,9 +704,10 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
 
   return {
     p: {
-      provider: 'spicy',
+      runtime: 'spicy',
       client,
       contexts: [],
+      loras: [],
       task: 'upscale',
       modelId: tool.modelId,
       input,

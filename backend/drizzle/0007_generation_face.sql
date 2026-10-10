@@ -1,1 +1,0 @@
-ALTER TABLE "generations" ADD COLUMN "face_asset_id" uuid;

@@ -21,16 +21,12 @@ function toSettings(user: SessionUser, row: SettingsRow): Settings {
     apiKeyHint: row.spicyApiKeyHint,
     mediaDir: mediaDirOf(user, row),
     defaultMediaDir: defaultMediaDir(user),
-    defaultImageFamily: row.defaultImageFamily,
-    defaultVideoFamily: row.defaultVideoFamily,
     enhanceModel: row.enhanceModel,
   };
 }
 
 const updateSchema = z.object({
   mediaDir: z.string().trim().max(500).nullable().optional(),
-  defaultImageFamily: z.string().nullable().optional(),
-  defaultVideoFamily: z.string().nullable().optional(),
   enhanceModel: z.string().min(3).optional(),
 });
 
@@ -65,8 +61,6 @@ const settingsRoutes = new Hono<AppEnv>()
         patch.mediaDir = dir;
       } else patch.mediaDir = null;
     }
-    if (body.defaultImageFamily !== undefined) patch.defaultImageFamily = body.defaultImageFamily;
-    if (body.defaultVideoFamily !== undefined) patch.defaultVideoFamily = body.defaultVideoFamily;
     if (body.enhanceModel !== undefined) patch.enhanceModel = body.enhanceModel;
     const [row] = await db.update(userSettings).set(patch).where(eq(userSettings.userId, user.id)).returning();
     return c.json({ settings: toSettings(user, row) });

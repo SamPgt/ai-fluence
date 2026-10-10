@@ -9,6 +9,8 @@ import type {
   AuthResponse,
   CatalogResponse,
   ComfyStatus,
+  CivitaiSearchResponse,
+  CivitaiSort,
   CreateGenerationResponse,
   CreditsResponse,
   EnhancePromptRequest,
@@ -36,6 +38,7 @@ import type {
   SignupRequest,
   VariationRequest,
   Thread,
+  TrashResponse,
   ThreadDetailResponse,
   UpdateSettingsRequest,
   UpscaleRequest,
@@ -182,6 +185,8 @@ export const assetsApi = {
   },
   references: (personaId: string) => apiFetch<{ assets: Asset[] }>('/assets/references', { query: { personaId } }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/assets/${id}`, { method: 'DELETE' }),
+  reorderReferences: (personaId: string, ids: string[]) =>
+    apiFetch<{ ok: true }>('/assets/references/order', { method: 'PUT', body: { personaId, ids } }),
   setReference: (assetId: string, personaId: string, isReference: boolean) =>
     apiFetch<{ asset: Asset }>(`/assets/${assetId}/reference`, { method: 'PATCH', body: { personaId, isReference } }),
   gallery: (query: { personaId?: string; media?: 'image' | 'video'; before?: string }) =>
@@ -198,6 +203,22 @@ export const personasApi = {
   update: (id: string, body: Partial<PersonaInput>) =>
     apiFetch<{ persona: Persona }>(`/personas/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/personas/${id}`, { method: 'DELETE' }),
+  reorder: (ids: string[]) => apiFetch<{ ok: true }>('/personas/order', { method: 'PUT', body: { ids } }),
+}
+
+export const civitaiApi = {
+  status: () => apiFetch<{ enabled: boolean }>('/civitai/status'),
+  search: (q: { family?: string; query?: string; sort: CivitaiSort; nsfw: boolean; cursor?: string }) =>
+    apiFetch<CivitaiSearchResponse>('/civitai/search', { query: q }),
+}
+
+export const trashApi = {
+  list: () => apiFetch<TrashResponse>('/trash'),
+  restorePersona: (id: string) => apiFetch<{ ok: true }>(`/trash/personas/${id}/restore`, { method: 'POST' }),
+  restoreThread: (id: string) => apiFetch<{ ok: true }>(`/trash/threads/${id}/restore`, { method: 'POST' }),
+  purgePersona: (id: string) => apiFetch<unknown>(`/trash/personas/${id}`, { method: 'DELETE' }),
+  purgeThread: (id: string) => apiFetch<unknown>(`/trash/threads/${id}`, { method: 'DELETE' }),
+  empty: () => apiFetch<unknown>('/trash', { method: 'DELETE' }),
 }
 
 /** Images master d'un persona (`character`) ou d'un lieu (`place`). */
@@ -247,7 +268,7 @@ export const generationsApi = {
 
 export const presetsApi = {
   list: () => apiFetch<{ presets: PromptPreset[] }>('/presets'),
-  create: (body: Pick<PromptPreset, 'label' | 'text' | 'media'> & { enabled?: boolean }) =>
+  create: (body: Pick<PromptPreset, 'label' | 'text' | 'media'> & { enabled?: boolean; personaId?: string | null }) =>
     apiFetch<{ preset: PromptPreset }>('/presets', { method: 'POST', body }),
   update: (id: string, body: Partial<Pick<PromptPreset, 'label' | 'text' | 'media' | 'enabled'>>) =>
     apiFetch<{ preset: PromptPreset }>(`/presets/${id}`, { method: 'PATCH', body }),

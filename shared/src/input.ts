@@ -48,7 +48,23 @@ export const COMPOSER_FIELDS = new Set([
   'multi_prompt',
   'analysis_task_id',
   'swap_targets',
+  // Le nombre d'images passe par le menu 1 / 4 / 8 du composer (séries), jamais par ce champ.
+  'num_outputs',
+  // Format imposé (PNG, voir buildInput) et compression inutile : jamais demandés à l'utilisateur.
+  'output_format',
+  'output_quality',
+  // Relance au prix officiel si la tâche échoue : toujours activée, jamais demandée.
+  'official_fallback',
 ]);
+
+/**
+ * Valeur par défaut de l'app pour un paramètre, quand elle diffère de celle du modèle :
+ * qualité « high » quand le modèle la propose. Utilisée par le formulaire et par buildInput.
+ */
+export function appDefault(name: string, prop: JsonSchemaProp): unknown {
+  if (name === 'quality' && prop.enum?.includes('high')) return 'high';
+  return prop.default;
+}
 
 /** Mode d'utilisation des pièces jointes pour la vidéo. */
 export type VideoRefMode = 'start-frame' | 'reference';
@@ -160,6 +176,17 @@ export function buildInput(args: BuildInputArgs): BuiltInput {
   let lorasApplied = 0;
 
   if (props.prompt && args.prompt.trim()) input.prompt = args.prompt.trim();
+  // Toujours une image par tâche : SpicyAPI facture à l'image, une série = N tâches.
+  if (props.num_outputs) input.num_outputs = 1;
+  // PNG partout où le modèle le propose : sans perte, et les réseaux sociaux recompressent.
+  if (props.output_format?.enum?.includes('png')) input.output_format = 'png';
+  if (props.official_fallback) input.official_fallback = true;
+  // Défauts de l'app (ex. qualité high) quand l'utilisateur n'a rien choisi.
+  for (const [key, prop] of Object.entries(props)) {
+    if (input[key] !== undefined || COMPOSER_FIELDS.has(key)) continue;
+    const def = appDefault(key, prop);
+    if (def !== undefined && def !== prop.default) input[key] = def;
+  }
 
   const images = [...args.images];
   const videos = [...args.videos];
@@ -224,4 +251,36 @@ export function buildInput(args: BuildInputArgs): BuiltInput {
 export function schemaSupportsLoras(schema: InputSchema | undefined): boolean {
   const p = schema?.properties ?? {};
   return Boolean(p.loras || p.high_noise_loras || p.low_noise_loras);
+}
+
+export interface ImageInputInfo {
+  /** Nombre maximum d'images acceptées, lu dans le schéma du modèle. 0 = aucune. */
+  max: number;
+  /** Ce que deviennent les images : références à combiner, image à retoucher, ou images de départ/fin. */
+  mode: 'reference' | 'edit' | 'start-frame' | 'none';
+}
+
+/**
+ * Combien d'images le modèle accepte quand on lui en donne, et pour quoi faire.
+ * Basé sur le schéma de l'endpoint qui serait appelé avec des images.
+ */
+export function imageInputInfo(
+  media: MediaKind,
+  tasks: Partial<Record<TaskKind, { schema: InputSchema }>>,
+  refMode: VideoRefMode = 'start-frame',
+): ImageInputInfo {
+  if (media === 'image') {
+    const props = tasks['image-to-image']?.schema.properties;
+    if (!props) return { max: 0, mode: 'none' };
+    if (props.image_urls) {
+      const max = props.image_urls.maxItems ?? 10;
+      return { max, mode: max > 1 ? 'reference' : 'edit' };
+    }
+    return props.image_url ? { max: 1, mode: 'edit' } : { max: 0, mode: 'none' };
+  }
+  const r2v = tasks['reference-to-video']?.schema.properties?.reference_image_urls;
+  const i2v = tasks['image-to-video']?.schema.properties;
+  if ((refMode === 'reference' || !i2v) && r2v) return { max: r2v.maxItems ?? 9, mode: 'reference' };
+  if (i2v) return { max: i2v.last_image_url ? 2 : 1, mode: 'start-frame' };
+  return { max: 0, mode: 'none' };
 }

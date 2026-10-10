@@ -1,30 +1,38 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
+import { useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react'
 import type { Asset } from '@ai-fluence/shared'
 
 import { Dialog, DialogOverlay, DialogPortal } from '@/components/ui/dialog'
 
+const NAV =
+  'fixed top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20 disabled:pointer-events-none disabled:opacity-0'
+
 /**
  * Visionneuse plein écran : le média seul, sur fond noir. Clic à côté ou Échap pour fermer.
- * Avec `assets` (les images d'une série, d'un lot…), flèches et touches ← → pour passer de l'une à l'autre.
+ * Avec `onPrev` / `onNext` : chevrons fixes sur les bords de l'écran et flèches du clavier.
  */
 export function MediaViewer({
   asset,
   onClose,
-  assets,
-  onNavigate,
+  onPrev,
+  onNext,
 }: {
   asset: Asset | null
   onClose: () => void
-  assets?: Asset[]
-  onNavigate?: (asset: Asset) => void
+  onPrev?: () => void
+  onNext?: () => void
 }) {
-  const index = asset && assets ? assets.findIndex((a) => a.id === asset.id) : -1
-  const navigable = Boolean(onNavigate && assets && index >= 0 && assets.length > 1)
-  const go = (step: number) => {
-    if (!navigable) return
-    onNavigate!(assets![(index + step + assets!.length) % assets!.length])
-  }
+  // Flèches du clavier pour passer d'un média à l'autre.
+  useEffect(() => {
+    if (!asset || (!onPrev && !onNext)) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') onPrev?.()
+      if (e.key === 'ArrowRight') onNext?.()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [asset, onPrev, onNext])
 
   return (
     <Dialog open={Boolean(asset)} onOpenChange={(v) => !v && onClose()}>
@@ -33,16 +41,17 @@ export function MediaViewer({
         <DialogPrimitive.Content
           aria-describedby={undefined}
           onClick={onClose}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowRight') go(1)
-            else if (e.key === 'ArrowLeft') go(-1)
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-6 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+          className="fixed inset-0 z-50 flex items-center justify-center px-20 py-6 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
         >
-          <DialogPrimitive.Title className="sr-only">Aperçu</DialogPrimitive.Title>
+          <DialogPrimitive.Title className="sr-only">
+            Aperçu
+          </DialogPrimitive.Title>
           {asset && (
             <>
-              <div className="absolute top-4 right-4 flex gap-2" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="absolute top-4 right-4 flex gap-2"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <a
                   href={`${asset.url}?download=1`}
                   className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"
@@ -57,38 +66,37 @@ export function MediaViewer({
                   <X className="h-4 w-4" />
                 </DialogPrimitive.Close>
               </div>
-              {navigable && (
+              {/* Chevrons fixes sur les bords : ils ne bougent pas quelle que soit la taille de l'image. */}
+              {(onPrev || onNext) && (
                 <>
-                  <span className="absolute top-5 left-5 rounded-full bg-white/10 px-3 py-1 text-xs text-white tabular-nums">
-                    {index + 1} / {assets!.length}
-                  </span>
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation()
-                      go(-1)
+                      onPrev?.()
                     }}
-                    className="absolute top-1/2 left-4 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/25"
-                    aria-label="Image précédente (←)"
-                    title="Image précédente (←)"
+                    disabled={!onPrev}
+                    aria-label="Précédente"
+                    className={`${NAV} left-4`}
                   >
-                    <ChevronLeft className="h-6 w-6" />
+                    <ChevronLeft className="h-5 w-5" />
                   </button>
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation()
-                      go(1)
+                      onNext?.()
                     }}
-                    className="absolute top-1/2 right-4 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/25"
-                    aria-label="Image suivante (→)"
-                    title="Image suivante (→)"
+                    disabled={!onNext}
+                    aria-label="Suivante"
+                    className={`${NAV} right-4`}
                   >
-                    <ChevronRight className="h-6 w-6" />
+                    <ChevronRight className="h-5 w-5" />
                   </button>
                 </>
               )}
               {asset.mediaType === 'video' ? (
                 <video
-                  key={asset.id}
                   src={asset.url}
                   controls
                   autoPlay

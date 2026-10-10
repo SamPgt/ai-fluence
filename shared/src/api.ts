@@ -3,7 +3,7 @@
  * Les montants sont des chaînes décimales USD (comme SpicyAPI).
  */
 import type { InputSchema, VideoRefMode } from './input';
-import type { MediaKind, ModelBadge, ModelProvider, TaskKind } from './models';
+import type { MediaKind, ModelBadge, ModelProvider, ProviderId, TaskKind } from './models';
 import type { LibraryZone } from './library';
 import type { CreatorKind, GenerationVariation, MasterAxis } from './masters';
 
@@ -40,15 +40,11 @@ export interface Settings {
   apiKeyHint: string | null;
   mediaDir: string;
   defaultMediaDir: string;
-  defaultImageFamily: string | null;
-  defaultVideoFamily: string | null;
   enhanceModel: string;
 }
 
 export interface UpdateSettingsRequest {
   mediaDir?: string | null;
-  defaultImageFamily?: string | null;
-  defaultVideoFamily?: string | null;
   enhanceModel?: string;
 }
 
@@ -103,13 +99,19 @@ export interface CatalogFamily {
   media: MediaKind;
   badges: ModelBadge[];
   hint: string;
-  provider: ModelProvider;
+  provider: ProviderId;
+  recommended?: number;
+  lowCost?: boolean;
+  /** Où tourne la génération : SpicyAPI (`spicy`) ou le ComfyUI local (`comfy`). */
+  runtime: ModelProvider;
   /** Accepte une image « visage » appliquée au résultat (ReActor, modèles locaux). */
   supportsFace: boolean;
   available: boolean;
   /** Pourquoi le modèle n'est pas utilisable (clé manquante, ComfyUI arrêté…). */
   unavailableReason: string | null;
   tasks: Partial<Record<TaskKind, CatalogTask>>;
+  /** Durée typique d'une génération (médiane de tes générations réussies), en secondes. */
+  typicalSeconds: number | null;
 }
 
 export interface CatalogResponse {
@@ -148,6 +150,94 @@ export interface PersonaLora {
   /** Famille de modèle pour laquelle la LoRA a été entraînée. */
   family: string;
   noise?: 'high' | 'low' | 'both';
+  /** Mots déclencheurs de cette LoRA (aucun, un ou plusieurs). */
+  triggerWords: string[];
+  /** Mots décochés dans la fiche : jamais proposés dans le composer. */
+  hiddenWords?: string[];
+  /** Aperçu affiché dans la liste (LoRA importée depuis la bibliothèque). */
+  previewUrl?: string;
+  /** Page d'origine de la LoRA (Civitai). */
+  sourceUrl?: string;
+  /**
+   * LoRA Civitai disponible pour plusieurs modèles : un fichier (une ligne) par
+   * modèle coché, toutes reliées par `key`. `available` liste les modèles possibles.
+   */
+  group?: PersonaLoraGroup;
+}
+
+export interface PersonaLoraGroup {
+  key: string;
+  available: {
+    family: string;
+    files: { url: string; noise?: 'high' | 'low' }[];
+    triggerWords: string[];
+  }[];
+}
+
+// ── Bibliothèque communautaire (Civitai) ─────────────────────
+
+export type CivitaiSort = 'Most Downloaded' | 'Highest Rated' | 'Newest';
+
+export interface CivitaiFile {
+  /** Lien de téléchargement Civitai, résolu côté serveur à chaque génération. */
+  url: string;
+  fileName: string;
+  sizeKB: number;
+  /** Wan 2.2 : passe visée par ce fichier. */
+  noise?: 'high' | 'low';
+}
+
+export interface CivitaiPreview {
+  /** Image fixe (première image d'une vidéo). */
+  url: string;
+  /** Vidéo légère, lue au survol. */
+  videoUrl?: string;
+  nsfw: boolean;
+}
+
+/** Fichier(s) d'une LoRA Civitai pour un de nos modèles. */
+export interface CivitaiVariant {
+  family: string;
+  baseModel: string;
+  versionId: number;
+  versionName: string;
+  triggerWords: string[];
+  files: CivitaiFile[];
+}
+
+export interface CivitaiLora {
+  modelId: number;
+  versionId: number;
+  name: string;
+  versionName: string;
+  creator: string;
+  pageUrl: string;
+  /** Famille AI Fluence correspondante. */
+  family: string;
+  baseModel: string;
+  triggerWords: string[];
+  previews: CivitaiPreview[];
+  files: CivitaiFile[];
+  downloads: number;
+  likes: number;
+  nsfw: boolean;
+  /** Une entrée par modèle compatible (la première = champs ci-dessus). */
+  variants: CivitaiVariant[];
+}
+
+export interface CivitaiSearchResponse {
+  items: CivitaiLora[];
+  nextCursor: string | null;
+}
+
+/** Taille maximale du texte d'un bloc de contexte. */
+export const CONTEXT_BLOCK_MAX = 600;
+
+/** Bloc du contexte du persona : envoyé à chaque génération de ce persona. */
+export interface PersonaContextBlock {
+  id: string;
+  title: string;
+  text: string;
 }
 
 export type Gender = 'female' | 'male';
@@ -155,7 +245,6 @@ export type Gender = 'female' | 'male';
 export interface Persona {
   id: string;
   name: string;
-  kind: 'influencer' | 'art';
   /** Genre du personnage (null : non précisé). */
   gender: Gender | null;
   /** Fiche d'identité (traits de la zone Personnage), ajoutée en bulles dans le composer. */
@@ -163,12 +252,7 @@ export interface Persona {
   color: string;
   avatarAssetId: string | null;
   avatarUrl: string | null;
-  description: string;
-  /** Personnalité, façon de parler, comportement : utilisé par l'amélioration de prompt. */
-  personality: string;
-  /** Ajouté à chaque prompt (DA, apparence…). */
-  promptSuffix: string;
-  triggerWord: string;
+  contextBlocks: PersonaContextBlock[];
   loras: PersonaLora[];
   defaultImageFamily: string | null;
   defaultVideoFamily: string | null;
@@ -229,6 +313,16 @@ export interface TraitSlot {
   drawFrom: 'all' | 'favorites' | 'pool';
   pool: string[];
 }
+/** LoRA appliquée à une génération (instantané). */
+export interface GenerationLora {
+  id: string;
+  label: string;
+  /** Mots déclencheurs réellement envoyés. */
+  triggerWords: string[];
+}
+
+/** Limite SpicyAPI : LoRA par génération. */
+export const MAX_LORAS_PER_GENERATION = 3;
 
 export type GenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -255,6 +349,8 @@ export interface Generation {
   batchIndex: number;
   /** Contextes utilisés (instantané au moment de la génération). */
   contexts: GenerationContext[];
+  /** LoRA du persona cochées à l'envoi. */
+  loras: GenerationLora[];
   lorasApplied: number;
   status: GenerationStatus;
   errorCode: string | null;
@@ -266,7 +362,8 @@ export interface Generation {
   /** Durée de la génération, en millisecondes. */
   durationMs: number | null;
   outputs: Asset[];
-  provider: ModelProvider;
+  /** Où elle a tourné : SpicyAPI (`spicy`) ou le ComfyUI local (`comfy`). */
+  runtime: ModelProvider;
   spicyTaskId: string | null;
   createdAt: string;
   completedAt: string | null;
@@ -294,8 +391,14 @@ export interface GenerationRequest {
   placeId?: string | null;
   /** Genre du sujet quand il n'y a pas de persona (créateur de personnage) : accorde la phrase des traits. */
   gender?: Gender | null;
-  /** Contextes activés : leur texte est ajouté à la fin du prompt (« Additional details: … »). */
+  /** Image à modifier (posée par « Éditer ») : la première image envoyée. Une consigne le précise au modèle. */
+  editAssetId?: string;
+  /** Contextes activés : leur texte est ajouté au prompt, dans la section « # Détails ». */
   contextIds?: string[];
+  /** LoRA du persona cochées (aucune si absent, 3 max). */
+  loraIds?: string[];
+  /** Mots déclencheurs choisis pour chaque LoRA (id → mots). Seuls ceux-là vont dans le prompt. */
+  loraWords?: Record<string, string[]>;
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
   expectedCost?: string;
 }
@@ -359,6 +462,8 @@ export interface PromptPreset {
   media: MediaKind | 'all';
   /** Affiché dans le composer. */
   enabled: boolean;
+  /** Persona propriétaire, ou `null` pour un raccourci disponible partout. */
+  personaId: string | null;
   position: number;
 }
 
@@ -438,7 +543,7 @@ export interface LibraryThumbnail {
 /** Devis des miniatures à générer avec un modèle API (gratuit en local). */
 export interface ThumbnailQuote {
   family: string;
-  provider: ModelProvider;
+  runtime: ModelProvider;
   count: number;
   /** Coût estimé d'une miniature, puis du total. */
   unitCost: string;
@@ -554,4 +659,34 @@ export interface Scene {
   placeId: string | null;
   prompt: string;
   createdAt: string;
+}
+
+// ── Corbeille ─────────────────────────────────────────────────
+
+export interface TrashedPersona {
+  id: string;
+  name: string;
+  color: string;
+  avatarUrl: string | null;
+  /** Fils partis à la corbeille avec ce persona. */
+  threadCount: number;
+  deletedAt: string;
+  /** Date de suppression définitive. */
+  purgeAt: string;
+}
+
+export interface TrashedThread {
+  id: string;
+  title: string;
+  personaName: string | null;
+  coverUrl: string | null;
+  deletedAt: string;
+  purgeAt: string;
+}
+
+export interface TrashResponse {
+  /** Durée de conservation, en jours. */
+  days: number;
+  personas: TrashedPersona[];
+  threads: TrashedThread[];
 }

@@ -15,11 +15,13 @@ import type {
   CharacterSlot,
   CreatorKind,
   GenerationContext,
+  GenerationLora,
   GenerationTrait,
   GenerationVariation,
   Gender,
   LibraryZone,
   ModelProvider,
+  PersonaContextBlock,
   PersonaLora,
   TraitSlot,
   TaskKind,
@@ -64,8 +66,6 @@ export const userSettings = pgTable('user_settings', {
   spicyApiKeyHint: text('spicy_api_key_hint'),
   /** Dossier des médias ; null = dossier par défaut sous DATA_DIR. */
   mediaDir: text('media_dir'),
-  defaultImageFamily: text('default_image_family'),
-  defaultVideoFamily: text('default_video_family'),
   // Modèle rapide (~5 s) : Grok 4.7 réfléchit longtemps (~30 s) pour une simple reformulation.
   enhanceModel: text('enhance_model').notNull().default('deepseek/v4.1-flash/chat'),
   updatedAt: updatedAt(),
@@ -79,7 +79,6 @@ export const personas = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    kind: text('kind').$type<'influencer' | 'art'>().notNull().default('influencer'),
     /** Genre du personnage : accorde le prompt et choisit les miniatures de la bibliothèque. */
     gender: text('gender').$type<Gender>(),
     /** Fiche d'identité (créateur de personnage) : traits ajoutés en bulles dans le composer. */
@@ -88,14 +87,14 @@ export const personas = pgTable(
     masterThreadId: uuid('master_thread_id'),
     color: text('color').notNull().default('#8b5cf6'),
     avatarAssetId: uuid('avatar_asset_id'),
-    description: text('description').notNull().default(''),
-    personality: text('personality').notNull().default(''),
-    promptSuffix: text('prompt_suffix').notNull().default(''),
-    triggerWord: text('trigger_word').notNull().default(''),
+    /** Blocs de contexte (titre, texte), toujours envoyés au prompt. */
+    contextBlocks: jsonb('context_blocks').$type<PersonaContextBlock[]>().notNull().default([]),
     loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
     defaultImageFamily: text('default_image_family'),
     defaultVideoFamily: text('default_video_family'),
     position: integer('position').notNull().default(0),
+    /** Corbeille : le persona, ses fils et ses médias sont masqués, puis supprimés après 7 jours. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -114,6 +113,8 @@ export const threads = pgTable(
     isPinned: boolean('is_pinned').notNull().default(false),
     /** Fil technique (variantes du créateur de personnage) : absent de la liste des fils et de la galerie. */
     hidden: boolean('hidden').notNull().default(false),
+    /** Corbeille : masqué de l'app, supprimé pour de bon après 7 jours. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -153,6 +154,8 @@ export const generations = pgTable(
     traits: jsonb('traits').$type<GenerationTrait[]>().notNull().default([]),
     /** Images master : axe et variante de cette image. */
     variation: jsonb('variation').$type<GenerationVariation>(),
+    /** LoRA cochées à l'envoi (instantané). */
+    loras: jsonb('loras').$type<GenerationLora[]>().notNull().default([]),
     status: text('status').$type<'queued' | 'running' | 'succeeded' | 'failed'>().notNull().default('queued'),
     spicyTaskId: text('spicy_task_id'),
     /** `spicy` (cloud) ou `comfy` (ComfyUI local). */
@@ -202,6 +205,8 @@ export const assets = pgTable(
     placeId: uuid('place_id').references((): AnyPgColumn => places.id, { onDelete: 'set null' }),
     /** Image master du persona (validée pour la cohérence, puis le jeu d'entraînement d'une LoRA). */
     isMaster: boolean('is_master').notNull().default(false),
+    /** Ordre dans la bibliothèque de références (glisser-déposer). Vide : les plus récentes d'abord. */
+    referencePosition: integer('reference_position'),
     /** Copie uploadée chez SpicyAPI (valable 24 h). */
     spicyUri: text('spicy_uri'),
     spicyUriExpiresAt: timestamp('spicy_uri_expires_at', { withTimezone: true }),
@@ -224,7 +229,9 @@ export const promptPresets = pgTable(
     label: text('label').notNull(),
     text: text('text').notNull(),
     media: text('media').$type<'image' | 'video' | 'all'>().notNull().default('all'),
-    /** Contexte masqué du composer sans être supprimé. */
+    /** Persona propriétaire ; null = raccourci disponible pour tous les personas. */
+    personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'cascade' }),
+    /** Raccourci masqué du composer sans être supprimé. */
     enabled: boolean('enabled').notNull().default(true),
     position: integer('position').notNull().default(0),
     createdAt: createdAt(),

@@ -58,6 +58,10 @@ function GalleryPage() {
   })
   const items = query.data?.pages.flatMap((p) => p.items) ?? []
 
+  // Visionneuse : passer d'une image à l'autre de la galerie.
+  const viewingIndex = viewing ? items.findIndex((i) => i.asset.id === viewing.asset.id) : -1
+  const openAt = (index: number) => setViewing({ asset: items[index].asset, prompt: items[index].generation?.prompt ?? '' })
+
   return (
     <>
       <PageHeader
@@ -187,8 +191,8 @@ function GalleryPage() {
       <MediaViewer
         asset={viewing?.asset ?? null}
         onClose={() => setViewing(null)}
-        assets={items.map((i) => i.asset)}
-        onNavigate={(asset) => setViewing({ asset, prompt: items.find((i) => i.asset.id === asset.id)?.generation?.prompt ?? '' })}
+        onPrev={viewingIndex > 0 ? () => openAt(viewingIndex - 1) : undefined}
+        onNext={viewingIndex >= 0 && viewingIndex < items.length - 1 ? () => openAt(viewingIndex + 1) : undefined}
       />
       <ConfirmDialog
         open={deleting !== null}

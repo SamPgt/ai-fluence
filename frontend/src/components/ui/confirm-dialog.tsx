@@ -38,13 +38,19 @@ export function ConfirmDialog({
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
+          {/* Focus sur Annuler pour une action destructrice : Entrée n'efface jamais par erreur. */}
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={pending}
+            autoFocus={destructive}
+          >
             Annuler
           </Button>
           <Button
             onClick={onConfirm}
             disabled={pending}
-            autoFocus
+            autoFocus={!destructive}
             className={destructive ? 'bg-red-600 text-white hover:bg-red-500' : undefined}
           >
             {pending && <Loader2 className="h-4 w-4 animate-spin" />}

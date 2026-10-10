@@ -1,6 +1,7 @@
 {
   "name": "ai-fluence",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "packageManager": "npm@11.6.2",
   "workspaces": [
     "shared",

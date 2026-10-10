@@ -1,6 +1,6 @@
 {
-  "id": "cd522fbd-eb66-4881-83f6-aa9273dc00a7",
-  "prevId": "f1b7c01e-d4ac-4a3f-93e5-198da3ab47fa",
+  "id": "db91f399-d631-4abf-8350-eb04dac0a998",
+  "prevId": "5f550313-d9bd-45a3-9851-08e6cfa5fff6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -88,6 +88,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "reference_position": {
+          "name": "reference_position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "spicy_uri": {
           "name": "spicy_uri",
@@ -296,25 +302,6 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "face_asset_id": {
-          "name": "face_asset_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "batch_id": {
-          "name": "batch_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "batch_index": {
-          "name": "batch_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "loras_applied": {
           "name": "loras_applied",
           "type": "integer",
@@ -329,6 +316,13 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
+        "loras": {
+          "name": "loras",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -338,19 +332,6 @@
         },
         "spicy_task_id": {
           "name": "spicy_task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'spicy'"
-        },
-        "comfy_prompt_id": {
-          "name": "comfy_prompt_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -382,12 +363,6 @@
         },
         "seed": {
           "name": "seed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "duration_ms": {
-          "name": "duration_ms",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -503,252 +478,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.library_categories": {
-      "name": "library_categories",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "gendered": {
-          "name": "gendered",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "thumbnail_template": {
-          "name": "thumbnail_template",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "library_categories_user_key_idx": {
-          "name": "library_categories_user_key_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "library_categories_user_id_users_id_fk": {
-          "name": "library_categories_user_id_users_id_fk",
-          "tableFrom": "library_categories",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.library_options": {
-      "name": "library_options",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "category_id": {
-          "name": "category_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "fragment": {
-          "name": "fragment",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tags": {
-          "name": "tags",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "weight": {
-          "name": "weight",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "library_options_category_idx": {
-          "name": "library_options_category_idx",
-          "columns": [
-            {
-              "expression": "category_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "position",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "library_options_category_fragment_idx": {
-          "name": "library_options_category_fragment_idx",
-          "columns": [
-            {
-              "expression": "category_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "fragment",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "library_options_category_id_library_categories_id_fk": {
-          "name": "library_options_category_id_library_categories_id_fk",
-          "tableFrom": "library_options",
-          "tableTo": "library_categories",
-          "columnsFrom": [
-            "category_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.personas": {
       "name": "personas",
       "schema": "",
@@ -772,19 +501,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'influencer'"
-        },
-        "gender": {
-          "name": "gender",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "color": {
           "name": "color",
           "type": "text",
@@ -798,33 +514,12 @@
           "primaryKey": false,
           "notNull": false
         },
-        "description": {
-          "name": "description",
-          "type": "text",
+        "context_blocks": {
+          "name": "context_blocks",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "''"
-        },
-        "personality": {
-          "name": "personality",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "prompt_suffix": {
-          "name": "prompt_suffix",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "trigger_word": {
-          "name": "trigger_word",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
+          "default": "'[]'::jsonb"
         },
         "loras": {
           "name": "loras",
@@ -851,6 +546,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -941,6 +642,12 @@
           "notNull": true,
           "default": "'all'"
         },
+        "persona_id": {
+          "name": "persona_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "enabled": {
           "name": "enabled",
           "type": "boolean",
@@ -987,6 +694,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "prompt_presets_persona_id_personas_id_fk": {
+          "name": "prompt_presets_persona_id_personas_id_fk",
+          "tableFrom": "prompt_presets",
+          "tableTo": "personas",
+          "columnsFrom": [
+            "persona_id"
           ],
           "columnsTo": [
             "id"
@@ -1125,6 +845,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

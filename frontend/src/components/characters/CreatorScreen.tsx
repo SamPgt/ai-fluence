@@ -194,7 +194,7 @@ function Creator({
 
   // Modèle : local par défaut.
   const families = (catalog?.families ?? []).filter((f) => f.media === 'image' && f.available && f.tasks['text-to-image'])
-  const family = families.find((f) => f.id === draft.family) ?? families.find((f) => f.provider === 'comfy') ?? families[0]
+  const family = families.find((f) => f.id === draft.family) ?? families.find((f) => f.runtime === 'comfy') ?? families[0]
   // Le modèle affiché par défaut est enregistré : il devient le modèle par défaut du persona gardé.
   useEffect(() => {
     if (family && !draft.family) onChange({ family: family.id })

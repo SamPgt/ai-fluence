@@ -21,6 +21,8 @@ const envSchema = z.object({
   COMFYUI_STOP: optionalString(z.string()),
   /** Dossier de ComfyUI : l'app y supprime sa copie de chaque image une fois rapatriée (`output/ai-fluence/`). */
   COMFYUI_DIR: optionalString(z.string()),
+  /** Optionnel : bibliothèque LoRA Civitai (recherche + téléchargements protégés). Ne quitte jamais le backend. */
+  CIVITAI_KEY: z.string().optional(),
 });
 
 /** `VAR=` dans le .env donne une chaîne vide : on la traite comme absente. */

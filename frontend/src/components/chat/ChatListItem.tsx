@@ -16,14 +16,23 @@ interface ChatListItemProps {
   onTogglePin: () => void
 }
 
-export function ChatListItem({ thread, isActive, onDelete, onTogglePin }: ChatListItemProps) {
+export function ChatListItem({
+  thread,
+  isActive,
+  onDelete,
+  onTogglePin,
+}: ChatListItemProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const rename = useRenameThread()
 
   return (
-    <div className="relative" onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+    <div
+      className="relative"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <Link
         to="/t/$threadId"
         params={{ threadId: thread.id }}
@@ -36,11 +45,18 @@ export function ChatListItem({ thread, isActive, onDelete, onTogglePin }: ChatLi
           // Focus clavier doux, comme les champs texte des modales, tracé à l'intérieur :
           // la zone de défilement (overflow obligatoire pour scroller) ne peut plus le couper.
           'relative flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-[color,background-color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
-          isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+          isActive
+            ? 'bg-accent text-accent-foreground'
+            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
         )}
       >
         {thread.coverUrl ? (
-          <img src={thread.coverUrl} alt="" className="h-8 w-8 shrink-0 rounded-md object-cover" loading="lazy" />
+          <img
+            src={thread.coverUrl}
+            alt=""
+            className="h-8 w-8 shrink-0 rounded-md object-cover"
+            loading="lazy"
+          />
         ) : (
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
             <ImageIcon className="h-3.5 w-3.5" />
@@ -63,7 +79,9 @@ export function ChatListItem({ thread, isActive, onDelete, onTogglePin }: ChatLi
             </span>
           )}
           <span className="block text-[11px] text-muted-foreground/70">
-            {thread.generationCount} génération{thread.generationCount > 1 ? 's' : ''} · {formatUsd(thread.totalCost)}
+            {thread.generationCount} génération
+            {thread.generationCount > 1 ? 's' : ''} ·{' '}
+            {formatUsd(thread.totalCost)}
           </span>
         </span>
       </Link>
@@ -79,12 +97,16 @@ export function ChatListItem({ thread, isActive, onDelete, onTogglePin }: ChatLi
             }}
             className={cn(
               'rounded-md p-1.5 transition-colors',
-              thread.isPinned ? 'text-primary hover:text-primary/70' : 'text-muted-foreground hover:text-foreground',
+              thread.isPinned
+                ? 'text-primary hover:text-primary/70'
+                : 'text-muted-foreground hover:text-foreground',
             )}
             aria-label={thread.isPinned ? 'Désépingler' : 'Épingler'}
             title={thread.isPinned ? 'Désépingler' : 'Épingler'}
           >
-            <Pin className={cn('h-3.5 w-3.5', thread.isPinned && 'fill-current')} />
+            <Pin
+              className={cn('h-3.5 w-3.5', thread.isPinned && 'fill-current')}
+            />
           </button>
           <button
             onClick={(e) => {
@@ -104,12 +126,9 @@ export function ChatListItem({ thread, isActive, onDelete, onTogglePin }: ChatLi
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Supprimer ce fil ?"
-        description={
-          <>
-            « {thread.title} » et ses résultats seront retirés de l’app (galerie comprise). Les images et vidéos restent dans ton dossier local.
-          </>
-        }
+        title="Mettre ce fil à la corbeille ?"
+        description="Il est conservé dans la corbeille pendant 7 jours. Ensuite, il est supprimé définitivement."
+        confirmLabel="Mettre à la corbeille"
         onConfirm={() => {
           setConfirming(false)
           onDelete()

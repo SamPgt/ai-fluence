@@ -135,7 +135,7 @@ async function thumbnailFamily(userId: string, category: CategoryRow): Promise<C
   if (!family.available) {
     throw new HTTPException(409, {
       message:
-        family.provider === 'comfy'
+        family.runtime === 'comfy'
           ? 'ComfyUI ne tourne pas : démarre-le depuis la barre latérale pour générer les miniatures.'
           : `${family.label} : ${family.unavailableReason ?? 'indisponible'}.`,
     });
@@ -177,7 +177,7 @@ async function queueThumbnail(user: SessionUser, family: CatalogFamily, category
   const landscape = category.zone === 'place';
   let comfyPromptId: string | null = null;
   let generationId: string | null = null;
-  if (family.provider === 'comfy') {
+  if (family.runtime === 'comfy') {
     const endpoint = localEndpoint(family.tasks['text-to-image']!.modelId);
     if (!endpoint) throw new Error('Workflow des miniatures introuvable.');
     const size = landscape ? LANDSCAPE : PORTRAIT;
@@ -230,7 +230,7 @@ export async function quoteCategoryThumbnails(user: SessionUser, categoryId: str
   const family = await thumbnailFamily(user.id, category);
   const todo = await thumbnailsToGenerate(category, mode);
   let unitCost = '0';
-  if (family.provider !== 'comfy' && todo.length) {
+  if (family.runtime !== 'comfy' && todo.length) {
     const quote = await quoteGeneration(user, {
       family: family.id,
       prompt: promptFor(category, todo[0].option, todo[0].gender),
@@ -243,7 +243,7 @@ export async function quoteCategoryThumbnails(user: SessionUser, categoryId: str
   }
   return {
     family: family.id,
-    provider: family.provider,
+    runtime: family.runtime,
     count: todo.length,
     unitCost,
     totalCost: String(Number((Number(unitCost) * todo.length).toFixed(6))),

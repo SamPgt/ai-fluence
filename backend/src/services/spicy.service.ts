@@ -2,11 +2,14 @@ import { SpicyApiError, SpicyClient, SpicyTransportError, type ApiModel } from '
 import { HTTPException } from 'hono/http-exception';
 import {
   ENDPOINT_SUFFIX_TO_TASK,
+  deriveBadges,
   MODEL_FAMILIES,
   type CatalogFamily,
   type CatalogResponse,
   type InputSchema,
 } from '@ai-fluence/shared';
+import { sql } from 'drizzle-orm';
+import { db } from '../db/index.js';
 import { env } from '../env.js';
 import { getLocalFamilies } from './comfy-workflows.js';
 import { getSettingsRow, requireApiKey } from './settings.service.js';
@@ -37,10 +40,25 @@ export async function getModels(userId: string): Promise<ApiModel[]> {
   return list.items;
 }
 
+/** Durée médiane (secondes) des 50 dernières générations réussies de chaque modèle. */
+async function typicalDurations(userId: string): Promise<Map<string, number>> {
+  const rows = await db.execute<{ family: string; seconds: number }>(sql`
+    select family, percentile_cont(0.5) within group (order by seconds)::float as seconds
+    from (
+      select family, extract(epoch from (completed_at - created_at)) as seconds,
+             row_number() over (partition by family order by created_at desc) as n
+      from generations
+      where user_id = ${userId} and status = 'succeeded' and completed_at is not null
+    ) last
+    where n <= 50
+    group by family`);
+  return new Map((rows as unknown as { family: string; seconds: number }[]).map(r => [r.family, Math.round(r.seconds)]));
+}
+
 export async function getCatalog(userId: string): Promise<CatalogResponse> {
   // Sans clé, les modèles SpicyAPI restent listés mais indisponibles : les modèles locaux suffisent à générer.
   const hasKey = Boolean((await getSettingsRow(userId)).spicyApiKeyEnc);
-  const models = hasKey ? await getModels(userId) : [];
+  const [models, durations] = await Promise.all([hasKey ? getModels(userId) : Promise.resolve([]), typicalDurations(userId)]);
   const families: CatalogFamily[] = MODEL_FAMILIES.map(def => {
     const tasks: CatalogFamily['tasks'] = {};
     for (const m of models) {
@@ -58,13 +76,17 @@ export async function getCatalog(userId: string): Promise<CatalogResponse> {
       };
     }
     const available = Object.keys(tasks).length > 0;
+    // Badges recalculés depuis les schémas live : toujours justes, même si le catalogue évolue.
+    const badges = available ? deriveBadges(tasks, def.badges) : def.badges;
     return {
       ...def,
-      provider: 'spicy',
+      badges,
+      runtime: 'spicy' as const,
       supportsFace: false,
       tasks,
       available,
       unavailableReason: available ? null : hasKey ? 'Indisponible avec cette clé' : 'Clé API SpicyAPI manquante',
+      typicalSeconds: durations.get(def.id) ?? null,
     };
   });
   const textModels = models.filter(m => m.modality === 'text' && m.enabled).map(m => m.model);

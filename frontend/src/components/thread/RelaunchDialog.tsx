@@ -77,7 +77,7 @@ export function RelaunchDialog({ request, onClose }: { request: GenerationReques
               autoFocus
               onClick={() => create.mutate()}
               disabled={!quote.data || quote.isFetching || create.isPending}
-              className="brand-gradient hover:opacity-90"
+              variant="outline"
             >
               {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Relancer
