@@ -89,6 +89,7 @@ L'app peut se connecter à un ComfyUI qui tourne sur la même machine. Sans `COM
 | `COMFYUI_URL` | Adresse de ComfyUI, par exemple `http://127.0.0.1:8188`. Affiche son statut en bas de la barre latérale |
 | `COMFYUI_LAUNCH` | Commande de démarrage, par exemple `python -m comfy_cli launch --background` |
 | `COMFYUI_STOP` | Commande d'arrêt, par exemple `python -m comfy_cli stop --port 8188` |
+| `COMFYUI_DIR` | Dossier de ComfyUI (ex. `A:\ComfyUI`). L'app y supprime sa copie de chaque image (`output/ai-fluence/`) une fois rapatriée dans ses médias. Vide : rien n'est supprimé |
 
 Avec `COMFYUI_LAUNCH` et `COMFYUI_STOP`, un bouton permet de démarrer et d'arrêter ComfyUI depuis l'app. La commande de démarrage doit rendre la main (`--background`) : ComfyUI tourne ainsi dans son propre processus et survit aux redémarrages du backend.
 

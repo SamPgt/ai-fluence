@@ -36,7 +36,7 @@ import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
-import { cancelPrompt, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
+import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
 import { resolveTraits } from './traits.service.js';
 import { drawSlots, resolveWildcards } from './draw.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
@@ -497,6 +497,8 @@ async function watchComfy(row: GenerationRow, promptId: string): Promise<void> {
       for (const file of state.files) {
         const { data, mime } = await downloadFile(file);
         await storeOutput(row, dir, index++, data, mime, pngSize(data) ?? {});
+        // Rapatriée dans les médias de l'app : la copie de ComfyUI n'est plus utile.
+        await deleteOutputFile(file);
       }
       const seed = typeof row.input.seed === 'number' ? row.input.seed : null;
       await db

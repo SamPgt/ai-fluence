@@ -19,6 +19,8 @@ const envSchema = z.object({
   COMFYUI_LAUNCH: optionalString(z.string()),
   /** Commande d'arrêt, ex. `python -m comfy_cli stop --port 8188`. */
   COMFYUI_STOP: optionalString(z.string()),
+  /** Dossier de ComfyUI : l'app y supprime sa copie de chaque image une fois rapatriée (`output/ai-fluence/`). */
+  COMFYUI_DIR: optionalString(z.string()),
 });
 
 /** `VAR=` dans le .env donne une chaîne vide : on la traite comme absente. */

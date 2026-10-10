@@ -14,7 +14,7 @@ import { getZone, type Gender, type LibraryThumbnail, type ThumbnailGender } fro
 import { db } from '../db/index.js';
 import { assets, libraryCategories, libraryOptions, libraryThumbnails, users } from '../db/schema.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
-import { cancelPrompt, downloadFile, getPromptState, isComfyRunning, queuePrompt } from './comfy.service.js';
+import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, isComfyRunning, queuePrompt } from './comfy.service.js';
 import { mediaUrl } from './serialize.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { extFor, saveFile } from './storage.service.js';
@@ -294,4 +294,5 @@ async function storeThumbnail(
     .update(libraryThumbnails)
     .set({ status: 'ready', assetId: asset.id, comfyPromptId: null, error: null, durationMs, updatedAt: new Date() })
     .where(eq(libraryThumbnails.id, t.id));
+  await deleteOutputFile(file);
 }

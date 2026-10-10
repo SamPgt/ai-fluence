@@ -1,4 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { unlink } from 'node:fs/promises';
+import path from 'node:path';
 import type { ComfyStatus } from '@ai-fluence/shared';
 import { env } from '../env.js';
 
@@ -322,6 +324,18 @@ export async function downloadFile(file: ComfyFile): Promise<{ data: Uint8Array;
   const res = await comfyFetch(`/view?${query}`);
   if (!res.ok) throw new Error(`Téléchargement du résultat ComfyUI impossible (HTTP ${res.status}).`);
   return { data: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get('content-type') ?? 'image/png' };
+}
+
+/**
+ * Supprime la copie d'un résultat dans le dossier `output` de ComfyUI, une fois rapatrié dans les médias de l'app.
+ * Seulement les fichiers de l'app (`output/ai-fluence/…`) ; sans `COMFYUI_DIR`, rien n'est supprimé.
+ */
+export async function deleteOutputFile(file: ComfyFile): Promise<void> {
+  if (!env.COMFYUI_DIR || file.type !== 'output' || !file.subfolder.startsWith('ai-fluence')) return;
+  const base = path.resolve(env.COMFYUI_DIR, 'output');
+  const target = path.resolve(base, file.subfolder, file.filename);
+  if (!target.startsWith(base + path.sep)) return;
+  await unlink(target).catch(() => undefined);
 }
 
 export async function stopComfy(): Promise<ComfyStatus> {
