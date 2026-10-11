@@ -186,6 +186,8 @@ export const assetsApi = {
   },
   references: (personaId: string) => apiFetch<{ assets: Asset[] }>('/assets/references', { query: { personaId } }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/assets/${id}`, { method: 'DELETE' }),
+  /** Prompt inversé : JoyCaption (local) décrit l'image en un prompt anglais. */
+  describe: (id: string) => apiFetch<{ prompt: string }>(`/assets/${id}/describe`, { method: 'POST' }),
   reorderReferences: (personaId: string, ids: string[]) =>
     apiFetch<{ ok: true }>('/assets/references/order', { method: 'PUT', body: { personaId, ids } }),
   setReference: (assetId: string, personaId: string, isReference: boolean) =>
@@ -212,6 +214,9 @@ export const personasApi = {
     apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/candidate`, { method: 'POST', body: { keep } }),
   updateVoice: (id: string, body: { exaggeration?: number; clearJob?: boolean }) =>
     apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice`, { method: 'PATCH', body }),
+  /** Texte dit écouté avant la vidéo : la piste est gardée et reprise telle quelle par la génération. */
+  listenSpeech: (id: string, text: string) =>
+    apiFetch<{ assetId: string; url: string; seconds: number }>(`/personas/${id}/voice/speech`, { method: 'POST', body: { text } }),
   /** Essai de la voix : un WAV à écouter tout de suite (rien n'est enregistré). */
   previewVoice: async (id: string, body: { text: string; exaggeration?: number; candidate?: boolean }): Promise<Blob> => {
     const res = await fetch(`/api/personas/${id}/voice/preview`, {

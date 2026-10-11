@@ -48,8 +48,17 @@ last_used = time.time()
 def get_model():
     global model
     if model is None:
+        import huggingface_hub.constants as hf_constants
         from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-        model = ChatterboxMultilingualTTS.from_pretrained(device='cuda' if torch.cuda.is_available() else 'cpu')
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # Hors ligne d'abord : sinon chaque chargement interroge Hugging Face, et une connexion lente ou
+        # coupée le bloque plusieurs minutes. En ligne seulement si les poids ne sont pas encore là.
+        hf_constants.HF_HUB_OFFLINE = True
+        try:
+            model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+        except Exception:  # noqa: BLE001
+            hf_constants.HF_HUB_OFFLINE = False
+            model = ChatterboxMultilingualTTS.from_pretrained(device=device)
     return model
 
 

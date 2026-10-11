@@ -125,6 +125,7 @@ export async function getComfyStatus(): Promise<ComfyStatus> {
     gpu: null,
     error: null,
     log,
+    canDescribe: false,
   };
   if (!env.COMFYUI_URL) return base;
 
@@ -139,6 +140,7 @@ export async function getComfyStatus(): Promise<ComfyStatus> {
     return {
       ...base,
       state: 'running',
+      canDescribe: await hasNodes(['JC', 'JC_ExtraOptions']).catch(() => false),
       version: stats.system?.comfyui_version ?? null,
       gpu: device?.name
         ? { name: gpuName(device.name), vramTotal: device.vram_total ?? 0, vramFree: device.vram_free ?? 0 }
@@ -302,6 +304,48 @@ export async function getPromptState(promptId: string, outputNode: string): Prom
   if (queue.queue_pending?.some(item => item[1] === promptId)) return { state: 'queued' };
   // Entre la fin d'exécution et l'écriture de l'historique, le prompt peut n'être nulle part un court instant.
   return entry ? { state: 'running' } : { state: 'lost' };
+}
+
+/**
+ * Libère la VRAM de ComfyUI (modèles gardés en mémoire) pour un autre outil local (le serveur de voix),
+ * seulement si sa file est vide : une génération en cours n'est jamais gênée.
+ */
+export async function freeComfyMemory(): Promise<void> {
+  if (!env.COMFYUI_URL || !(await probe())) return;
+  const queue = (await (await comfyFetch('/queue')).json()) as { queue_running?: unknown[]; queue_pending?: unknown[] };
+  if (queue.queue_running?.length || queue.queue_pending?.length) return;
+  await comfyFetch('/free', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unload_models: true, free_memory: true }),
+  });
+}
+
+/**
+ * Attend la fin d'un workflow qui produit du texte (`PreviewAny`) et renvoie ce texte.
+ * Pour des tâches courtes (description d'image) : l'appelant attend la réponse.
+ */
+export async function waitForText(promptId: string, node: string, timeoutMs = 5 * 60_000): Promise<string> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    await new Promise(r => setTimeout(r, 1000));
+    const history = (await (await comfyFetch(`/history/${promptId}`)).json()) as Record<
+      string,
+      { status?: HistoryEntry['status']; outputs?: Record<string, { text?: string[] }> }
+    >;
+    const entry = history[promptId];
+    if (!entry) continue;
+    if (entry.status?.status_str === 'error') {
+      const err = entry.status.messages?.find(([type]) => type === 'execution_error')?.[1];
+      throw new Error(err ? `${err.node_type ?? 'ComfyUI'} : ${err.exception_message ?? 'erreur'}`.trim() : 'Échec dans ComfyUI.');
+    }
+    if (entry.status?.completed) {
+      const text = entry.outputs?.[node]?.text?.join(' ').trim();
+      if (!text) throw new Error('ComfyUI n’a renvoyé aucun texte.');
+      return text;
+    }
+  }
+  throw new Error('ComfyUI met trop de temps à répondre.');
 }
 
 /** Retire un prompt de la file de ComfyUI, ou l'interrompt s'il est en cours d'exécution. */

@@ -82,6 +82,8 @@ export interface ComfyStatus {
   error: string | null;
   /** Dernières lignes de sortie de la commande lancée (pour diagnostiquer). */
   log: string[];
+  /** Nœud JoyCaption installé (ComfyUI en marche) : « Décrire » une image en prompt. */
+  canDescribe: boolean;
 }
 
 // ── Catalogue ─────────────────────────────────────────────────

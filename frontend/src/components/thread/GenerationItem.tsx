@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BookmarkPlus,
   Clapperboard,
+  CopyPlus,
   Download,
   Loader2,
   Mic,
@@ -11,7 +12,6 @@ import {
   RefreshCw,
   Shuffle,
   ImageUpscale,
-  RotateCcw,
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -378,10 +378,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                 <button
                   onClick={() => rerun()}
                   className="rounded-md p-1 hover:bg-accent hover:text-foreground"
-                  title="Modifier la demande : la remet dans le composer"
-                  aria-label="Modifier la demande"
+                  title="Reprendre la demande : la remet dans le composer (prompt, bulles, images, réglages), sans la relancer"
+                  aria-label="Reprendre la demande"
                 >
-                  <RotateCcw className="size-[14px]" />
+                  <CopyPlus className="size-[14px]" />
                 </button>
                 <button
                   onClick={() => setDeleting({ kind: 'generation' })}
@@ -529,10 +529,9 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
           {/* Pied : actions à gauche, coût à droite (comme le prix du composer et le total du fil) */}
           {!pending && (
             <div
-              className={cn(
-                'flex items-center gap-1 text-[11px] text-muted-foreground',
-                g.outputs.length <= 1 && 'max-w-xl',
-              )}
+              // Une seule ligne quand la place le permet (le bloc déborde la largeur de l'image) ;
+              // sinon passage à la ligne entre deux actions, jamais au milieu d'un libellé.
+              className="flex flex-wrap items-center gap-1 text-[11px] whitespace-nowrap text-muted-foreground"
             >
               {!isUpscale && (
                 <>
@@ -542,6 +541,13 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                     title="Relancer la même demande"
                   >
                     <RefreshCw className="h-3 w-3" /> Relancer
+                  </button>
+                  <button
+                    onClick={() => rerun()}
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+                    title="Remet la demande dans le composer (prompt, bulles, images, réglages) pour la modifier, sans la relancer"
+                  >
+                    <CopyPlus className="h-3 w-3" /> Reprendre
                   </button>
                   {/* Même menu que le composer, limité au type de média de cette génération. */}
                   <ModelPicker

@@ -9,6 +9,7 @@ import { db } from '../db/index.js';
 import { assets, generations, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { deleteOutput } from '../services/generation.service.js';
+import { describeImage } from '../services/describe.service.js';
 import { toAsset } from '../services/serialize.js';
 import { getSettingsRow, mediaDirOf, slug } from '../services/settings.service.js';
 import {
@@ -127,6 +128,8 @@ export const assetsRoutes = new Hono<AppEnv>()
     },
   )
   /** Retire un résultat de l'app (le fichier reste sur le disque). */
+  /** Prompt inversé : JoyCaption (local) décrit l'image en un prompt anglais réutilisable. */
+  .post('/:id/describe', async c => c.json({ prompt: await describeImage(c.get('user').id, c.req.param('id')) }))
   .delete('/:id', async c => {
     await deleteOutput(c.get('user'), c.req.param('id'));
     return c.json({ ok: true });

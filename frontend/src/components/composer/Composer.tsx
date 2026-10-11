@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Dice5, Film, Info, Loader2, Mic, Pencil, Plus, Shapes, X } from 'lucide-react'
+import { ArrowUp, Dice5, Film, Info, Loader2, Mic, Pencil, Plus, ScanText, Shapes, Volume2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
@@ -22,10 +22,11 @@ import {
   type TaskKind,
 } from '@ai-fluence/shared'
 
-import { ApiError, assetsApi, generationsApi } from '@/lib/api'
+import { ApiError, assetsApi, generationsApi, personasApi } from '@/lib/api'
 import { composer, composerStore, isEmptyDraft } from '@/lib/composer-store'
 import {
   catalogQuery,
+  comfyStatusQuery,
   personasQuery,
   presetsQuery,
   qk,
@@ -109,6 +110,12 @@ interface ComposerProps {
   suggestedFamily?: string | null
 }
 
+/** Temps de calcul estimé d'une vidéo LTX (en minutes) : ~40 s par seconde de vidéo en 512p, le double en 720p. */
+function videoMinutes(speechSeconds: number, resolution: string): number {
+  const seconds = speechSeconds + 1
+  return Math.max(1, Math.round((seconds * (resolution === '720p' ? 80 : 40)) / 60))
+}
+
 export function Composer({
   threadId,
   personaId,
@@ -123,6 +130,24 @@ export function Composer({
 
   const state = useSelector(composerStore, (s) => s)
   const { data: settings } = useQuery(settingsQuery())
+  const { data: comfyStatus } = useQuery(comfyStatusQuery())
+  // Prompt inversé en cours (id de l'image décrite).
+  const [describing, setDescribing] = useState<string | null>(null)
+  const describe = async (assetId: string) => {
+    setDescribing(assetId)
+    try {
+      const { prompt } = await assetsApi.describe(assetId)
+      const current = composerStore.state.prompt.trim()
+      composer.setPrompt(current ? `${current}
+
+${prompt}` : prompt)
+      toast.success('Image décrite : adapte le prompt à ton personnage.')
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setDescribing(null)
+    }
+  }
   // Catalogue chargé même sans clé SpicyAPI : les modèles locaux (ComfyUI) suffisent à générer.
   const { data: catalog, error: catalogError } = useQuery(
     catalogQuery(Boolean(settings)),
@@ -393,6 +418,35 @@ export function Composer({
 
   const setParam = (key: string, v: unknown) =>
     state.family && composer.setParam(state.family, key, v)
+
+  // Texte dit (vidéo parlée) : la piste écoutée avant la vidéo, reprise telle quelle à l'envoi.
+  const [speechInfo, setSpeechInfo] = useState<{ assetId: string; url: string; seconds: number } | null>(null)
+  const [listening, setListening] = useState(false)
+  const speechAudioRef = useRef<HTMLAudioElement | null>(null)
+  const listenSpeech = async () => {
+    const text = typeof params.speech === 'string' ? params.speech.trim() : ''
+    if (!persona || !text) return
+    speechAudioRef.current?.pause()
+    let url = speechInfo && params.speech_audio === speechInfo.assetId ? speechInfo.url : null
+    if (!url && typeof params.speech_audio === 'string') url = `/api/media/${params.speech_audio}`
+    if (!url) {
+      setListening(true)
+      try {
+        const info = await personasApi.listenSpeech(persona.id, text)
+        setSpeechInfo(info)
+        setParam('speech_audio', info.assetId)
+        url = info.url
+      } catch (e) {
+        toast.error((e as Error).message)
+        return
+      } finally {
+        setListening(false)
+      }
+    }
+    const audio = new Audio(url)
+    speechAudioRef.current = audio
+    void audio.play()
+  }
   // Réglages rapides de la barre (les autres restent dans le panneau Paramètres).
   const resolutionProp = schema?.properties?.resolution
   const ratioProp = schema?.properties?.aspect_ratio
@@ -505,6 +559,22 @@ export function Composer({
                       {a.id === faceId ? 'Visage' : 'Départ'}
                     </button>
                   )}
+                  {/* Prompt inversé (JoyCaption, local) : la photo devient un prompt réutilisable. */}
+                  {comfyStatus?.canDescribe && a.mediaType === 'image' && (
+                    <button
+                      type="button"
+                      onClick={() => describe(a.id)}
+                      disabled={describing !== null}
+                      className={cn(
+                        'absolute right-1 bottom-1 flex items-center gap-0.5 rounded bg-black/70 px-1 py-0.5 text-[10px] font-semibold text-white/90 transition-opacity hover:text-white',
+                        describing === a.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                      )}
+                      title="Décrire l’image : en faire un prompt (lieu, tenue, pose, lumière), sans l’identité de la personne"
+                    >
+                      {describing === a.id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <ScanText className="h-2.5 w-2.5" />}
+                      Décrire
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => composer.removeAttachment(a.id)}
@@ -609,7 +679,11 @@ export function Composer({
               <Mic className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <input
                 value={typeof params.speech === 'string' ? params.speech : ''}
-                onChange={(e) => setParam('speech', e.target.value || undefined)}
+                onChange={(e) => {
+                  setParam('speech', e.target.value || undefined)
+                  // La piste écoutée ne correspond plus au texte : elle sera refaite.
+                  if (params.speech_audio) setParam('speech_audio', undefined)
+                }}
                 onKeyDown={onKeyDown}
                 placeholder={
                   persona
@@ -620,6 +694,25 @@ export function Composer({
                 className="min-w-0 flex-1 bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
                 maxLength={2000}
               />
+              {speechInfo && params.speech_audio === speechInfo.assetId && (
+                <span className="shrink-0 text-[11px] text-muted-foreground" title="Durée de la piste, temps de calcul estimé de la vidéo">
+                  {speechInfo.seconds.toFixed(1)} s · vidéo ≈ {videoMinutes(speechInfo.seconds, String(params.resolution ?? '512p'))} min
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={listenSpeech}
+                disabled={!persona || !(typeof params.speech === 'string' && params.speech.trim()) || listening}
+                className="flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                title={
+                  persona
+                    ? 'Écouter la piste avant de lancer la vidéo : c’est elle qui sera utilisée, telle quelle'
+                    : 'Choisis un personnage (sa voix)'
+                }
+              >
+                {listening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Volume2 className="h-3.5 w-3.5" />}
+                Écouter
+              </button>
             </div>
           )}
           {/* Vidéo longue (clips enchaînés) : le prompt peut raconter une suite, un passage par ligne « --- ». */}

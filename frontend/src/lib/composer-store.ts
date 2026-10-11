@@ -309,14 +309,16 @@ export const composer = {
       if (unloadWhenEmpty && words.length === 0) delete loras[id]
       return { ...s, loras }
     }),
+  /**
+   * Après l'envoi : seul le prompt est vidé. Les images jointes (références, visage) restent pour la demande
+   * suivante, on les retire d'un clic sur leur croix.
+   */
   clearAfterSend: () =>
     composerStore.setState((s) => ({
       ...s,
       prompt: '',
-      attachments: [],
       editAssetId: null,
       fromAction: false,
-      faceChoice: 'auto',
     })),
   /** Pré-remplit le composer (Modifier la demande, Relancer avec…). */
   load: (

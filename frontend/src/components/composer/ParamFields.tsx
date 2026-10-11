@@ -65,7 +65,7 @@ const LABELS: Record<string, string> = {
 export const QUICK_FIELDS = ['model', 'aspect_ratio', 'resolution', 'duration_seconds']
 
 /** Paramètres qui ont leur propre champ sous le prompt (« Texte dit » des vidéos parlées). */
-const INLINE_FIELDS = new Set(['speech'])
+const INLINE_FIELDS = new Set(['speech', 'speech_audio'])
 
 export function labelOf(key: string): string {
   return (

@@ -39,7 +39,7 @@ import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
-import { padWav, speechFor, unloadVoice } from './voice.service.js';
+import { assertCanSpeak, padWav, speechFor, unloadVoice } from './voice.service.js';
 import { LTX_FPS, ltxPlan } from './comfy-builders.js';
 import { resolveTraits } from './traits.service.js';
 import { drawSlots, resolveWildcards } from './draw.service.js';
@@ -262,6 +262,8 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
   if (required.includes('prompt') && !built.input.prompt) {
     throw new HTTPException(400, { message: 'Ce modèle a besoin d’un prompt.' });
   }
+  // Vidéo parlée : sans voix, la génération échouerait au lancement ; l'erreur explicite vient tout de suite.
+  if (forCreate && typeof built.input.speech === 'string' && built.input.speech.trim()) await assertCanSpeak(persona?.id ?? null);
 
   return {
     runtime: family.runtime,
@@ -519,7 +521,8 @@ async function submitToComfy(p: Prepared): Promise<string> {
   let audio: { file: string; seconds: number } | undefined;
   const speech = typeof p.input.speech === 'string' ? p.input.speech.trim() : '';
   if (speech && endpoint.schema.properties?.speech) {
-    const { data, seconds } = await speechFor(p.persona?.id ?? null, speech);
+    const listened = typeof p.input.speech_audio === 'string' ? p.input.speech_audio : null;
+    const { data, seconds } = await speechFor(p.persona?.id ?? null, speech, listened);
     // Un souffle avant la phrase, une courte fin après (un long silence final fait inventer à LTX un écran
     // de fin), puis du silence jusqu'à la durée exacte de la vidéo (clips enchaînés compris).
     const lead = 0.4;

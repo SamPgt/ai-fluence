@@ -9,7 +9,7 @@ import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { toPersona } from '../services/serialize.js';
 import { trashPersona } from '../services/trash.service.js';
-import { createVoice, decideCandidate, getVoice, previewVoice, updateVoice } from '../services/voice.service.js';
+import { createVoice, decideCandidate, getVoice, listenSpeech, previewVoice, updateVoice } from '../services/voice.service.js';
 import type { AppEnv } from '../types.js';
 
 const loraSchema = z.object({
@@ -151,6 +151,10 @@ const personasRoutes = new Hono<AppEnv>()
     '/:id/voice',
     zValidator('json', z.object({ exaggeration: z.number().min(0.2).max(1.2).optional(), clearJob: z.boolean().optional() })),
     async c => c.json({ voice: await updateVoice(c.get('user'), c.req.param('id'), c.req.valid('json')) }),
+  )
+  /** Texte dit écouté dans le composer avant la vidéo : la piste est gardée pour la génération. */
+  .post('/:id/voice/speech', zValidator('json', z.object({ text: z.string().trim().min(1).max(2000) })), async c =>
+    c.json(await listenSpeech(c.get('user'), c.req.param('id'), c.req.valid('json').text)),
   )
   /** Essai de la voix : renvoie le WAV directement, rien n'est enregistré. */
   .post(

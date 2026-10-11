@@ -120,6 +120,8 @@ Les fichiers installés dans ComfyUI sont lus en direct :
 
 **Précision** (paramètres ⚙️) : **fp8 par défaut**, pleine précision au choix. Sur une RTX 3060 12 Go, à graine identique, les images sont identiques à l'œil et la vitesse est la même, mais le pic de VRAM passe de 11,8 Go à 7,5–9,2 Go : assez de marge pour que ComfyUI ne sature pas quand d'autres applications utilisent la carte. Sans effet sur un modèle déjà enregistré en fp8.
 
+**Décrire une image (prompt inversé)** : sur une image jointe au composer, **Décrire** en fait un prompt anglais (lieu, tenue, pose, lumière, cadrage), ajouté au prompt en cours, pour faire vivre une vraie scène (un resto à Paris…) à un personnage. L'identité de la personne photographiée n'est pas décrite (« a person »), c'est le personnage qui la remplace. Nœud [ComfyUI-JoyCaption](https://github.com/1038lab/ComfyUI-JoyCaption) et modèle JoyCaption Beta One (`models/LLM/llama-joycaption-beta-one`, ~16 Go, chargé en 4 bits) : ~35 s par image sur RTX 3060, la VRAM est libérée après chaque description. Avec `transformers` 5, le nœud plante (« 'SizeDict' object cannot be interpreted as an integer ») : il faut une petite correction dans `JC.py` (taille d'image lue en attributs), à refaire après une mise à jour du nœud.
+
 Un fichier ajouté dans ComfyUI apparaît dans l'app au rafraîchissement du catalogue. Le temps de calcul de chaque génération locale est affiché sous le résultat.
 
 Ajouter un workflow :
@@ -135,7 +137,7 @@ Un personnage peut parler dans ses vidéos, avec **sa** voix, toujours la même,
 
 1. **Créer sa voix** (page du personnage → carte **Voix**, ~5 min) : LTX-2.3 anime son image qui raconte sa journée face caméra, d'une voix décrite en une phrase (facultatif : « voix douce et posée… »). On garde la piste audio comme **extrait de référence**. Les mots de cette vidéo sont approximatifs (LTX articule mal le français), seul le timbre compte. La voix est **proposée** : on l'écoute, on l'essaie, puis on la garde ou on l'écarte.
 2. **L'essayer** : une phrase au choix, dite par le serveur de voix ([Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox), licence MIT) en imitant l'extrait, en quelques secondes. Le curseur **Calme ↔ Expressive** règle l'intonation (il sert aussi aux vidéos).
-3. **La faire parler** : composer → LTX-2.3 (local), image de départ, et le champ **Texte dit**. Le texte est dit avec la voix du personnage, puis LTX anime l'image en suivant cette piste (lèvres, expressions) ; la durée de la vidéo s'ajuste à la phrase. Sans « Texte dit », LTX invente le son lui-même (voix, ambiance) d'après le prompt.
+3. **La faire parler** : composer → LTX-2.3 (local), image de départ, et le champ **Texte dit**. Le bouton **Écouter** fabrique la piste en quelques secondes et affiche sa durée et le temps de calcul estimé de la vidéo : si elle convient, **c'est cette piste-là** qui part dans la vidéo, telle quelle (elle est refaite si le texte ou l'expressivité changent). Sans écoute préalable, la piste est faite au lancement. Le texte est dit avec la voix du personnage, puis LTX anime l'image en suivant cette piste (lèvres, expressions) ; la durée de la vidéo s'ajuste à la phrase. Sans « Texte dit », LTX invente le son lui-même (voix, ambiance) d'après le prompt.
 
 Mesures sur RTX 3060 12 Go : création d'une voix ~5 min ; une phrase ~5 s (~20 s au premier essai, le temps de charger le modèle) ; vidéo parlée de 7 s en 720p ~8 min.
 

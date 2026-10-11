@@ -10,6 +10,7 @@
  * de la voix (la page du personnage interroge tant qu'elle est en cours).
  */
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { HTTPException } from 'hono/http-exception';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -19,7 +20,7 @@ import { assets, personas, type PersonaVoiceRow } from '../db/schema.js';
 import { env } from '../env.js';
 import { buildLtx } from './comfy-builders.js';
 import { LTX_FILES, resolveRequirements } from './comfy-workflows.js';
-import { deleteOutputFile, downloadFile, getPromptState, isComfyRunning, queuePrompt, uploadImage } from './comfy.service.js';
+import { deleteOutputFile, downloadFile, freeComfyMemory, getPromptState, isComfyRunning, queuePrompt, uploadImage } from './comfy.service.js';
 import { mediaUrl } from './serialize.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { extFor, join, saveFile } from './storage.service.js';
@@ -144,6 +145,8 @@ export function padWav(data: Uint8Array, leadSeconds: number, tailSeconds: numbe
 
 /** Fait dire un texte avec la voix d'un extrait de référence. Renvoie un WAV. */
 async function synthesize(text: string, referencePath: string, exaggeration: number): Promise<Uint8Array> {
+  // ComfyUI garde ses modèles en VRAM (LTX : ~10 Go) : sans place, le modèle de voix ne se charge pas.
+  await freeComfyMemory().catch(() => undefined);
   const res = await voicePost('/tts', { text, reference: referencePath, exaggeration, language: 'fr' }, TTS_TIMEOUT_MS);
   return new Uint8Array(await res.arrayBuffer());
 }
@@ -371,17 +374,99 @@ function withDataSize(header: Uint8Array, size: number): Uint8Array {
   return header;
 }
 
-/** Texte dit d'une vidéo parlée : la piste WAV avec la voix du personnage et sa durée (sans silences ajoutés). */
-export async function speechFor(personaId: string | null, text: string): Promise<{ data: Uint8Array; seconds: number }> {
-  if (!isVoiceEnabled()) throw new Error('Voix non configurée (VOICE_URL).');
-  if (!personaId) throw new Error('Une vidéo parlée demande un personnage (pour sa voix).');
+/**
+ * Empreinte d'une piste de texte dit : la voix, l'expressivité et le texte. Inscrite dans le nom du fichier
+ * écouté depuis le composer, elle permet de réutiliser cette piste telle quelle pour la vidéo, tant que rien
+ * n'a changé.
+ */
+function speechKey(voiceAssetId: string, exaggeration: number, text: string): string {
+  return createHash('sha1').update(`${voiceAssetId}|${exaggeration}|${text.trim()}`).digest('hex').slice(0, 16);
+}
+
+async function speakerOf(personaId: string | null) {
+  if (!isVoiceEnabled()) {
+    throw new HTTPException(400, {
+      message: 'Les vidéos parlées demandent le serveur de voix : renseigne VOICE_URL dans backend/.env (cf. README, « Vidéos parlées »).',
+    });
+  }
+  if (!personaId) {
+    throw new HTTPException(400, { message: 'Un « Texte dit » a besoin d’un personnage : choisis-en un, c’est sa voix qui parlera.' });
+  }
   const [persona] = await db.select().from(personas).where(eq(personas.id, personaId)).limit(1);
   const voice = persona ? voiceOf(persona) : null;
   const ref = await assetRow(voice?.assetId);
-  if (!persona || !voice || !ref) throw new Error('Ce personnage n’a pas encore de voix (page du personnage → Voix).');
+  if (!persona || !voice || !ref) {
+    const name = persona?.name ?? 'Ce personnage';
+    throw new HTTPException(400, {
+      message:
+        `${name} n’a pas encore de voix. Crée-la sur sa page : Personnages → ${name} → carte « Voix » → « Créer une voix » ` +
+        '(~5 min), puis « Garder cette voix ». Ou retire le « Texte dit » pour que LTX invente le son.',
+    });
+  }
+  return { persona, voice, ref };
+}
+
+/** Vérifie, avant de lancer une vidéo parlée, que le personnage a une voix (erreur explicite sinon). */
+export async function assertCanSpeak(personaId: string | null): Promise<void> {
+  await speakerOf(personaId);
+}
+
+async function synthesizeLong(text: string, referencePath: string, exaggeration: number): Promise<Uint8Array> {
   const parts: Uint8Array[] = [];
-  for (const chunk of speechChunks(text)) parts.push(await synthesize(chunk, ref.filePath, voice.exaggeration));
-  const data = joinWavs(parts, 0.25);
+  for (const chunk of speechChunks(text)) parts.push(await synthesize(chunk, referencePath, exaggeration));
+  return joinWavs(parts, 0.25);
+}
+
+/**
+ * Texte dit d'une vidéo parlée : la piste WAV avec la voix du personnage et sa durée (sans silences ajoutés).
+ * `listenedAssetId` : la piste écoutée depuis le composer, reprise telle quelle si elle correspond encore
+ * (même voix, même expressivité, même texte) ; sinon la piste est refaite.
+ */
+export async function speechFor(
+  personaId: string | null,
+  text: string,
+  listenedAssetId?: string | null,
+): Promise<{ data: Uint8Array; seconds: number }> {
+  const { voice, ref } = await speakerOf(personaId);
+  const listened = await assetRow(listenedAssetId);
+  if (listened && listened.kind === 'voice' && listened.personaId === personaId) {
+    if (listened.filePath.includes(speechKey(ref.id, voice.exaggeration, text))) {
+      const data = new Uint8Array(await readFile(listened.filePath));
+      return { data, seconds: wavSeconds(data) };
+    }
+  }
+  const data = await synthesizeLong(text, ref.filePath, voice.exaggeration);
   return { data, seconds: wavSeconds(data) };
+}
+
+/**
+ * Écoute du texte dit depuis le composer, avant de lancer la vidéo : la piste est enregistrée (média `voice`)
+ * pour être reprise telle quelle par la génération.
+ */
+export async function listenSpeech(
+  user: SessionUser,
+  personaId: string,
+  text: string,
+): Promise<{ assetId: string; url: string; seconds: number }> {
+  const persona = await ownedPersona(user.id, personaId);
+  const { voice, ref } = await speakerOf(persona.id);
+  const key = speechKey(ref.id, voice.exaggeration, text);
+  const data = await synthesizeLong(text, ref.filePath, voice.exaggeration);
+  const seconds = wavSeconds(data);
+  const saved = await saveFile(join(await voiceDir(user, persona), `texte-${Date.now()}-${key}.wav`), data);
+  const [row] = await db
+    .insert(assets)
+    .values({
+      userId: user.id,
+      personaId: persona.id,
+      kind: 'voice',
+      mediaType: 'audio',
+      mime: 'audio/wav',
+      filePath: saved.path,
+      bytes: saved.bytes,
+      durationSeconds: seconds,
+    })
+    .returning({ id: assets.id });
+  return { assetId: row.id, url: mediaUrl(row.id), seconds };
 }
 

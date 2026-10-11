@@ -268,6 +268,8 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
             description:
               'Texte dit par le personnage, avec sa voix (fiche du personnage) : les lèvres suivent la phrase et la durée s’y ajuste.',
           },
+          /** Piste du « Texte dit » écoutée dans le composer (média `voice`), reprise telle quelle si elle correspond. */
+          speech_audio: { type: 'string' },
           duration_seconds: {
             type: 'integer',
             enum: [5, 10, 15, 20, 30, 45, 60],
