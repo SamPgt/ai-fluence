@@ -37,6 +37,7 @@ export type ProviderId =
   | 'kling'
   | 'minimax'
   | 'lightricks'
+  | 'krea'
   | 'spicyapi';
 
 /** L'ordre des clés est celui du menu des modèles (section Fournisseurs). */
@@ -49,6 +50,7 @@ export const PROVIDERS: Record<ProviderId, { label: string; logo: string | null 
   kling: { label: 'Kling', logo: '/providers/kling.svg' },
   minimax: { label: 'MiniMax', logo: '/providers/minimax.svg' },
   lightricks: { label: 'Lightricks', logo: '/providers/lightricks.svg' },
+  krea: { label: 'Krea', logo: null },
   spicyapi: { label: 'SpicyAPI', logo: null },
 };
 
@@ -361,6 +363,16 @@ export const LOCAL_FAMILIES: ModelFamilyDef[] = [
     provider: 'alibaba',
     runtime: 'comfy',
     score: 940, // comme alibaba/wan-2.2-lora
+  },
+  {
+    id: 'local/krea-2',
+    label: 'Krea 2 (local)',
+    media: 'image',
+    badges: ['LOCAL'],
+    hint: 'Le plus réaliste (~1 min 15) ; en image → image, « filtre » réalisme. Licence communautaire (seuil de revenus)',
+    provider: 'krea',
+    runtime: 'comfy',
+    score: 1010, // guess score (n° 1 du réalisme en open source selon plusieurs comparatifs, 2026)
   },
   {
     id: 'local/ltx-2.3',

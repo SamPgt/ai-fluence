@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { LOCAL_FAMILIES, type CatalogFamily, type InputSchema, type TaskKind } from '@ai-fluence/shared';
 import { env } from '../env.js';
 import { getNodeOptions, hasNodes, isComfyRunning } from './comfy.service.js';
-import { buildKlein, buildLtx, buildQwenEdit, buildWanI2V, type BuildContext, type Graph } from './comfy-builders.js';
+import { buildKlein, buildKrea, buildLtx, buildQwenEdit, buildWanI2V, type BuildContext, type Graph } from './comfy-builders.js';
 
 /** Entrée d'un nœud du workflow : [id du nœud, nom de l'entrée]. */
 type Slot = [node: string, input: string];
@@ -166,6 +166,18 @@ const WAN_I2V_FILES: LocalEndpoint['requires'] = {
   vae: { loader: 'VAELoader', input: 'vae_name', files: ['wan_2.1_vae.safetensors'] },
 };
 
+const KREA_FILES: LocalEndpoint['requires'] = {
+  unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /krea2.*\.gguf$/i },
+  encoder: { loader: 'CLIPLoader', input: 'clip_name', match: /qwen3vl_4b/i },
+  vae: { loader: 'VAELoader', input: 'vae_name', files: ['qwen_image_vae.safetensors'] },
+};
+
+const KREA_COMMON: InputSchema['properties'] = {
+  prompt: { type: 'string', description: 'Description de l’image, en langage naturel.' },
+  steps: { type: 'integer', default: 8, minimum: 4, maximum: 12 },
+  seed: SEED,
+};
+
 export const LTX_FILES: LocalEndpoint['requires'] = {
   unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /ltx-2\.3.*distilled.*\.gguf$/i },
   // Gemma 3 12B (GGUF), sans le fichier `mmproj` (vision) qui n'a pas d'utilité ici.
@@ -204,6 +216,45 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
       pixels: 1024 * 1024,
       requires: KLEIN_FILES,
       build: (values, ctx) => buildKlein(values, ctx, { width: Number(values.width), height: Number(values.height) }),
+    },
+  },
+  'local/krea-2': {
+    'text-to-image': {
+      modelId: 'local/krea-2/text-to-image',
+      task: 'text-to-image',
+      outputNode: '9',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: { ...KREA_COMMON, aspect_ratio: { type: 'string', enum: ASPECT_RATIOS, default: '4:5' } },
+      },
+      slots: {},
+      sized: true,
+      requires: KREA_FILES,
+      build: (values, ctx) => buildKrea(values, ctx, { width: Number(values.width), height: Number(values.height) }),
+    },
+    'image-to-image': {
+      modelId: 'local/krea-2/image-to-image',
+      task: 'image-to-image',
+      outputNode: '9',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          ...KREA_COMMON,
+          image_url: { type: 'string' },
+          strength: {
+            type: 'number',
+            default: 0.3,
+            minimum: 0.05,
+            maximum: 1,
+            description: 'Faible (0,2–0,3) : « filtre » réalisme, garde visage et scène. Élevée : plus libre.',
+          },
+        },
+      },
+      slots: { image: ['20', 'image'] },
+      requires: KREA_FILES,
+      build: buildKrea,
     },
   },
   'local/qwen-image-edit-2511': {

@@ -184,6 +184,42 @@ export function buildWanI2V(values: Record<string, unknown>, ctx: BuildContext):
   };
 }
 
+// ── Krea 2 Turbo : texte → image, image → image ──────────────
+
+/**
+ * Krea 2 Turbo (GGUF Q5_K_M, encodeur Qwen3-VL 4B, VAE de Qwen Image), d'après le modèle officiel de ComfyUI :
+ * 8 étapes, CFG 1. Mesuré sur RTX 3060 (2026-10-11) : ~1 min 15 pour 1,3 Mpx une fois chargé (9,3 s/étape).
+ * Image → image : l'image est ramenée à ~1,3 Mpx puis retravaillée à la force choisie (0,25 : « filtre » réalisme).
+ */
+export function buildKrea(values: Record<string, unknown>, ctx: BuildContext, size?: { width: number; height: number }): Graph {
+  const g: Graph = {
+    '10': { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } },
+    '11': { class_type: 'CLIPLoader', inputs: { clip_name: ctx.files.encoder, type: 'krea2', device: 'default' } },
+    '12': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
+    '6': { class_type: 'CLIPTextEncode', inputs: { clip: ['11', 0], text: String(values.prompt ?? '') } },
+    '13': { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['6', 0] } },
+    '8': { class_type: 'VAEDecodeTiled', inputs: { samples: ['3', 0], vae: ['12', 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 } },
+    '9': { class_type: 'SaveImage', inputs: { images: ['8', 0], filename_prefix: 'ai-fluence/krea-2' } },
+  };
+  let denoise = 1;
+  if (ctx.images[0]) {
+    g['20'] = { class_type: 'LoadImage', inputs: { image: ctx.images[0] } };
+    g['21'] = { class_type: 'ImageScaleToTotalPixels', inputs: { image: ['20', 0], upscale_method: 'lanczos', megapixels: 1.3, resolution_steps: 16 } };
+    g['5'] = { class_type: 'VAEEncode', inputs: { pixels: ['21', 0], vae: ['12', 0] } };
+    denoise = num(values.strength, 0.3);
+  } else {
+    g['5'] = { class_type: 'EmptyLatentImage', inputs: { width: size?.width ?? 1024, height: size?.height ?? 1280, batch_size: 1 } };
+  }
+  g['3'] = {
+    class_type: 'KSampler',
+    inputs: {
+      model: ['10', 0], positive: ['6', 0], negative: ['13', 0], latent_image: ['5', 0],
+      seed: seedOf(values.seed), steps: num(values.steps, 8), cfg: 1, sampler_name: 'euler', scheduler: 'simple', denoise,
+    },
+  };
+  return g;
+}
+
 // ── LTX-2.3 : image → vidéo avec le son ───────────────────────
 
 export const LTX_FPS = 25;
