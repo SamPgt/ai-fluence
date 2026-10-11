@@ -6,6 +6,9 @@
  * - FLUX.2 klein 4B (fp8) : ~8 s en texte seul, 14–26 s avec 1 ou 2 références, sans débordement en RAM ;
  * - Qwen-Image-Edit-2511 (GGUF Q3_K_M + Lightning 4 étapes) : ~1 min, 1 à 1,7 Go en RAM (déchargement géré) ;
  * - Wan 2.2 image → vidéo 14B (GGUF Q3_K_M, LoRA lightx2v 4 étapes) : ~4 min 30 pour 3 s en 480p.
+ * - LTX-2.3 distilled 22B (GGUF Q4_K_M, Gemma 3 12B Q4) : image → vidéo avec le son en une passe, ~5 min pour
+ *   4 s en 512p, ~8–10 min pour 7 s en 720p (le 2026-10-11). Demande ~50 Go de mémoire virtuelle Windows
+ *   (fichier d'échange) : sans elle, ComfyUI s'arrête net au chargement du modèle.
  *
  * Décodage par tuiles partout : d'un seul bloc, le décodage d'une image de 1,3 Mpx a pris 6 min au lieu de
  * quelques secondes (le pilote Windows déborde alors en silence sur la RAM).
@@ -22,6 +25,8 @@ export interface BuildContext {
   imageSizes: ({ width: number; height: number } | null)[];
   /** Fichiers de modèles retenus, par rôle (`encoder`, `vae`…). */
   files: Record<string, string>;
+  /** Piste audio imposée (dossier `input` de ComfyUI) et sa durée : la vidéo suit cette voix. */
+  audio?: { file: string; seconds: number };
 }
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
@@ -164,4 +169,76 @@ export function buildWanI2V(values: Record<string, unknown>, ctx: BuildContext):
     '17': { class_type: 'CreateVideo', inputs: { images: ['16', 0], fps } },
     '9': { class_type: 'SaveVideo', inputs: { video: ['17', 0], filename_prefix: 'ai-fluence/wan-2.2', format: 'mp4', 'format.codec': 'h264' } },
   };
+}
+
+// ── LTX-2.3 : image → vidéo avec le son ───────────────────────
+
+const LTX_FPS = 25;
+const LTX_NEGATIVE = 'pc game, console game, video game, cartoon, childish, ugly, blurry, distorted face, bad teeth';
+/** Sigmas du modèle distillé (8 étapes, CFG 1), repris du modèle officiel de ComfyUI. */
+const LTX_DISTILLED_SIGMAS = '1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0';
+
+/** Taille LTX : le petit côté à 512 ou 704 px, les proportions de l'image de départ, multiples de 32. */
+function ltxSize(image: { width: number; height: number } | null, resolution: string) {
+  const short = resolution === '720p' ? 704 : 512;
+  const ratio = image ? image.width / image.height : 9 / 16;
+  const round32 = (n: number) => Math.max(32, Math.round(n / 32) * 32);
+  return ratio >= 1 ? { width: round32(short * ratio), height: short } : { width: short, height: round32(short / ratio) };
+}
+
+/** Nombre d'images LTX pour une durée : 8k + 1. */
+export function ltxFrames(seconds: number): number {
+  return Math.max(1, Math.round((seconds * LTX_FPS) / 8)) * 8 + 1;
+}
+
+/**
+ * LTX-2.3 distilled : anime l'image de départ et génère le son en même temps (voix, ambiance).
+ * Avec `ctx.audio` (voix du personnage), le son est imposé : le latent audio est encodé et figé
+ * (masque à 0), le modèle n'anime que l'image, lèvres calées sur la voix. La piste d'origine est
+ * remise telle quelle dans la vidéo.
+ * `saveAudio` : enregistre aussi la piste seule (création d'une voix de personnage).
+ */
+export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opts: { saveAudio?: boolean } = {}): Graph {
+  const size = ltxSize(ctx.imageSizes[0] ?? null, String(values.resolution ?? '512p'));
+  const seconds = ctx.audio ? ctx.audio.seconds : num(values.duration_seconds, 5);
+  const length = ltxFrames(seconds);
+  const g: Graph = {
+    '1': { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } },
+    '2': { class_type: 'DualCLIPLoaderGGUF', inputs: { clip_name1: ctx.files.encoder, clip_name2: ctx.files.connectors, type: 'ltxv' } },
+    '3': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
+    '4': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.audioVae } },
+    '5': { class_type: 'LoadImage', inputs: { image: ctx.images[0] } },
+    '6': { class_type: 'ImageScale', inputs: { image: ['5', 0], upscale_method: 'lanczos', ...size, crop: 'center' } },
+    '7': { class_type: 'LTXVPreprocess', inputs: { image: ['6', 0], img_compression: 18 } },
+    '8': { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: String(values.prompt ?? '') } },
+    '9': { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: LTX_NEGATIVE } },
+    '10': { class_type: 'LTXVConditioning', inputs: { positive: ['8', 0], negative: ['9', 0], frame_rate: LTX_FPS } },
+    '11': { class_type: 'EmptyLTXVLatentVideo', inputs: { ...size, length, batch_size: 1 } },
+    '12': { class_type: 'LTXVImgToVideoInplace', inputs: { vae: ['3', 0], image: ['7', 0], latent: ['11', 0], strength: 1, bypass: false } },
+    '14': { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: ['12', 0], audio_latent: ['13', 0] } },
+    '15': { class_type: 'RandomNoise', inputs: { noise_seed: seedOf(values.seed) } },
+    '16': { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } },
+    '17': { class_type: 'ManualSigmas', inputs: { sigmas: LTX_DISTILLED_SIGMAS } },
+    '18': { class_type: 'CFGGuider', inputs: { model: ['1', 0], positive: ['10', 0], negative: ['10', 1], cfg: 1 } },
+    '19': {
+      class_type: 'SamplerCustomAdvanced',
+      inputs: { noise: ['15', 0], guider: ['18', 0], sampler: ['16', 0], sigmas: ['17', 0], latent_image: ['14', 0] },
+    },
+    '20': { class_type: 'LTXVSeparateAVLatent', inputs: { av_latent: ['19', 0] } },
+    '21': { class_type: 'VAEDecodeTiled', inputs: { samples: ['20', 0], vae: ['3', 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 } },
+    '22': { class_type: 'LTXVAudioVAEDecode', inputs: { samples: ['20', 1], audio_vae: ['4', 0] } },
+    '23': { class_type: 'CreateVideo', inputs: { images: ['21', 0], audio: ['22', 0], fps: LTX_FPS } },
+    '9000': { class_type: 'SaveVideo', inputs: { video: ['23', 0], filename_prefix: 'ai-fluence/ltx-2.3', format: 'mp4', 'format.codec': 'h264' } },
+  };
+  if (ctx.audio) {
+    g['30'] = { class_type: 'LoadAudio', inputs: { audio: ctx.audio.file } };
+    g['31'] = { class_type: 'LTXVAudioVAEEncode', inputs: { audio: ['30', 0], audio_vae: ['4', 0] } };
+    g['32'] = { class_type: 'SolidMask', inputs: { value: 0, ...size } };
+    g['13'] = { class_type: 'SetLatentNoiseMask', inputs: { samples: ['31', 0], mask: ['32', 0] } };
+    g['23'].inputs.audio = ['30', 0];
+  } else {
+    g['13'] = { class_type: 'LTXVEmptyLatentAudio', inputs: { frames_number: length, frame_rate: LTX_FPS, batch_size: 1, audio_vae: ['4', 0] } };
+  }
+  if (opts.saveAudio) g['9001'] = { class_type: 'SaveAudio', inputs: { audio: ['22', 0], filename_prefix: 'ai-fluence/voix' } };
+  return g;
 }

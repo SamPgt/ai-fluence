@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Dice5, Film, Info, Loader2, Pencil, Plus, Shapes, X } from 'lucide-react'
+import { ArrowUp, Dice5, Film, Info, Loader2, Mic, Pencil, Plus, Shapes, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
@@ -602,6 +602,26 @@ export function Composer({
             className="field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none"
             rows={1}
           />
+
+          {/* Vidéo parlée (LTX local) : le personnage dit ce texte avec sa voix, les lèvres suivent. */}
+          {schema?.properties?.speech && (
+            <div className="mx-3 mb-1 flex items-center gap-2 rounded-xl border border-border/50 bg-background/40 px-3 py-1.5">
+              <Mic className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <input
+                value={typeof params.speech === 'string' ? params.speech : ''}
+                onChange={(e) => setParam('speech', e.target.value || undefined)}
+                onKeyDown={onKeyDown}
+                placeholder={
+                  persona
+                    ? `Texte dit par ${persona.name}, avec sa voix (facultatif)`
+                    : 'Texte dit par le personnage, avec sa voix (facultatif)'
+                }
+                title={schema.properties.speech.description}
+                className="min-w-0 flex-1 bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+                maxLength={400}
+              />
+            </div>
+          )}
 
           {/* Barre d'outils */}
           <div className="flex items-center gap-2 px-2.5 pb-2.5">

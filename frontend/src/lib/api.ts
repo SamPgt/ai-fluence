@@ -4,6 +4,7 @@
  */
 import type {
   Asset,
+  PersonaVoice,
   CharacterDraft,
   CreatorKind,
   AuthResponse,
@@ -204,6 +205,27 @@ export const personasApi = {
     apiFetch<{ persona: Persona }>(`/personas/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/personas/${id}`, { method: 'DELETE' }),
   reorder: (ids: string[]) => apiFetch<{ ok: true }>('/personas/order', { method: 'PUT', body: { ids } }),
+  voice: (id: string) => apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice`),
+  createVoice: (id: string, description: string) =>
+    apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/create`, { method: 'POST', body: { description } }),
+  decideVoice: (id: string, keep: boolean) =>
+    apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/candidate`, { method: 'POST', body: { keep } }),
+  updateVoice: (id: string, body: { exaggeration?: number; clearJob?: boolean }) =>
+    apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice`, { method: 'PATCH', body }),
+  /** Essai de la voix : un WAV à écouter tout de suite (rien n'est enregistré). */
+  previewVoice: async (id: string, body: { text: string; exaggeration?: number; candidate?: boolean }): Promise<Blob> => {
+    const res = await fetch(`/api/personas/${id}/voice/preview`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new ApiError(data?.error ?? `Erreur ${res.status}`, res.status, data)
+    }
+    return res.blob()
+  },
 }
 
 export const civitaiApi = {

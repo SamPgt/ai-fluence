@@ -9,6 +9,7 @@ import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { toPersona } from '../services/serialize.js';
 import { trashPersona } from '../services/trash.service.js';
+import { createVoice, decideCandidate, getVoice, previewVoice, updateVoice } from '../services/voice.service.js';
 import type { AppEnv } from '../types.js';
 
 const loraSchema = z.object({
@@ -138,6 +139,35 @@ const personasRoutes = new Hono<AppEnv>()
     });
     return c.json({ ok: true });
   })
+  // ── Voix (vidéos parlées, local) ──
+  .get('/:id/voice', async c => c.json({ voice: await getVoice(c.get('user'), c.req.param('id')) }))
+  .post('/:id/voice/create', zValidator('json', z.object({ description: z.string().trim().max(300).default('') })), async c =>
+    c.json({ voice: await createVoice(c.get('user'), c.req.param('id'), c.req.valid('json').description) }),
+  )
+  .post('/:id/voice/candidate', zValidator('json', z.object({ keep: z.boolean() })), async c =>
+    c.json({ voice: await decideCandidate(c.get('user'), c.req.param('id'), c.req.valid('json').keep) }),
+  )
+  .patch(
+    '/:id/voice',
+    zValidator('json', z.object({ exaggeration: z.number().min(0.2).max(1.2).optional(), clearJob: z.boolean().optional() })),
+    async c => c.json({ voice: await updateVoice(c.get('user'), c.req.param('id'), c.req.valid('json')) }),
+  )
+  /** Essai de la voix : renvoie le WAV directement, rien n'est enregistré. */
+  .post(
+    '/:id/voice/preview',
+    zValidator(
+      'json',
+      z.object({
+        text: z.string().trim().min(1).max(400),
+        exaggeration: z.number().min(0.2).max(1.2).optional(),
+        candidate: z.boolean().optional(),
+      }),
+    ),
+    async c => {
+      const wav = await previewVoice(c.get('user'), c.req.param('id'), c.req.valid('json'));
+      return new Response(new Uint8Array(wav), { headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store' } });
+    },
+  )
   .delete('/:id', async c => {
     // Corbeille : le persona et ses fils sont masqués 7 jours avant suppression définitive.
     if (!(await trashPersona(c.get('user').id, c.req.param('id')))) return c.json({ error: 'Persona introuvable.' }, 404);

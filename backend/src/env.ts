@@ -21,6 +21,10 @@ const envSchema = z.object({
   COMFYUI_STOP: optionalString(z.string()),
   /** Dossier de ComfyUI : l'app y supprime sa copie de chaque image une fois rapatriée (`output/ai-fluence/`). */
   COMFYUI_DIR: optionalString(z.string()),
+  // Serveur de voix local (Chatterbox, `voice-server/`). Vide = voix des personnages masquée.
+  VOICE_URL: optionalString(z.url()),
+  /** Commande qui lance le serveur de voix (au premier besoin, en arrière-plan). */
+  VOICE_LAUNCH: optionalString(z.string()),
   /** Optionnel : bibliothèque LoRA Civitai (recherche + téléchargements protégés). Ne quitte jamais le backend. */
   CIVITAI_KEY: z.string().optional(),
 });

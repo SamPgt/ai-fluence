@@ -55,6 +55,7 @@ import { useUiPref } from '@/components/providers/ui-prefs'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { PERSONA_COLORS } from '@/components/personas/NewPersonaDialog'
 import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
+import { PersonaVoiceCard } from '@/components/personas/PersonaVoiceCard'
 import { AssetThumb } from '@/components/composer/ReferencePicker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -469,6 +470,8 @@ function PersonaEditor({ persona }: { persona: Persona }) {
               <References persona={persona} />
 
               <PersonaPlaces persona={persona} />
+
+              <PersonaVoiceCard persona={persona} />
 
               <Card
                 title="Modèles par défaut"

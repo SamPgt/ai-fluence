@@ -362,6 +362,16 @@ export const LOCAL_FAMILIES: ModelFamilyDef[] = [
     runtime: 'comfy',
     score: 940, // comme alibaba/wan-2.2-lora
   },
+  {
+    id: 'local/ltx-2.3',
+    label: 'LTX-2.3 (local)',
+    media: 'video',
+    badges: ['LOCAL'],
+    hint: 'Anime une image avec le son (voix, ambiance) ; « Texte dit » : vidéo parlée avec la voix du personnage',
+    provider: 'lightricks',
+    runtime: 'comfy',
+    score: 892, // comme lightricks/ltx-2.3-spicy-lora
+  },
 ];
 
 export const BADGE_INFO: Record<ModelBadge, { label: string; description: string }> = {

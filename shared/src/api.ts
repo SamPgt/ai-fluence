@@ -261,6 +261,24 @@ export interface Persona {
   updatedAt: string;
 }
 
+/**
+ * Voix d'un personnage (vidéos parlées, outil local) : un extrait de référence que le serveur de voix imite.
+ * « Créer une voix » génère une courte vidéo LTX dont on garde la voix, proposée avant d'être adoptée.
+ */
+export interface PersonaVoice {
+  /** Serveur de voix et ComfyUI configurés (sinon la carte est masquée). */
+  enabled: boolean;
+  /** Extrait de référence adopté (null : pas encore de voix). */
+  url: string | null;
+  durationSeconds: number | null;
+  /** Expressivité par défaut (0,25 calme → 1 très expressive). */
+  exaggeration: number;
+  /** Voix proposée par la dernière création, en attente d'être gardée ou écartée. */
+  candidate: { audioUrl: string; videoUrl: string | null } | null;
+  /** Création en cours ou échouée. */
+  job: { state: 'running' | 'failed'; startedAt: string; error: string | null } | null;
+}
+
 export type PersonaInput = Omit<
   Persona,
   'id' | 'avatarUrl' | 'referenceCount' | 'createdAt' | 'updatedAt'

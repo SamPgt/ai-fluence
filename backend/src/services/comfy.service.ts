@@ -258,14 +258,21 @@ export interface ComfyFile {
 export type PromptState =
   | { state: 'queued' | 'running' }
   /** `durationMs` : temps d'exécution dans ComfyUI, sans l'attente dans la file. */
-  | { state: 'succeeded'; files: ComfyFile[]; durationMs: number | null }
+  | {
+      state: 'succeeded';
+      files: ComfyFile[];
+      durationMs: number | null;
+      /** Fichiers de chaque nœud de sortie (un workflow peut enregistrer une vidéo et une piste audio). */
+      outputs: Record<string, ComfyFile[]>;
+    }
   | { state: 'failed'; message: string }
   /** Ni dans l'historique ni dans la file : ComfyUI a redémarré entre-temps. */
   | { state: 'lost' };
 
 interface HistoryEntry {
   status?: { status_str?: string; completed?: boolean; messages?: [string, Record<string, unknown>][] };
-  outputs?: Record<string, { images?: ComfyFile[] }>;
+  /** Images et vidéos sous `images`, pistes audio (`SaveAudio`) sous `audio`. */
+  outputs?: Record<string, { images?: ComfyFile[]; audio?: ComfyFile[] }>;
 }
 
 export async function getPromptState(promptId: string, outputNode: string): Promise<PromptState> {
@@ -278,12 +285,15 @@ export async function getPromptState(promptId: string, outputNode: string): Prom
       return { state: 'failed', message: String(message).trim() };
     }
     if (entry.status?.completed) {
-      const files = (entry.outputs?.[outputNode]?.images ?? []).filter(f => f.type === 'output');
+      const outputs = Object.fromEntries(
+        Object.entries(entry.outputs ?? {}).map(([node, o]) => [node, [...(o.images ?? []), ...(o.audio ?? [])].filter(f => f.type === 'output')]),
+      );
+      const files = outputs[outputNode] ?? [];
       const at = (type: string) => entry.status?.messages?.find(([t]) => t === type)?.[1]?.timestamp as number | undefined;
       const start = at('execution_start');
       const end = at('execution_success');
       return files.length
-        ? { state: 'succeeded', files, durationMs: start && end ? end - start : null }
+        ? { state: 'succeeded', files, durationMs: start && end ? end - start : null, outputs }
         : { state: 'failed', message: 'ComfyUI n’a produit aucune image.' };
     }
   }
@@ -308,7 +318,10 @@ export async function cancelPrompt(promptId: string): Promise<void> {
   }
 }
 
-/** Envoie une image locale dans le dossier `input` de ComfyUI et renvoie le nom à donner à `LoadImage`. */
+/**
+ * Envoie un fichier local (image, ou piste audio pour `LoadAudio`) dans le dossier `input` de ComfyUI
+ * et renvoie le nom à donner au nœud de chargement.
+ */
 export async function uploadImage(data: Uint8Array, filename: string, mime: string): Promise<string> {
   const form = new FormData();
   form.append('image', new Blob([new Uint8Array(data)], { type: mime }), filename);

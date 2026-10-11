@@ -99,6 +99,13 @@
       "when": 1791643813852,
       "tag": "0013_comfyui_bibliotheque_personnages",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791673278623,
+      "tag": "0014_persona_voice",
+      "breakpoints": true
     }
   ]
 }

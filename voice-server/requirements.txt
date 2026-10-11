@@ -1,0 +1,7 @@
+# Environnement Python 3.11 dédié (Chatterbox impose ses versions de torch et numpy).
+#   uv venv --python 3.11 .venv
+#   uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match
+chatterbox-tts
+# Le filigrane de Chatterbox (perth) importe encore pkg_resources.
+setuptools<81
+soundfile

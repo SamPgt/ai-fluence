@@ -16,6 +16,7 @@ export const qk = {
   threadsAll: ['threads'] as const,
   thread: (id: string) => ['thread', id] as const,
   references: (personaId: string) => ['references', personaId] as const,
+  voice: (personaId: string) => ['voice', personaId] as const,
   masters: (id: string) => ['masters', id] as const,
   places: ['places'] as const,
   scenes: ['scenes'] as const,

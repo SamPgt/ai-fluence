@@ -13,8 +13,9 @@ export function mediaUrl(assetId: string): string {
 export function toAsset(row: AssetRow): Asset {
   return {
     id: row.id,
-    kind: row.kind,
-    mediaType: row.mediaType,
+    // Les voix (`voice`, audio) ne passent jamais par ici : elles ont leurs propres routes.
+    kind: row.kind as Asset['kind'],
+    mediaType: row.mediaType as Asset['mediaType'],
     mime: row.mime,
     url: mediaUrl(row.id),
     width: row.width,

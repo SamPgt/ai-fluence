@@ -6,6 +6,7 @@ import {
   Clapperboard,
   Download,
   Loader2,
+  Mic,
   Pencil,
   RefreshCw,
   Shuffle,
@@ -302,7 +303,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       {/* Demande (côté utilisateur) : la bulle ne contient que les références et le texte,
           les actions et les infos du modèle sont en dessous, sur le fond. */}
       <div className="ml-auto flex w-fit max-w-[85%] flex-col items-end gap-1.5">
-        {(g.references.length > 0 || g.face || g.prompt.trim() || g.traits.length > 0) && (
+        {(g.references.length > 0 || g.face || g.prompt.trim() || g.traits.length > 0 || Boolean(g.params.speech)) && (
           <div className="space-y-2 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3">
             {g.traits.length > 0 && (
               <div className="flex flex-wrap justify-end gap-1.5">
@@ -360,6 +361,11 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
             {g.prompt.trim() && (
               <p className="text-[15px] whitespace-pre-wrap">
                 {g.prompt.trim()}
+              </p>
+            )}
+            {typeof g.params.speech === 'string' && g.params.speech.trim() && (
+              <p className="flex items-start justify-end gap-1.5 text-sm text-muted-foreground" title="Texte dit avec la voix du personnage">
+                <Mic className="mt-0.5 h-3.5 w-3.5 shrink-0" />« {g.params.speech.trim()} »
               </p>
             )}
           </div>

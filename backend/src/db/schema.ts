@@ -32,6 +32,18 @@ import type {
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
 
+/** Voix d'un personnage, telle qu'enregistrée (cf. `PersonaVoice` pour l'API). */
+export interface PersonaVoiceRow {
+  /** Extrait de référence adopté (asset `voice`, audio). */
+  assetId: string | null;
+  exaggeration: number;
+  /** Dernière voix créée, pas encore adoptée : extrait audio et vidéo d'origine. */
+  candidateAssetId?: string | null;
+  candidateVideoAssetId?: string | null;
+  /** Création en cours dans ComfyUI (ou échouée). */
+  job?: { promptId: string; startedAt: string; error?: string | null } | null;
+}
+
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: text('email').notNull().unique(),
@@ -92,6 +104,8 @@ export const personas = pgTable(
     loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
     defaultImageFamily: text('default_image_family'),
     defaultVideoFamily: text('default_video_family'),
+    /** Voix (vidéos parlées, local) : extrait de référence, expressivité, création en cours. */
+    voice: jsonb('voice').$type<PersonaVoiceRow>(),
     position: integer('position').notNull().default(0),
     /** Corbeille : le persona, ses fils et ses médias sont masqués, puis supprimés après 7 jours. */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -189,9 +203,12 @@ export const assets = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'set null' }),
     generationId: uuid('generation_id').references(() => generations.id, { onDelete: 'set null' }),
-    /** `thumbnail` : miniature d'une option de la bibliothèque (hors galerie). */
-    kind: text('kind').$type<'upload' | 'output' | 'thumbnail'>().notNull(),
-    mediaType: text('media_type').$type<'image' | 'video'>().notNull(),
+    /**
+     * `thumbnail` : miniature d'une option de la bibliothèque (hors galerie).
+     * `voice` : voix d'un personnage (extrait audio, vidéo de création), hors galerie.
+     */
+    kind: text('kind').$type<'upload' | 'output' | 'thumbnail' | 'voice'>().notNull(),
+    mediaType: text('media_type').$type<'image' | 'video' | 'audio'>().notNull(),
     mime: text('mime').notNull(),
     /** Chemin absolu du fichier sur le disque. */
     filePath: text('file_path').notNull(),

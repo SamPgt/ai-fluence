@@ -39,6 +39,7 @@ import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
+import { speechFor, unloadVoice } from './voice.service.js';
 import { resolveTraits } from './traits.service.js';
 import { drawSlots, resolveWildcards } from './draw.service.js';
 import { resolveLoraUrl } from './civitai.service.js';
@@ -513,7 +514,16 @@ async function submitToComfy(p: Prepared): Promise<string> {
   const imageSizes = inputs.map(a => (a.width && a.height ? { width: a.width, height: a.height } : null));
   const image = endpoint.slots.image ? images[0] : undefined;
   const face = p.face ? await upload(p.face) : undefined;
-  return queuePrompt(await buildGraph(endpoint, p.input, { image, face, images, imageSizes }));
+  // Vidéo parlée : le texte est dit avec la voix du personnage, la vidéo suit cette piste.
+  let audio: { file: string; seconds: number } | undefined;
+  const speech = typeof p.input.speech === 'string' ? p.input.speech.trim() : '';
+  if (speech && endpoint.schema.properties?.speech) {
+    const { data, seconds } = await speechFor(p.persona?.id ?? null, speech);
+    audio = { file: await uploadImage(data, `ai-fluence-voix-${Date.now()}.wav`, 'audio/wav'), seconds };
+  }
+  // Le serveur de voix rend sa VRAM avant le modèle vidéo.
+  if (endpoint.task.endsWith('video')) await unloadVoice();
+  return queuePrompt(await buildGraph(endpoint, p.input, { image, face, images, imageSizes, audio }));
 }
 
 /** Largeur et hauteur lues dans l'en-tête PNG (ComfyUI enregistre en PNG). */
@@ -685,6 +695,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
     .where(eq(generations.id, asset.generationId))
     .limit(1);
   if (!source) throw new HTTPException(404, { message: 'Génération d’origine introuvable.' });
+  if (asset.mediaType === 'audio') throw new HTTPException(400, { message: 'Un fichier audio ne s’upscale pas.' });
 
   const tool = UPSCALERS[asset.mediaType];
   const model = (await getModels(user.id)).find(m => m.model === tool.modelId);

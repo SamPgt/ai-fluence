@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { LOCAL_FAMILIES, type CatalogFamily, type InputSchema, type TaskKind } from '@ai-fluence/shared';
 import { env } from '../env.js';
 import { getNodeOptions, hasNodes, isComfyRunning } from './comfy.service.js';
-import { buildKlein, buildQwenEdit, buildWanI2V, type BuildContext, type Graph } from './comfy-builders.js';
+import { buildKlein, buildLtx, buildQwenEdit, buildWanI2V, type BuildContext, type Graph } from './comfy-builders.js';
 
 /** Entrée d'un nœud du workflow : [id du nœud, nom de l'entrée]. */
 type Slot = [node: string, input: string];
@@ -166,6 +166,15 @@ const WAN_I2V_FILES: LocalEndpoint['requires'] = {
   vae: { loader: 'VAELoader', input: 'vae_name', files: ['wan_2.1_vae.safetensors'] },
 };
 
+export const LTX_FILES: LocalEndpoint['requires'] = {
+  unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /ltx-2\.3.*distilled.*\.gguf$/i },
+  // Gemma 3 12B (GGUF), sans le fichier `mmproj` (vision) qui n'a pas d'utilité ici.
+  encoder: { loader: 'DualCLIPLoaderGGUF', input: 'clip_name1', match: /gemma-3-12b-it.*\.gguf$/i },
+  connectors: { loader: 'DualCLIPLoaderGGUF', input: 'clip_name2', match: /ltx-2\.3.*embeddings_connectors/i },
+  vae: { loader: 'VAELoader', input: 'vae_name', match: /ltx-2\.3.*video_vae/i },
+  audioVae: { loader: 'VAELoader', input: 'vae_name', match: /ltx-2\.3.*audio_vae/i },
+};
+
 export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpoint>>> = {
   'local/flux2-klein-4b': {
     'text-to-image': {
@@ -236,6 +245,35 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
       slots: {},
       requires: WAN_I2V_FILES,
       build: buildWanI2V,
+    },
+  },
+  'local/ltx-2.3': {
+    'image-to-video': {
+      modelId: 'local/ltx-2.3/image-to-video',
+      task: 'image-to-video',
+      outputNode: '9000',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'La scène, le mouvement et le son : « elle rit et dit "Salut !" d’une voix enjouée, bruit de cuisine ».',
+          },
+          image_url: { type: 'string' },
+          speech: {
+            type: 'string',
+            description:
+              'Texte dit par le personnage, avec sa voix (fiche du personnage) : les lèvres suivent la phrase et la durée s’y ajuste.',
+          },
+          duration_seconds: { type: 'integer', enum: [3, 5, 7, 10], default: 5, description: 'Ignorée avec un « Texte dit ».' },
+          resolution: { type: 'string', enum: ['512p', '720p'], default: '512p', description: '720p : plus net, ~2 fois plus long.' },
+          seed: SEED,
+        },
+      },
+      slots: {},
+      requires: LTX_FILES,
+      build: buildLtx,
     },
   },
   'local/z-image-turbo': {
@@ -317,7 +355,14 @@ export async function resolveRequirements(endpoint: LocalEndpoint): Promise<{ fi
 export async function buildGraph(
   endpoint: LocalEndpoint,
   input: Record<string, unknown>,
-  files: { image?: string; face?: string; images?: string[]; imageSizes?: ({ width: number; height: number } | null)[] } = {},
+  files: {
+    image?: string;
+    face?: string;
+    images?: string[];
+    imageSizes?: ({ width: number; height: number } | null)[];
+    /** Voix imposée (vidéo parlée) : fichier dans `input` de ComfyUI et durée. */
+    audio?: { file: string; seconds: number };
+  } = {},
 ): Promise<Graph> {
   const values: Record<string, unknown> = { ...input, image: files.image };
   const props = endpoint.schema.properties ?? {};
@@ -333,7 +378,7 @@ export async function buildGraph(
     const { files: models, missing } = await resolveRequirements(endpoint);
     if (missing.length) throw new Error(`Fichiers manquants dans ComfyUI : ${missing.join(', ')}.`);
     const images = files.images ?? (files.image ? [files.image] : []);
-    return endpoint.build(values, { images, imageSizes: files.imageSizes ?? images.map(() => null), files: models });
+    return endpoint.build(values, { images, imageSizes: files.imageSizes ?? images.map(() => null), files: models, audio: files.audio });
   }
 
   const graph = JSON.parse(readFileSync(WORKFLOWS_DIR + endpoint.file!, 'utf8')) as Graph;

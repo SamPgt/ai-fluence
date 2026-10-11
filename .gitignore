@@ -13,3 +13,6 @@ dist
 .DS_Store
 frontend/src/routeTree.gen.ts
 -archives
+# Serveur de voix (environnement Python local)
+voice-server/.venv/
+__pycache__/

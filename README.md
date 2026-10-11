@@ -103,6 +103,7 @@ Quand ComfyUI tourne, les modèles locaux (badge `LOCAL`) apparaissent dans le s
 | Z-Image (local) | texte → image, image → image, + visage (si ReActor est installé) | un ou plusieurs modèles Z-Image dans `diffusion_models` (ex. `zImageTurbo_turbo.safetensors`), `qwen_3_4b_fp8_mixed.safetensors` (text_encoders), `flux1AE_v10.safetensors` (vae) |
 | FLUX.2 klein (local) | texte → image, ou 1 à 3 images de **référence** (cohérence d'un personnage, d'un lieu) | `flux-2-klein-4b-fp8.safetensors` (diffusion_models), `flux2-vae.safetensors` (vae), l'encodeur Qwen3-4B de Z-Image |
 | Qwen Edit 2511 (local) | retouche à partir de 1 à 3 images (« la femme de l'image 1 dans la cuisine de l'image 2, en t-shirt gris ») | `qwen-image-edit-2511-Q3_K_M.gguf` (diffusion_models), `qwen_2.5_vl_7b_fp8_scaled.safetensors` (text_encoders), `qwen_image_vae.safetensors` (vae), `Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors` (loras), nœud [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) |
+| LTX-2.3 (local, vidéo + son) | image → vidéo **avec le son** (voix, ambiance), 3 à 10 s, 512p ou 720p ; « Texte dit » : vidéo parlée avec la voix du personnage (cf. [Vidéos parlées](#vidéos-parlées)) | `ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf` (unet), `gemma-3-12b-it-qat-UD-Q4_K_XL.gguf` et `ltx-2.3-22b-distilled_embeddings_connectors.safetensors` (text_encoders), `ltx-2.3-22b-distilled_video_vae` et `…_audio_vae` (vae), nœud ComfyUI-GGUF |
 | Wan 2.2 (local, vidéo) | image → vidéo, 3 ou 5 s, 480p ou 720p | `Wan2.2-I2V-A14B-HighNoise-Q3_K_M.gguf` et `…LowNoise…` (diffusion_models), `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise` / `low_noise` (loras), `umt5_xxl_fp8_e4m3fn_scaled` (text_encoders), `wan_2.1_vae` (vae), nœud ComfyUI-GGUF |
 
 Un modèle dont un fichier manque reste grisé, avec la liste des fichiers manquants.
@@ -127,6 +128,35 @@ Ajouter un workflow :
 3. Ajoute la famille dans `LOCAL_FAMILIES` (`shared/src/models.ts`).
 
 > Windows : `comfy launch --background` relance la commande `comfy`, qui doit être dans le PATH. Si `comfy` n'est pas reconnu dans un terminal, ajoute le dossier `Scripts` de Python au PATH, ou préfixe la commande : `set "PATH=%APPDATA%\Python\Python314\Scripts;%PATH%" && python -m comfy_cli launch --background`.
+
+## Vidéos parlées
+
+Un personnage peut parler dans ses vidéos, avec **sa** voix, toujours la même, et des lèvres synchronisées. Tout tourne en local (ComfyUI + serveur de voix).
+
+1. **Créer sa voix** (page du personnage → carte **Voix**, ~5 min) : LTX-2.3 anime son image qui raconte sa journée face caméra, d'une voix décrite en une phrase (facultatif : « voix douce et posée… »). On garde la piste audio comme **extrait de référence**. Les mots de cette vidéo sont approximatifs (LTX articule mal le français), seul le timbre compte. La voix est **proposée** : on l'écoute, on l'essaie, puis on la garde ou on l'écarte.
+2. **L'essayer** : une phrase au choix, dite par le serveur de voix ([Chatterbox Multilingual](https://github.com/resemble-ai/chatterbox), licence MIT) en imitant l'extrait, en quelques secondes. Le curseur **Calme ↔ Expressive** règle l'intonation (il sert aussi aux vidéos).
+3. **La faire parler** : composer → LTX-2.3 (local), image de départ, et le champ **Texte dit**. Le texte est dit avec la voix du personnage, puis LTX anime l'image en suivant cette piste (lèvres, expressions) ; la durée de la vidéo s'ajuste à la phrase. Sans « Texte dit », LTX invente le son lui-même (voix, ambiance) d'après le prompt.
+
+Mesures sur RTX 3060 12 Go : création d'une voix ~5 min ; une phrase ~5 s (~20 s au premier essai, le temps de charger le modèle) ; vidéo parlée de 7 s en 720p ~8 min.
+
+**Limites** : les émotions fortes (rire, pleurs, cris, chuchotement) passent mal par le texte, Chatterbox lit « ha ha ha » au lieu de rire.
+
+**Installation du serveur de voix** (`voice-server/`, son propre environnement Python, Chatterbox imposant ses versions de torch et de numpy) :
+
+```bash
+cd voice-server
+uv venv --python 3.11 .venv
+uv pip install --python .venv/Scripts/python.exe -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match
+```
+
+| Variable | Rôle |
+| --- | --- |
+| `VOICE_URL` | Adresse du serveur de voix, par exemple `http://127.0.0.1:8190`. Vide : la carte Voix et le « Texte dit » sont masqués |
+| `VOICE_LAUNCH` | Commande qui le lance, par exemple `voice-server/.venv/Scripts/python.exe voice-server/server.py --port 8190 --models D:/cache-hf`. L'app le démarre à la première demande ; il garde le modèle (~3 Go de VRAM) chargé 5 min, puis le libère, et le libère aussi avant chaque génération vidéo |
+
+`--models` : dossier où sont téléchargés les poids de Chatterbox (~3 Go) au premier lancement ; sans lui, ils vont dans le cache Hugging Face par défaut, sur le disque système.
+
+**Mémoire virtuelle (Windows)** : LTX-2.3 (14 Go) et son encodeur de texte Gemma (12 Go) dépassent ensemble la RAM d'un PC à 32 Go. Sans un fichier d'échange assez grand, ComfyUI s'arrête net au chargement du modèle (« Mémoire virtuelle insuffisante » dans le journal Windows). Réglage : `sysdm.cpl` → Paramètres système avancés → Performances → Paramètres → Avancé → Mémoire virtuelle → taille personnalisée sur un disque avec de la place (16 Go au départ, 64 à 96 Go au maximum), puis redémarrer. Attention : Windows ignore un fichier d'échange sur un lecteur nommé `A:`.
 
 ## Bibliothèque (wildcards)
 

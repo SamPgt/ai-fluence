@@ -64,6 +64,9 @@ const LABELS: Record<string, string> = {
 /** Paramètres affichés directement dans la barre du composer (le reste est dans le popover). */
 export const QUICK_FIELDS = ['model', 'aspect_ratio', 'resolution', 'duration_seconds']
 
+/** Paramètres qui ont leur propre champ sous le prompt (« Texte dit » des vidéos parlées). */
+const INLINE_FIELDS = new Set(['speech'])
+
 export function labelOf(key: string): string {
   return (
     LABELS[key] ?? key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
@@ -85,6 +88,7 @@ export function editableFields(
   return Object.entries(schema?.properties ?? {}).filter(
     ([key, prop]) =>
       !COMPOSER_FIELDS.has(key) &&
+      !INLINE_FIELDS.has(key) &&
       prop.type !== 'array' &&
       prop.type !== 'object',
   )
