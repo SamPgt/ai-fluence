@@ -9,7 +9,7 @@ import { env } from '../env.js';
 import { call, signup } from './helpers.js';
 
 const KEY = 'sk-spicy-test-0000000000';
-const SETTINGS_KEYS = ['apiKeyHint', 'defaultMediaDir', 'enhanceModel', 'hasApiKey', 'mediaDir'];
+const SETTINGS_KEYS = ['apiKeyHint', 'defaultMediaDir', 'elevenLabsKeyHint', 'enhanceModel', 'hasApiKey', 'hasElevenLabsKey', 'mediaDir'];
 
 /** Dossier temporaire propre au test, dans .vitest-data. */
 const tempDir = () => join(env.DATA_DIR, 'settings-tests', randomUUID().slice(0, 8));
@@ -24,7 +24,8 @@ describe('GET /settings', () => {
     for (const gone of ['defaultImageFamily', 'defaultVideoFamily', 'falApiKey', 'hasFalKey', 'falKeyHint']) {
       expect(res.body.settings).not.toHaveProperty(gone);
     }
-    expect(JSON.stringify(res.body).toLowerCase()).not.toContain('fal');
+    // Aucun champ de l'ancienne clé fal (on regarde les noms, pas les valeurs : `false` contient « fal »).
+    expect(Object.keys(res.body.settings).some(k => k.toLowerCase().includes('fal'))).toBe(false);
   });
 
   it('masque la clé API : indice seulement, jamais la clé complète', async () => {

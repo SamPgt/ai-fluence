@@ -32,6 +32,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { undoToast } from '@/lib/undo-toast'
 import {
   CONTEXT_BLOCK_MAX,
   APP_DEFAULT_FAMILY,
@@ -42,6 +43,7 @@ import {
   type Persona,
   type PersonaContextBlock,
   type PersonaLora,
+  type PersonaVoice,
 } from '@ai-fluence/shared'
 
 import { assetsApi, personasApi, trashApi } from '@/lib/api'
@@ -63,6 +65,11 @@ import { ShortcutsTab } from '@/components/settings/ShortcutsTab'
 import { MediaViewer } from '@/components/thread/MediaViewer'
 import { CivitaiBrowser } from '@/components/lora/CivitaiBrowser'
 import { CheckMark } from '@/components/ui/check-mark'
+import {
+  PersonaVoiceRow,
+  VoiceLibraryDialog,
+  stopVoicePreview,
+} from '@/components/personas/VoiceLibrary'
 import {
   Popover,
   PopoverContent,
@@ -141,6 +148,7 @@ function toPayload(p: Persona) {
     loras: p.loras.filter((l) => l.path.trim()),
     defaultImageFamily: p.defaultImageFamily,
     defaultVideoFamily: p.defaultVideoFamily,
+    voices: p.voices,
   }
 }
 
@@ -251,14 +259,12 @@ function PersonaEditor({ persona }: { persona: Persona }) {
       navigate({ to: '/' })
       toast.success(`${persona.name} mis à la corbeille`, {
         description: 'Avec ses fils et ses médias.',
-        action: {
-          label: 'Annuler',
-          onClick: () =>
-            trashApi.restorePersona(persona.id).then(() => {
-              refresh()
-              setSelected(persona.id)
-            }),
-        },
+        ...undoToast(() =>
+          trashApi.restorePersona(persona.id).then(() => {
+            refresh()
+            setSelected(persona.id)
+          }),
+        ),
       })
     },
   })
@@ -448,7 +454,13 @@ function PersonaEditor({ persona }: { persona: Persona }) {
                 </div>
               </Card>
 
+              {/* Puis les médias du persona : une image vaut mille mots. */}
               <References persona={persona} />
+
+              <PersonaVoices
+                voices={draft.voices}
+                onChange={(voices) => set('voices', voices)}
+              />
 
               <Card
                 title="Modèles par défaut"
@@ -686,7 +698,7 @@ function ContextBlockEditor({
       <div className="flex items-center gap-0.5 pr-1.5">
         {editing ? (
           <input
-            placeholder="Titre (ex. Apparence, Personnalité, DA…)"
+            placeholder="Titre (ex. Domaine, Personnalité, Gestuelle.)"
             value={b.title}
             onChange={(e) => onChange({ title: e.target.value })}
             maxLength={60}
@@ -730,13 +742,13 @@ function ContextBlockEditor({
       {editing ? (
         <textarea
           ref={textRef}
-          rows={3}
+          rows={2}
           placeholder="Description du bloc…"
           value={b.text}
           onChange={(e) => onChange({ text: e.target.value })}
           maxLength={CONTEXT_BLOCK_MAX}
           aria-label="Texte du bloc"
-          className="block min-h-[76px] w-full resize-none overflow-hidden bg-transparent px-3 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
+          className="block min-h-[30px] w-full resize-none overflow-hidden bg-transparent px-3 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
         />
       ) : (
         // Marges sur le conteneur : le texte replié est coupé net, sans ligne qui dépasse.
@@ -773,7 +785,13 @@ function ContextBlockEditor({
           <span />
         )}
         <span className="text-[11px] text-muted-foreground tabular-nums">
-          {b.text.length} / {CONTEXT_BLOCK_MAX}
+          <span
+            className={cn(
+              b.text.length > CONTEXT_BLOCK_MAX && 'text-amber-300',
+            )}
+          >
+            {b.text.length} / {CONTEXT_BLOCK_MAX}
+          </span>
         </span>
       </div>
     </div>
@@ -1254,6 +1272,69 @@ function SortableReference({
   )
 }
 
+/** Voix de référence : voix ElevenLabs choisies dans leur catalogue, à écouter. */
+function PersonaVoices({
+  voices,
+  onChange,
+}: {
+  voices: PersonaVoice[]
+  onChange: (voices: PersonaVoice[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => () => stopVoicePreview(), [])
+  return (
+    <Card
+      title="Voix de référence"
+      description="Voix utilisable en référence pour les modèles vidéos le prennant en charge."
+      action={
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Plus className="h-4 w-4" /> Ajouter une voix
+        </Button>
+      }
+    >
+      {voices.length ? (
+        <div className="space-y-2">
+          {voices.map((v, i) => (
+            <PersonaVoiceRow
+              key={v.id}
+              voice={v}
+              index={i}
+              onRemove={() => onChange(voices.filter((x) => x.id !== v.id))}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Aucune voix pour l’instant. Ajoute une voix du catalogue ElevenLabs
+          après avoir écouté son extrait.
+        </p>
+      )}
+      <VoiceLibraryDialog
+        open={open}
+        onOpenChange={setOpen}
+        chosenIds={voices.map((v) => v.voiceId)}
+        onAdd={(v) =>
+          onChange([
+            ...voices,
+            {
+              id: crypto.randomUUID(),
+              voiceId: v.voiceId,
+              ...(v.publicOwnerId ? { publicOwnerId: v.publicOwnerId } : {}),
+              name: v.name,
+              previewUrl: v.previewUrl,
+              labels: v.labels,
+              ...(v.description ? { description: v.description } : {}),
+            },
+          ])
+        }
+        onRemove={(voiceId) =>
+          onChange(voices.filter((x) => x.voiceId !== voiceId))
+        }
+      />
+    </Card>
+  )
+}
+
 function References({ persona }: { persona: Persona }) {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -1316,8 +1397,8 @@ function References({ persona }: { persona: Persona }) {
 
   return (
     <Card
-      title="Bibliothèque de références"
-      description="Images de référence du persona à ajouter dans les prompts pour des résultats fidèles."
+      title="Photos de références"
+      description="Photos de référence du persona, à joindre aux demandes pour des résultats fidèles."
     >
       <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
         <DndContext

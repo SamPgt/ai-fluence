@@ -37,6 +37,8 @@ export interface Draft {
   fromAction: boolean
   /** Persona du fil : ses brouillons partent avec lui à la corbeille. */
   personaId: string | null
+  /** Voix du persona choisie pour une vidéo (identifiant de la voix du persona). */
+  voiceId: string | null
 }
 
 export interface ComposerState extends Draft {
@@ -67,6 +69,7 @@ const BLANK: Draft = {
   editAssetId: null,
   fromAction: false,
   personaId: null,
+  voiceId: null,
 }
 
 /**
@@ -265,6 +268,8 @@ export const composer = {
       editAssetId: s.editAssetId === id ? null : s.editAssetId,
     })),
   setCount: (count: number) => composerStore.setState((s) => ({ ...s, count })),
+  setVoice: (voiceId: string | null) =>
+    composerStore.setState((s) => ({ ...s, voiceId })),
   setRefMode: (refMode: VideoRefMode) =>
     composerStore.setState((s) => ({ ...s, refMode })),
   toggleContext: (id: string) =>
@@ -293,6 +298,19 @@ export const composer = {
       if (unloadWhenEmpty && words.length === 0) delete loras[id]
       return { ...s, loras }
     }),
+  /**
+   * Envoi refusé (prix changé, erreur) : remet le texte et les images envoyés,
+   * seulement si l'on est toujours sur le même fil et que rien n'a été écrit depuis.
+   */
+  restoreAfterError: (
+    threadKey: string | null,
+    sent: Pick<Draft, 'prompt' | 'attachments' | 'editAssetId'>,
+  ) =>
+    composerStore.setState((s) =>
+      s.threadKey === threadKey && !s.prompt.trim() && !s.attachments.length
+        ? { ...s, ...sent, fromAction: false }
+        : s,
+    ),
   clearAfterSend: () =>
     composerStore.setState((s) => ({
       ...s,

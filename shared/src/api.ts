@@ -38,6 +38,9 @@ export interface Settings {
   apiKeyHint: string | null;
   mediaDir: string;
   defaultMediaDir: string;
+  hasElevenLabsKey: boolean;
+  /** Ex. `sk_••••1a2b`. Jamais la clé en clair. */
+  elevenLabsKeyHint: string | null;
   enhanceModel: string;
 }
 
@@ -203,13 +206,49 @@ export interface CivitaiSearchResponse {
 }
 
 /** Taille maximale du texte d'un bloc de contexte. */
-export const CONTEXT_BLOCK_MAX = 600;
+/** Longueur maximale saisie dans un bloc de contexte. */
+export const CONTEXT_BLOCK_MAX = 500;
+/** Accepté par le serveur : marge au-delà de la saisie, pour les blocs plus longs déjà enregistrés. */
+export const CONTEXT_BLOCK_STORED_MAX = 600;
 
 /** Bloc du contexte du persona : envoyé à chaque génération de ce persona. */
 export interface PersonaContextBlock {
   id: string;
   title: string;
   text: string;
+}
+
+/** Voix ElevenLabs choisie pour un persona (catalogue ElevenLabs). */
+export interface PersonaVoice {
+  id: string;
+  /** Identifiant ElevenLabs de la voix. */
+  voiceId: string;
+  publicOwnerId?: string;
+  name: string;
+  /** Extrait audio public (lecture dans l'interface). */
+  previewUrl: string | null;
+  /** Caractéristiques affichées : genre, âge, accent, usage… */
+  labels: Record<string, string>;
+  description?: string;
+}
+
+/** Voix du catalogue ElevenLabs (liste de sélection). */
+export interface VoiceLibraryItem {
+  voiceId: string;
+  /** Bibliothèque communautaire : propriétaire public (pour ajouter la voix au compte avant usage). */
+  publicOwnerId?: string;
+  /** default : voix proposée par ElevenLabs ; library : voix partagée par la communauté. */
+  source: 'default' | 'library';
+  name: string;
+  previewUrl: string | null;
+  labels: Record<string, string>;
+  description?: string;
+  category?: string;
+}
+
+export interface VoiceLibraryResponse {
+  voices: VoiceLibraryItem[];
+  hasMore: boolean;
 }
 
 export interface Persona {
@@ -222,6 +261,7 @@ export interface Persona {
   loras: PersonaLora[];
   defaultImageFamily: string | null;
   defaultVideoFamily: string | null;
+  voices: PersonaVoice[];
   referenceCount: number;
   createdAt: string;
   updatedAt: string;
@@ -298,6 +338,8 @@ export interface Generation {
   spicyTaskId: string | null;
   createdAt: string;
   completedAt: string | null;
+  /** Résultat supprimé du fil : la demande reste affichée, ses images non (outputs vides). */
+  removedAt: string | null;
 }
 
 export interface GenerationRequest {

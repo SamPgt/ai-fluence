@@ -258,7 +258,7 @@ export function CivitaiBrowser({
   )
 }
 
-function FilterGroup({
+export function FilterGroup({
   title,
   children,
 }: {
@@ -275,7 +275,7 @@ function FilterGroup({
   )
 }
 
-function FilterOption({
+export function FilterOption({
   active,
   onClick,
   children,

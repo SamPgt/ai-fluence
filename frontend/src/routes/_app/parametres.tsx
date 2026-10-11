@@ -139,6 +139,21 @@ function ApiKeyTab() {
         onRemove={settingsApi.removeApiKey}
         onChanged={refreshSpicy}
       />
+      <ApiKeySection
+        title="ElevenLabs"
+        description="Voix des personas : catalogue de voix, écoute des extraits et génération de voix."
+        hint={settings?.hasElevenLabsKey ? settings.elevenLabsKeyHint : null}
+        placeholder="sk_…"
+        consoleUrl="https://elevenlabs.io/app/settings/api-keys"
+        consoleLabel="Créer une clé dans ElevenLabs"
+        removeDescription="Le catalogue de voix ne sera plus disponible tant que tu n’as pas ajouté une nouvelle clé."
+        onSave={settingsApi.setElevenLabsKey}
+        onRemove={settingsApi.removeElevenLabsKey}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: qk.settings })
+          queryClient.invalidateQueries({ queryKey: ['voice-library'] })
+        }}
+      />
       <p className="px-1 text-xs text-muted-foreground">
         Les clés sont vérifiées, puis stockées chiffrées en base. Elles ne
         repartent jamais vers le navigateur.

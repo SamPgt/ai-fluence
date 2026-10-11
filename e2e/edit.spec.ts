@@ -139,3 +139,23 @@ test('fil : les images sources sont au-dessus de la bulle, la bulle ne garde que
   const [r, b] = [await refs.boundingBox(), await bubble.boundingBox()]
   expect(r!.y + r!.height).toBeLessThanOrEqual(b!.y)
 })
+
+test('composer : clic sur une image jointe, puis flèches entre les images @core', async ({ app, page }) => {
+  await app.gotoNew()
+  await app.attachFile()
+  await app.attachFile()
+  await expect(app.attachments).toHaveCount(2)
+  await page.getByRole('button', { name: 'Voir l’image 1 en grand' }).click()
+  const viewer = page.getByRole('dialog')
+  const first = await viewer.locator('img').getAttribute('src')
+  await expect(viewer.getByRole('button', { name: 'Précédente' })).toBeDisabled()
+  await page.keyboard.press('ArrowRight')
+  await expect(viewer.locator('img')).not.toHaveAttribute('src', first!)
+  await expect(viewer.getByRole('button', { name: 'Suivante' })).toBeDisabled()
+  await page.keyboard.press('ArrowLeft')
+  await expect(viewer.locator('img')).toHaveAttribute('src', first!)
+  await page.keyboard.press('Escape')
+  await expect(viewer).toHaveCount(0)
+  // Les vignettes et leur croix restent utilisables.
+  await expect(app.attachments).toHaveCount(2)
+})

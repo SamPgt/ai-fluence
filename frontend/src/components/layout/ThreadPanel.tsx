@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
+import { undoToast } from '@/lib/undo-toast'
 
 import { threadsApi, trashApi } from '@/lib/api'
 import { composer } from '@/lib/composer-store'
@@ -51,16 +52,15 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
       invalidate()
       queryClient.invalidateQueries({ queryKey: qk.trash })
       if (id === params.threadId) navigate({ to: '/' })
-      toast.success('Fil mis à la corbeille', {
-        action: {
-          label: 'Annuler',
-          onClick: () =>
-            trashApi.restoreThread(id).then(() => {
-              invalidate()
-              queryClient.invalidateQueries({ queryKey: qk.trash })
-            }),
-        },
-      })
+      toast.success(
+        'Fil mis à la corbeille',
+        undoToast(() =>
+          trashApi.restoreThread(id).then(() => {
+            invalidate()
+            queryClient.invalidateQueries({ queryKey: qk.trash })
+          }),
+        ),
+      )
     },
   })
   const togglePin = useMutation({

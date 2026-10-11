@@ -11,8 +11,11 @@ import {
   Shuffle,
   ImageUpscale,
   RotateCcw,
+  Ellipsis,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { undoToast } from '@/lib/undo-toast'
 import {
   APP_DEFAULT_FAMILY,
   getFamily,
@@ -21,7 +24,13 @@ import {
   type GenerationRequest,
 } from '@ai-fluence/shared'
 
-import { assetsApi } from '@/lib/api'
+import { assetsApi, generationsApi } from '@/lib/api'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { composer } from '@/lib/composer-store'
 import { catalogQuery, personasQuery, qk } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
@@ -35,6 +44,7 @@ import { AssetThumb } from '@/components/composer/ReferencePicker'
 import { formatOption } from '@/components/composer/ParamFields'
 import { ModelPicker, ProviderLogo } from '@/components/composer/ModelPicker'
 import { MediaViewer } from './MediaViewer'
+import { outputKey, refKey, useThreadMedia } from './ThreadMedia'
 import { UpscaleDialog } from './UpscaleDialog'
 import { RelaunchDialog } from './RelaunchDialog'
 
@@ -83,8 +93,15 @@ const isPending = (g: Generation) =>
 export function GenerationItem({ generations }: { generations: Generation[] }) {
   const g = generations[0]
   const series = generations.length > 1
+  // Résultat (ou lot) supprimé du fil : la demande reste, un emplacement remplace les images.
+  const removed = generations.every((x) => x.removedAt)
+  const hasResult = generations.some((x) => x.status === 'succeeded')
   const queryClient = useQueryClient()
+  // Visionneuse du fil (flèches entre tous les médias), sinon une locale.
+  const threadMedia = useThreadMedia()
   const [viewing, setViewing] = useState<Asset | null>(null)
+  const view = (key: string, asset: Asset) =>
+    threadMedia ? threadMedia(key) : setViewing(asset)
   const [upscaling, setUpscaling] = useState<Asset | null>(null)
   const isUpscale = g.task === 'upscale'
   const [relaunch, setRelaunch] = useState<GenerationRequest | null>(null)
@@ -242,8 +259,30 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     </div>
   )
 
+  // Supprimer le résultat ou le lot : masqué tout de suite, « Annuler » le remet.
+  const remove = useMutation({
+    mutationFn: () => generationsApi.remove(g.id, series),
+    onSuccess: () => {
+      const refresh = () => {
+        queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) })
+        queryClient.invalidateQueries({ queryKey: ['gallery'] })
+        queryClient.invalidateQueries({ queryKey: qk.threadsAll })
+      }
+      refresh()
+      toast.success(
+        series ? 'Lot supprimé' : 'Résultat supprimé',
+        undoToast(() => generationsApi.restore(g.id, series).then(refresh)),
+      )
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
   return (
-    <div className="space-y-3">
+    // Repère pour arriver sur cette demande depuis un média (?g=<id> dans l'adresse).
+    <div
+      className="space-y-3"
+      data-generation-ids={generations.map((x) => x.id).join(' ')}
+    >
       {/* Demande (côté utilisateur) : les images sources au-dessus, sur le fond,
           puis la bulle réservée au texte ; actions et infos du modèle en dessous. */}
       <div className="ml-auto flex w-fit max-w-[85%] flex-col items-end gap-1.5">
@@ -255,7 +294,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
             {g.references.map((r) => (
               <button
                 key={r.id}
-                onClick={() => setViewing(r)}
+                onClick={() => view(refKey(g.id, r.id), r)}
                 className="overflow-hidden rounded-xl"
               >
                 <AssetThumb asset={r} className="h-16 w-16" />
@@ -329,8 +368,8 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       {/* Résultat */}
       <div className="flex justify-start">
         <div className="w-full max-w-[85%] space-y-2">
-          {/* Au-dessus du résultat : coût, puis « Série · N images » pour une série. */}
-          {(costText || series) && (
+          {/* Au-dessus du résultat : coût, puis « Série · N images » pour une série, puis le menu. */}
+          {(costText || series || (hasResult && !removed)) && (
             <div
               data-testid="result-cost"
               className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums"
@@ -343,27 +382,35 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                 />
               )}
               {series && <span>Série · {generations.length} images</span>}
+              {hasResult && !removed && (
+                <ResultMenu series={series} onRemove={() => remove.mutate()} />
+              )}
             </div>
           )}
-          {series && (
+          {removed && (
+            <div
+              data-testid="removed-result"
+              className="flex h-20 max-w-md items-center justify-center rounded-2xl border border-border/60 bg-white/[0.03] text-xs text-muted-foreground"
+            >
+              Contenu supprimé
+            </div>
+          )}
+          {series && !removed && (
             <SeriesResults
               generations={generations}
               outputActions={outputActions}
-              onView={setViewing}
+              onView={(asset, generationId) =>
+                view(outputKey(generationId, asset.id), asset)
+              }
             />
           )}
           {!series && pending && (
             <div className="flex aspect-[4/3] max-w-md flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-muted/30">
               <Loader2 className="h-6 w-6 animate-spin text-brand" />
               <div className="text-center text-xs text-muted-foreground">
-                <div>
-                  {g.status === 'queued'
-                    ? 'En file d’attente…'
-                    : 'Génération en cours…'}
-                </div>
+                <div>Génération en cours</div>
                 <div className="tabular-nums">
                   <Elapsed since={g.createdAt} />
-                  {g.estimatedCost && ` · ≈ ${formatUsd(g.estimatedCost)}`}
                 </div>
               </div>
             </div>
@@ -384,7 +431,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
             </div>
           )}
 
-          {!series && g.status === 'succeeded' && (
+          {!series && !removed && g.status === 'succeeded' && (
             <div
               className={cn(
                 'grid gap-2',
@@ -405,14 +452,17 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                       playsInline
                       preload="metadata"
                       // Hauteur plafonnée : une vidéo 9:16 tient entière à l'écran.
-                      className="block max-h-[70vh] w-auto max-w-full"
+                      className="block max-h-[64vh] w-auto max-w-full"
                     />
                   ) : (
-                    <button onClick={() => setViewing(asset)} className="block">
+                    <button
+                      onClick={() => view(outputKey(g.id, asset.id), asset)}
+                      className="block"
+                    >
                       <img
                         src={asset.url}
                         alt={g.prompt}
-                        className="block max-h-[70vh] w-auto max-w-full object-contain"
+                        className="block max-h-[64vh] w-auto max-w-full object-contain"
                         loading="lazy"
                       />
                     </button>
@@ -493,7 +543,7 @@ function SeriesResults({
 }: {
   generations: Generation[]
   outputActions: (asset: Asset) => React.ReactNode
-  onView: (asset: Asset) => void
+  onView: (asset: Asset, generationId: string) => void
 }) {
   const pending = generations.filter(isPending)
   const done = generations.length - pending.length
@@ -535,7 +585,7 @@ function SeriesResults({
                     />
                   ) : (
                     <button
-                      onClick={() => onView(asset)}
+                      onClick={() => onView(asset, m.id)}
                       className="block h-full w-full"
                     >
                       <img
@@ -665,5 +715,38 @@ function TagsChip<T extends { key: string }>({
         {tags.map(badge)}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** Menu « … » à droite du coût d'un résultat. */
+function ResultMenu({
+  series,
+  onRemove,
+}: {
+  series: boolean
+  onRemove: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Options du résultat"
+          title="Options"
+          className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+        >
+          <Ellipsis className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem
+          onSelect={onRemove}
+          className="text-xs text-foreground"
+        >
+          <Trash2 className="size-3.5" />
+          {series ? 'Supprimer le lot' : 'Supprimer le résultat'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

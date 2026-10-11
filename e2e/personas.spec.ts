@@ -215,7 +215,7 @@ test.describe('Blocs de contexte', () => {
     await expect(titles.last()).toBeFocused()
     await page.keyboard.type('Style')
     await page.getByLabel('Texte du bloc').last().fill('photo argentique')
-    await expect(page.getByText('16 / 600')).toBeVisible()
+    await expect(page.getByText('16 / 500')).toBeVisible()
 
     await expect
       .poll(async () => (await getPersona(page, p.id)).contextBlocks.map((b) => [b.title, b.text]))

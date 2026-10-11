@@ -1,6 +1,13 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useEffect } from 'react'
-import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  X,
+} from 'lucide-react'
 import type { Asset } from '@ai-fluence/shared'
 
 import { Dialog, DialogOverlay, DialogPortal } from '@/components/ui/dialog'
@@ -17,11 +24,14 @@ export function MediaViewer({
   onClose,
   onPrev,
   onNext,
+  source,
 }: {
   asset: Asset | null
   onClose: () => void
   onPrev?: () => void
   onNext?: () => void
+  /** Demande qui a produit ce média : lien vers elle, à sa hauteur dans le fil. */
+  source?: { threadId: string; generationId: string } | null
 }) {
   // Flèches du clavier pour passer d'un média à l'autre.
   useEffect(() => {
@@ -52,6 +62,19 @@ export function MediaViewer({
                 className="absolute top-4 right-4 flex gap-2"
                 onClick={(e) => e.stopPropagation()}
               >
+                {source && (
+                  <Link
+                    to="/t/$threadId"
+                    params={{ threadId: source.threadId }}
+                    search={{ g: source.generationId }}
+                    onClick={onClose}
+                    className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"
+                    aria-label="Voir la demande"
+                    title="Voir la demande qui a produit ce média"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                )}
                 <a
                   href={`${asset.url}?download=1`}
                   className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"

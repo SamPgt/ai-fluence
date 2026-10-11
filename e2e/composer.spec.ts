@@ -510,3 +510,38 @@ test.describe('sans clé API', () => {
     }
   })
 })
+
+test.describe('prix et envoi', () => {
+  test('taper le prompt ne redemande pas le prix @core', async ({ app, page }) => {
+    await app.gotoNew()
+    const quotes: string[] = []
+    page.on('request', (r) => {
+      if (r.url().endsWith('/api/generations/quote')) quotes.push(r.url())
+    })
+    await app.prompt.fill('un')
+    await expect(page.getByRole('button', { name: /^Générer pour/ })).toBeVisible()
+    const before = quotes.length
+    await app.prompt.pressSequentially(' chat roux qui dort au soleil', { delay: 30 })
+    await page.waitForTimeout(1200)
+    expect(quotes.length).toBe(before)
+    // Un réglage qui change le prix, lui, redemande un devis.
+    await app.count.click()
+    await expect.poll(() => quotes.length).toBeGreaterThan(before)
+  })
+
+  test('le prix n’empêche jamais l’envoi : la demande part sans attendre le devis @core', async ({ app, page }) => {
+    await app.gotoNew()
+    // Devis très lent : on envoie avant.
+    await page.route('**/api/generations/quote', async (route) => {
+      await new Promise((r) => setTimeout(r, 5000))
+      await route.continue()
+    })
+    await app.prompt.fill('envoi sans prix')
+    const created = page.waitForResponse((r) => r.url().endsWith('/api/generations') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: /^Générer/ }).click()
+    const res = await created
+    expect(res.status()).toBe(201)
+    expect(res.request().postDataJSON().expectedCost).toBeUndefined()
+    await expect(page).toHaveURL(/\/t\//)
+  })
+})

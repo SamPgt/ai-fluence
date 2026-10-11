@@ -313,12 +313,12 @@ test.describe('Résultat', () => {
       await route.fulfill({ response: res, json: body })
     })
     await app.gotoThread(thread.id)
-    await expect(page.getByText('Génération en cours…')).toBeVisible()
+    await expect(page.getByText('Génération en cours', { exact: true })).toBeVisible()
     await expect(page.getByText(/≈ 0,010 \$/).first()).toBeVisible()
     await expect(page.getByRole('button', { name: 'Relancer', exact: true })).toHaveCount(0)
     // Rafraîchissement automatique : le résultat apparaît.
     await expect(page.locator('img[alt="en attente"]')).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText('Génération en cours…')).toHaveCount(0)
+    await expect(page.getByText('Génération en cours', { exact: true })).toHaveCount(0)
     await expect(page.getByTestId('result-cost')).toHaveText('0,010 $')
   })
 
@@ -331,5 +331,73 @@ test.describe('Résultat', () => {
     await expect(page.locator('img[alt="depuis le composer"]')).toBeVisible({ timeout: 15_000 })
     const { generations } = await getThread(page, thread.id)
     expect(generations).toHaveLength(2)
+  })
+})
+
+test.describe('Visionneuse : flèches', () => {
+  test('dans un fil, les flèches passent des références aux résultats, de demande en demande @core', async ({ app, page }) => {
+    const first = await app.generate({ prompt: 'premier' })
+    await app.generate({ prompt: 'second', threadId: first.thread.id })
+    await app.gotoThread(first.thread.id)
+    await app.attachFile()
+    await app.attachFile()
+    await app.prompt.fill('troisième avec références')
+    await app.send()
+    await expect(page.getByTestId('request-references').locator('img')).toHaveCount(2)
+    const results = page.locator('img[alt="premier"], img[alt="second"], img[alt="troisième avec références"]')
+    await expect(results).toHaveCount(3)
+    // Ouvre la première image du fil, puis avance jusqu'au bout avec la flèche droite.
+    await page.locator('img[alt="premier"]').click({ position: { x: 5, y: 5 } })
+    const viewer = page.getByRole('dialog')
+    await expect(viewer.locator('img')).toBeVisible()
+    const seen: string[] = []
+    for (let i = 0; i < 5; i++) {
+      seen.push((await viewer.locator('img').getAttribute('src'))!)
+      await page.keyboard.press('ArrowRight')
+      await page.waitForTimeout(150)
+    }
+    // 1er résultat, 2e résultat, 2 références, 3e résultat : 5 médias distincts dans l'ordre.
+    expect(new Set(seen).size).toBe(5)
+    await expect(viewer.getByRole('button', { name: 'Suivante' })).toBeDisabled()
+    await page.keyboard.press('ArrowLeft')
+    expect(await viewer.locator('img').getAttribute('src')).toBe(seen[3])
+  })
+})
+
+test.describe('Affichage optimiste', () => {
+  test('la demande envoyée apparaît tout de suite, avant la réponse du serveur @core', async ({ app, page }) => {
+    const { thread } = await app.generate({ prompt: 'fil optimiste' })
+    await app.gotoThread(thread.id)
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    await page.route('**/api/generations', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      await held
+      await route.continue()
+    })
+    await app.prompt.fill('demande immédiate')
+    await app.send()
+    // Serveur pas encore répondu : la bulle et l'attente sont déjà là.
+    await expect(page.getByTestId('request-bubble').filter({ hasText: 'demande immédiate' })).toBeVisible({ timeout: 1000 })
+    await expect(page.getByText('Génération en cours', { exact: true })).toBeVisible()
+    release()
+    await expect(page.locator('img[alt="demande immédiate"]')).toHaveCount(1)
+    await expect(page.getByTestId('request-bubble').filter({ hasText: 'demande immédiate' })).toHaveCount(1)
+  })
+
+  test('si l’envoi échoue, la demande optimiste disparaît et le texte revient', async ({ app, page }) => {
+    const { thread } = await app.generate({ prompt: 'fil erreur' })
+    await app.gotoThread(thread.id)
+    await page.route('**/api/generations', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      await new Promise((r) => setTimeout(r, 500))
+      await route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'SpicyAPI ne répond pas.' }) })
+    })
+    await app.prompt.fill('demande ratée')
+    await app.send()
+    await expect(page.getByTestId('request-bubble').filter({ hasText: 'demande ratée' })).toBeVisible()
+    await expect(page.getByText('SpicyAPI ne répond pas.')).toBeVisible()
+    await expect(page.getByTestId('request-bubble').filter({ hasText: 'demande ratée' })).toHaveCount(0)
+    await expect(app.prompt).toHaveValue('demande ratée')
   })
 })

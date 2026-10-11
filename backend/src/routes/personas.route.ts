@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { CONTEXT_BLOCK_MAX } from '@ai-fluence/shared';
+import { CONTEXT_BLOCK_STORED_MAX } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
@@ -43,7 +43,17 @@ const loraSchema = z.object({
 const contextBlockSchema = z.object({
   id: z.string().optional(),
   title: z.string().trim().max(60).default(''),
-  text: z.string().max(CONTEXT_BLOCK_MAX).default(''),
+  text: z.string().max(CONTEXT_BLOCK_STORED_MAX).default(''),
+});
+
+const voiceSchema = z.object({
+  id: z.string().optional(),
+  voiceId: z.string().trim().min(1).max(100),
+  publicOwnerId: z.string().trim().max(200).optional(),
+  name: z.string().trim().min(1).max(100),
+  previewUrl: z.url({ protocol: /^https$/ }).nullable().default(null),
+  labels: z.record(z.string().max(40), z.string().max(80)).default({}),
+  description: z.string().max(500).optional(),
 });
 
 const personaFields = {
@@ -52,6 +62,8 @@ const personaFields = {
   avatarAssetId: z.uuid().nullable(),
   contextBlocks: z.array(contextBlockSchema).max(10),
   loras: z.array(loraSchema).max(12),
+  /** Pas de limite métier : borne technique seulement. */
+  voices: z.array(voiceSchema).max(100),
   defaultImageFamily: z.string().nullable(),
   defaultVideoFamily: z.string().nullable(),
 };
@@ -63,6 +75,7 @@ const personaSchema = z.object({
   avatarAssetId: personaFields.avatarAssetId.default(null),
   contextBlocks: personaFields.contextBlocks.default([]),
   loras: personaFields.loras.default([]),
+  voices: personaFields.voices.default([]),
   defaultImageFamily: personaFields.defaultImageFamily.default(null),
   defaultVideoFamily: personaFields.defaultVideoFamily.default(null),
 });
@@ -106,6 +119,7 @@ const personasRoutes = new Hono<AppEnv>()
         ...body,
         loras: withIds(body.loras),
         contextBlocks: withIds(body.contextBlocks),
+        voices: withIds(body.voices),
         userId: user.id,
         position,
       })
@@ -116,13 +130,14 @@ const personasRoutes = new Hono<AppEnv>()
     const user = c.get('user');
     const body = c.req.valid('json');
     if (!(await assertAvatar(user.id, body.avatarAssetId))) return c.json({ error: 'Avatar introuvable.' }, 400);
-    const { loras, contextBlocks, ...rest } = body;
+    const { loras, contextBlocks, voices, ...rest } = body;
     const [row] = await db
       .update(personas)
       .set({
         ...rest,
         ...(loras ? { loras: withIds(loras) } : {}),
         ...(contextBlocks ? { contextBlocks: withIds(contextBlocks) } : {}),
+        ...(voices ? { voices: withIds(voices) } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(personas.id, c.req.param('id')), eq(personas.userId, user.id), isNull(personas.deletedAt)))

@@ -14,15 +14,18 @@ import {
   schemaSupportsLoras,
   MAX_LORAS_PER_GENERATION,
   appDefault,
+  audioInputInfo,
   APP_DEFAULT_FAMILY,
+  type Asset,
+  type Generation,
   type GenerationRequest,
+  type ThreadDetailResponse,
   type JsonSchemaProp,
   type MediaKind,
-  type PriceChangedResponse,
   type TaskKind,
 } from '@ai-fluence/shared'
 
-import { ApiError, assetsApi, generationsApi } from '@/lib/api'
+import { assetsApi, generationsApi } from '@/lib/api'
 import { composer, composerStore, isEmptyDraft } from '@/lib/composer-store'
 import {
   catalogQuery,
@@ -44,6 +47,8 @@ import {
 import { ParamsPopover } from './ParamFields'
 import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
+import { VoicePicker } from './VoicePicker'
+import { MediaViewer } from '@/components/thread/MediaViewer'
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value)
@@ -118,6 +123,8 @@ export function Composer({
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(0)
   const [dragging, setDragging] = useState(false)
+  // Pièce jointe ouverte dans la visionneuse (son id).
+  const [viewing, setViewing] = useState<string | null>(null)
 
   const state = useSelector(composerStore, (s) => s)
   const { data: settings } = useQuery(settingsQuery())
@@ -239,6 +246,13 @@ export function Composer({
   const imageInfo = family
     ? imageInputInfo(family.media, family.tasks, state.refMode)
     : { max: 0, mode: 'none' as const }
+  // Voix de référence : modèles vidéo qui en acceptent (Wan 3.0, Seedance…).
+  const voiceInfo =
+    family?.media === 'video'
+      ? audioInputInfo(family.tasks)
+      : { max: 0, mode: 'none' as const }
+  const selectedVoice =
+    persona?.voices.find((v) => v.id === state.voiceId) ?? null
   // Plus d'images que le modèle n'en accepte : envoi bloqué (jamais d'image
   // ignorée sans que la personne le décide).
   const extraImages =
@@ -297,9 +311,18 @@ export function Composer({
     (!requiresPrompt || state.prompt.trim()) &&
     !uploading,
   )
-  const debounced = useDebounced(canQuote ? request : null, 600)
+  // Devis : le texte du prompt ne change pas le prix, seuls les réglages comptent.
+  // On ne garde que « prompt vide ou non », pour ne pas redemander un prix à chaque frappe.
+  const priceRequest = request
+    ? {
+        ...request,
+        prompt: request.prompt.trim() ? 'prompt' : '',
+        threadId: null,
+      }
+    : null
+  const debounced = useDebounced(canQuote ? priceRequest : null, 600)
   const quoteKey = useMemo(
-    () => (debounced ? JSON.stringify({ ...debounced, threadId: null }) : null),
+    () => (debounced ? JSON.stringify(debounced) : null),
     [debounced],
   )
   const quote = useQuery({
@@ -310,30 +333,93 @@ export function Composer({
     retry: false,
   })
   const quoteIsCurrent =
-    canQuote &&
-    quoteKey !== null &&
-    JSON.stringify({ ...request, threadId: null }) === quoteKey
+    canQuote && quoteKey !== null && JSON.stringify(priceRequest) === quoteKey
 
+  // Ce qui a été envoyé et d'où : le brouillon est vidé dès l'envoi (jamais après
+  // la réponse, sinon partir pendant l'envoi garderait l'ancienne demande).
+  const sent = useRef<{
+    threadKey: string | null
+    draft: { prompt: string; attachments: Asset[]; editAssetId: string | null }
+  } | null>(null)
+  // Générations « en attente » affichées avant la réponse du serveur.
+  const optimistic = useRef<string[]>([])
+  const showOptimistic = (
+    id: string,
+    body: GenerationRequest,
+    mediaKind: MediaKind,
+    taskKind: TaskKind | null,
+  ): string[] => {
+    const n = mediaKind === 'image' ? Math.max(1, body.count ?? 1) : 1
+    const stamp = crypto.randomUUID()
+    const batchId = n > 1 ? `optimistic-batch-${stamp}` : null
+    const now = new Date().toISOString()
+    const items: Generation[] = Array.from({ length: n }, (_, i) => ({
+      id: `optimistic-${stamp}-${i}`,
+      threadId: id,
+      personaId: body.personaId ?? null,
+      prompt: body.prompt,
+      finalPrompt: body.prompt,
+      family: body.family,
+      modelId: '',
+      task: taskKind ?? 'text-to-image',
+      params: body.params,
+      refMode: body.refMode ?? 'start-frame',
+      references: composerStore.state.attachments,
+      batchId,
+      batchIndex: i,
+      contexts: [],
+      loras: [],
+      lorasApplied: 0,
+      status: 'queued',
+      errorCode: null,
+      errorMessage: null,
+      estimatedCost: null,
+      cost: null,
+      settled: false,
+      seed: null,
+      outputs: [],
+      spicyTaskId: null,
+      createdAt: now,
+      completedAt: null,
+      removedAt: null,
+    }))
+    void queryClient.cancelQueries({ queryKey: qk.thread(id) })
+    queryClient.setQueryData<ThreadDetailResponse>(qk.thread(id), (old) =>
+      old ? { ...old, generations: [...old.generations, ...items] } : old,
+    )
+    return items.map((g) => g.id)
+  }
+  const dropOptimistic = (id: string, ids: string[]) =>
+    queryClient.setQueryData<ThreadDetailResponse>(qk.thread(id), (old) =>
+      old
+        ? {
+            ...old,
+            generations: old.generations.filter((g) => !ids.includes(g.id)),
+          }
+        : old,
+    )
   const create = useMutation({
     mutationFn: (body: GenerationRequest) => generationsApi.create(body),
     onSuccess: ({ thread }) => {
-      composer.clearAfterSend()
       queryClient.invalidateQueries({ queryKey: qk.threadsAll })
       queryClient.invalidateQueries({ queryKey: qk.thread(thread.id) })
       queryClient.invalidateQueries({ queryKey: qk.balance })
-      if (!threadId) composer.adoptNewThread(thread.id)
-      if (!threadId)
+      // Nouveau fil : on ne l'ouvre que si la personne est restée sur le nouveau fil.
+      if (
+        sent.current?.threadKey === 'new' &&
+        composerStore.state.threadKey === 'new'
+      ) {
+        composer.adoptNewThread(thread.id)
         navigate({ to: '/t/$threadId', params: { threadId: thread.id } })
-    },
-    onError: (err) => {
-      if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as PriceChangedResponse
-        queryClient.setQueryData(['quote', quoteKey], body.quote)
-        toast.warning(
-          `Le prix a changé : ${formatUsd(body.quote.estimatedCost)}. Reclique pour confirmer.`,
-        )
-        return
       }
+    },
+    onError: (err, body) => {
+      if (body.threadId && optimistic.current.length) {
+        dropOptimistic(body.threadId, optimistic.current)
+        optimistic.current = []
+      }
+      if (sent.current)
+        composer.restoreAfterError(sent.current.threadKey, sent.current.draft)
       toast.error((err as Error).message)
     },
   })
@@ -368,12 +454,26 @@ export function Composer({
   }
 
   const send = () => {
+    // Le prix n'est jamais bloquant : sans devis à jour, la demande part quand même.
     if (!request || !canQuote || create.isPending || extraImages > 0) return
-    if (!quoteIsCurrent || !quote.data) {
-      toast.info('Calcul du prix en cours…')
-      return
+    const s = composerStore.state
+    sent.current = {
+      threadKey: s.threadKey,
+      draft: {
+        prompt: s.prompt,
+        attachments: s.attachments,
+        editAssetId: s.editAssetId,
+      },
     }
-    create.mutate({ ...request, expectedCost: quote.data.estimatedCost })
+    // Affichage optimiste : la demande apparaît tout de suite dans le fil, sans
+    // attendre la réponse du serveur (remplacée par la vraie, retirée en cas d'erreur).
+    if (threadId && family) {
+      optimistic.current = showOptimistic(threadId, request, family.media, task)
+    }
+    // Le devis n'est qu'indicatif : jamais de prix attendu envoyé, donc jamais
+    // de refus « le prix a changé » (Relancer et Upscale, eux, confirment un prix).
+    create.mutate(request)
+    composer.clearAfterSend()
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -410,6 +510,13 @@ export function Composer({
     })
   }
   if (quoteError) notices.push({ text: quoteError, tone: 'error' })
+  // Maquette : la voix se choisit, mais n'est pas encore envoyée au modèle.
+  if (selectedVoice && voiceInfo.max > 0) {
+    notices.push({
+      text: `Voix « ${selectedVoice.name} » choisie : son envoi au modèle arrive dans une prochaine étape.`,
+      tone: 'warn',
+    })
+  }
 
   return (
     <div className="shrink-0 px-4 pt-2 pb-5">
@@ -446,13 +553,37 @@ export function Composer({
           {/* Pièces jointes */}
           {(state.attachments.length > 0 || uploading > 0) && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
+              <MediaViewer
+                asset={state.attachments.find((x) => x.id === viewing) ?? null}
+                onClose={() => setViewing(null)}
+                onPrev={(() => {
+                  const i = state.attachments.findIndex((x) => x.id === viewing)
+                  return i > 0
+                    ? () => setViewing(state.attachments[i - 1].id)
+                    : undefined
+                })()}
+                onNext={(() => {
+                  const i = state.attachments.findIndex((x) => x.id === viewing)
+                  return i >= 0 && i < state.attachments.length - 1
+                    ? () => setViewing(state.attachments[i + 1].id)
+                    : undefined
+                })()}
+              />
               {state.attachments.map((a, i) => (
                 <div
                   key={a.id}
                   data-testid="attachment"
                   className="group relative overflow-hidden rounded-xl border border-border/30"
                 >
-                  <AssetThumb asset={a} className="h-20 w-20" />
+                  {/* Clic : aperçu en grand, flèches entre les images jointes. */}
+                  <button
+                    type="button"
+                    onClick={() => setViewing(a.id)}
+                    aria-label={`Voir l’image ${i + 1} en grand`}
+                    className="block"
+                  >
+                    <AssetThumb asset={a} className="h-20 w-20" />
+                  </button>
                   {/* En bas à gauche : Début / Fin (vidéo), sinon le numéro de
                       l'image tel que le prompt peut le citer (« image 2 »), ou le
                       crayon sur l'image à modifier. */}
@@ -602,6 +733,14 @@ export function Composer({
                     : null
                 }
               />
+              {/* Voix du persona, juste à droite du modèle : seulement pour un modèle vidéo qui accepte une voix. */}
+              {persona && voiceInfo.max > 0 && (
+                <VoicePicker
+                  persona={persona}
+                  value={selectedVoice?.id ?? null}
+                  onChange={composer.setVoice}
+                />
+              )}
               {resolutionProp?.enum && (
                 <ResolutionToggle
                   values={resolutionProp.enum}
@@ -690,13 +829,7 @@ export function Composer({
                 type="button"
                 size="icon"
                 onClick={send}
-                disabled={
-                  !canQuote ||
-                  extraImages > 0 ||
-                  create.isPending ||
-                  !quoteIsCurrent ||
-                  !quote.data
-                }
+                disabled={!canQuote || extraImages > 0 || create.isPending}
                 variant="primary"
                 className="h-9 w-9 rounded-full brand-gradient hover:opacity-90"
                 aria-label={

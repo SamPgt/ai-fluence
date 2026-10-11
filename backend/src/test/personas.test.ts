@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CONTEXT_BLOCK_MAX, type Persona } from '@ai-fluence/shared';
+import { CONTEXT_BLOCK_STORED_MAX as CONTEXT_BLOCK_MAX, type Persona } from '@ai-fluence/shared';
 import { call, signup, SEEDANCE_MINI, SEEDREAM_FLASH } from './helpers.js';
 
 const LORA = {

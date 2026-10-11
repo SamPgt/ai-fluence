@@ -151,3 +151,70 @@ test.describe('fils existants', () => {
     await expect(app.count).toHaveAccessibleName("Nombre d'images x4")
   })
 })
+
+test.describe('envoi puis départ avant la réponse', () => {
+  test('le brouillon envoyé ne revient jamais au retour sur le fil @core', async ({ app, page }) => {
+    const a = (await app.generate({ prompt: 'fil depart' })).thread
+    await app.generate({ prompt: 'fil ailleurs' })
+    await app.gotoThread(a.id)
+    // Réponse du serveur retardée : on a le temps de partir.
+    await page.route('**/api/generations', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      await new Promise((r) => setTimeout(r, 1500))
+      await route.continue()
+    })
+    await app.prompt.fill('demande envoyée')
+    await app.send()
+    await expect(app.prompt).toHaveValue('')
+    await app.openThread('fil ailleurs')
+    await expect(app.prompt).toHaveValue('')
+    await page.waitForTimeout(2000)
+    await app.openThread('fil depart')
+    await expect(app.prompt).toHaveValue('')
+    expect(await app.drafts()).toEqual({})
+  })
+
+  test('envoi depuis un nouveau fil puis départ : on n’est pas ramené, rien ne reste', async ({ app, page }) => {
+    await app.generate({ prompt: 'fil existant' })
+    await app.gotoNew()
+    await page.route('**/api/generations', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      await new Promise((r) => setTimeout(r, 1500))
+      await route.continue()
+    })
+    await app.prompt.fill('nouvelle demande')
+    await app.send()
+    await app.openThread('fil existant')
+    await page.waitForTimeout(2500)
+    await expect(page.getByText('fil existant').first()).toBeVisible()
+    await expect(app.prompt).toHaveValue('')
+    await app.gotoNew()
+    await expect(app.prompt).toHaveValue('')
+  })
+
+  test('envoi en erreur : le texte revient pour renvoyer', async ({ app, page }) => {
+    await app.gotoNew()
+    await page.route('**/api/generations', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'SpicyAPI ne répond pas.' }) })
+        : route.continue(),
+    )
+    await app.prompt.fill('à renvoyer')
+    await app.send()
+    await expect(page.getByText('SpicyAPI ne répond pas.')).toBeVisible()
+    await expect(app.prompt).toHaveValue('à renvoyer')
+  })
+
+  test('réglage modifié puis Entrée aussitôt : la demande part, sans message de prix', async ({ app, page }) => {
+    await app.gotoNew()
+    await app.prompt.fill('envoi direct')
+    await expect(page.getByRole('button', { name: /^Générer pour/ })).toBeVisible()
+    await app.count.click()
+    const created = page.waitForResponse((r) => r.url().endsWith('/api/generations') && r.request().method() === 'POST')
+    await app.prompt.press('Enter')
+    const res = await created
+    expect(res.status()).toBe(201)
+    expect(res.request().postDataJSON().expectedCost).toBeUndefined()
+    await expect(page.getByText(/Le prix a changé/)).toHaveCount(0)
+  })
+})

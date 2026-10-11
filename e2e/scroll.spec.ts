@@ -38,7 +38,11 @@ test('une personne qui a remonté n’est pas ramenée en bas', async ({ app, pa
   const thread = await longThread(app)
   await app.gotoThread(thread.id)
   await expect.poll(() => distanceToBottom(page)).toBeLessThan(2)
-  await page.getByTestId('thread-scroll').evaluate((el) => el.scrollTo({ top: 0 }))
+  // Vrai geste : la molette (un défilement causé par la page ne compte pas).
+  const zone = page.getByTestId('thread-scroll')
+  await zone.hover()
+  await page.mouse.wheel(0, -20000)
+  await expect.poll(() => zone.evaluate((el) => el.scrollTop)).toBe(0)
   await page.waitForTimeout(800)
-  expect(await page.getByTestId('thread-scroll').evaluate((el) => el.scrollTop)).toBe(0)
+  expect(await zone.evaluate((el) => el.scrollTop)).toBe(0)
 })

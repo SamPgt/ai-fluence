@@ -105,6 +105,39 @@ describe('brouillons par fil', () => {
   })
 })
 
+describe('envoi', () => {
+  it('erreur sur le même fil : le texte envoyé revient', async () => {
+    const { composer, composerStore } = await load()
+    composer.enterThread('A')
+    composer.setPrompt('demande')
+    const sent = { prompt: 'demande', attachments: [], editAssetId: null }
+    composer.clearAfterSend()
+    composer.restoreAfterError('A', sent)
+    expect(composerStore.state.prompt).toBe('demande')
+  })
+
+  it('erreur après être parti sur un autre fil : rien n’est remis', async () => {
+    const { composer, composerStore } = await load()
+    composer.enterThread('A')
+    composer.setPrompt('demande')
+    composer.clearAfterSend()
+    composer.enterThread('B')
+    composer.restoreAfterError('A', { prompt: 'demande', attachments: [], editAssetId: null })
+    expect(composerStore.state.prompt).toBe('')
+    composer.enterThread('A')
+    expect(composerStore.state.prompt).toBe('')
+  })
+
+  it('erreur alors qu’un nouveau texte a été écrit : il n’est pas écrasé', async () => {
+    const { composer, composerStore } = await load()
+    composer.enterThread('A')
+    composer.clearAfterSend()
+    composer.setPrompt('autre chose')
+    composer.restoreAfterError('A', { prompt: 'demande', attachments: [], editAssetId: null })
+    expect(composerStore.state.prompt).toBe('autre chose')
+  })
+})
+
 describe('Éditer / Animer', () => {
   it('Éditer repart de zéro avec l’image en position 1 et le modèle donné', async () => {
     const { composer, composerStore } = await load()

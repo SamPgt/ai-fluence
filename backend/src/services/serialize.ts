@@ -39,6 +39,7 @@ export function toPersona(row: PersonaRow, referenceCount = 0): Persona {
     loras: row.loras.map(l => ({ ...l, triggerWords: l.triggerWords ?? [] })),
     defaultImageFamily: row.defaultImageFamily,
     defaultVideoFamily: row.defaultVideoFamily,
+    voices: row.voices ?? [],
     referenceCount,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -87,9 +88,11 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
     cost: row.cost,
     settled: row.settled,
     seed: row.seed,
-    outputs,
+    // Résultat supprimé : plus aucune image envoyée.
+    outputs: row.removedAt ? [] : outputs,
     spicyTaskId: row.spicyTaskId,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
+    removedAt: row.removedAt?.toISOString() ?? null,
   };
 }

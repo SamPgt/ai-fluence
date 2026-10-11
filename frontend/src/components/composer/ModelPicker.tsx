@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import {
+  AudioLines,
   Check,
   ChevronDown,
   ChevronRight,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react'
 import {
   PROVIDERS,
+  audioInputInfo,
   imageInputInfo,
   type CatalogFamily,
   type MediaKind,
@@ -55,6 +57,10 @@ const TEXT = {
   duration:
     'Durée habituelle d’une génération avec ce modèle, d’après tes dernières générations.',
   images: (n: number) => `Jusqu’à ${n} image${n > 1 ? 's' : ''} de référence`,
+  voices: (n: number, lipsync: boolean) =>
+    lipsync
+      ? 'Accepte une voix qui guide les lèvres'
+      : `Accepte jusqu’à ${n} voix de référence`,
   pin: 'Épingler',
   unpin: 'Désépingler',
 }
@@ -155,6 +161,7 @@ function ModelRow({
   onTogglePin: () => void
 }) {
   const refs = imageInputInfo(f.media, f.tasks, 'reference').max
+  const voices = f.media === 'video' ? audioInputInfo(f.tasks) : null
   return (
     <div
       role="menuitemradio"
@@ -185,6 +192,14 @@ function ModelRow({
               <MiniBadge tip={TEXT.images(refs)}>
                 <ImageIcon className="size-2.5" />
                 {refs}
+              </MiniBadge>
+            )}
+            {voices && voices.max > 0 && (
+              <MiniBadge
+                tip={TEXT.voices(voices.max, voices.mode === 'lipsync')}
+              >
+                <AudioLines className="size-2.5" />
+                {voices.max}
               </MiniBadge>
             )}
           </span>

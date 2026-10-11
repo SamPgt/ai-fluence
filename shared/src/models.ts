@@ -156,9 +156,9 @@ const FAMILY_DEFS: ModelFamilyDef[] = [
     label: 'Nano Banana 2.1',
     media: 'image',
     badges: ['REF'],
-    hint: "Le modèle économe de Google : très bon rapport qualité-prix.",
+    hint: "Le modèle rapide de Google : bon rapport qualité-prix.",
     provider: 'google',
-    lowCost: true,
+    
     score: 1100, // guess score (sur la ligne de Pareto qualité / prix d'Artificial Analysis)
   },
 

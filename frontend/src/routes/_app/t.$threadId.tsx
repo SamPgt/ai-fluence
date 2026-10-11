@@ -10,11 +10,15 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
 import { Composer } from '@/components/composer/Composer'
+import { ThreadMediaProvider } from '@/components/thread/ThreadMedia'
 import { GenerationItem } from '@/components/thread/GenerationItem'
 import { useRenameThread } from '@/components/thread/useRenameThread'
 import { InlineEdit } from '@/components/ui/inline-edit'
 
 export const Route = createFileRoute('/_app/t/$threadId')({
+  // `g` : id d'une génération, pour arriver sur la demande qui l'a produite.
+  validateSearch: (search: Record<string, unknown>): { g?: string } =>
+    typeof search.g === 'string' && search.g ? { g: search.g } : {},
   component: ThreadPage,
 })
 
@@ -43,10 +47,29 @@ function ThreadPage() {
   // Défilement : tout en bas à l'ouverture du fil, et on y reste pendant que les
   // images se chargent (elles agrandissent la page). Si la personne remonte, on
   // la laisse ; une nouvelle génération ramène en bas, en douceur.
+  // Arrivée depuis un média (?g=<id>) : on s'arrête sur la demande qui l'a
+  // produit, et on la garde en vue pendant le chargement des images au-dessus.
+  const { g: target } = Route.useSearch()
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  const pinned = useRef<string | null>(null)
   const shownCount = useRef<{ threadId: string; count: number } | null>(null)
+  const targetNode = (id: string) =>
+    scrollRef.current?.querySelector<HTMLElement>(
+      `[data-generation-ids~="${CSS.escape(id)}"]`,
+    ) ?? null
+  const goToTarget = (id: string, flash: boolean) => {
+    const node = targetNode(id)
+    if (!node) return false
+    node.scrollIntoView({ block: 'center' })
+    if (flash) {
+      node.classList.remove('request-flash')
+      void node.offsetWidth
+      node.classList.add('request-flash')
+    }
+    return true
+  }
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !count) return
@@ -54,30 +77,68 @@ function ThreadPage() {
     const grew = !opened && count > shownCount.current!.count
     shownCount.current = { threadId, count }
     if (opened) {
+      if (target && goToTarget(target, true)) {
+        stick.current = false
+        pinned.current = target
+        return
+      }
       stick.current = true
       el.scrollTop = el.scrollHeight
     } else if (grew) {
+      pinned.current = null
       stick.current = true
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [count, threadId])
+  }, [count, threadId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Même fil, nouveau repère (lien depuis la visionneuse du fil).
+  useEffect(() => {
+    if (!target || !count || shownCount.current?.threadId !== threadId) return
+    if (goToTarget(target, true)) {
+      stick.current = false
+      pinned.current = target
+    }
+  }, [target]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = scrollRef.current
     const content = contentRef.current
     if (!el || !content) return
+    // Seul un geste de la personne (molette, doigt, clavier, barre de défilement)
+    // décide de suivre le bas ou non : un défilement causé par la page elle-même
+    // (composer qui grandit, image chargée) ne la décroche pas du bas.
+    let userScrollUntil = 0
+    const markUser = () => {
+      userScrollUntil = Date.now() + 1000
+    }
     const onScroll = () => {
-      stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+      if (Date.now() > userScrollUntil) return
+      if (!pinned.current) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    }
+    // Geste de la personne : on ne la retient plus sur la demande visée.
+    const release = () => {
+      markUser()
+      pinned.current = null
     }
     const observer = new ResizeObserver(() => {
-      if (stick.current) el.scrollTop = el.scrollHeight
+      if (pinned.current) goToTarget(pinned.current, false)
+      else if (stick.current) el.scrollTop = el.scrollHeight
     })
     el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('wheel', release, { passive: true })
+    el.addEventListener('touchstart', release, { passive: true })
+    el.addEventListener('keydown', release)
+    el.addEventListener('pointerdown', release)
+    // Le contenu qui grandit (images) et la zone qui rétrécit (composer qui s'agrandit).
     observer.observe(content)
+    observer.observe(el)
     return () => {
       el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('wheel', release)
+      el.removeEventListener('touchstart', release)
+      el.removeEventListener('keydown', release)
+      el.removeEventListener('pointerdown', release)
       observer.disconnect()
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -152,9 +213,11 @@ function ThreadPage() {
               {(error as Error).message}
             </p>
           )}
-          {groups.map((group) => (
-            <GenerationItem key={group[0].id} generations={group} />
-          ))}
+          <ThreadMediaProvider groups={groups}>
+            {groups.map((group) => (
+              <GenerationItem key={group[0].id} generations={group} />
+            ))}
+          </ThreadMediaProvider>
           <div ref={bottomRef} />
         </div>
       </div>

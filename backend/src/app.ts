@@ -14,6 +14,7 @@ import presetsRoutes from './routes/presets.route.js';
 import promptsRoutes from './routes/prompts.route.js';
 import civitaiRoutes from './routes/civitai.route.js';
 import trashRoutes from './routes/trash.route.js';
+import voicesRoutes from './routes/voices.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,7 +52,8 @@ const app = new Hono<AppEnv>()
   .route('/presets', presetsRoutes)
   .route('/prompts', promptsRoutes)
   .route('/civitai', civitaiRoutes)
-  .route('/trash', trashRoutes);
+  .route('/trash', trashRoutes)
+  .route('/voices', voicesRoutes);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {

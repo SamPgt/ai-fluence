@@ -2,6 +2,9 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { PriceChangedResponse } from '@ai-fluence/shared';
+import { and, eq, isNull } from 'drizzle-orm';
+import { db } from '../db/index.js';
+import { generations, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import {
   PriceChangedError,
@@ -71,6 +74,37 @@ const generationsRoutes = new Hono<AppEnv>()
     const [generation] = await loadGenerations(c.get('user').id, { ids: [c.req.param('id')] });
     if (!generation) return c.json({ error: 'Génération introuvable.' }, 404);
     return c.json({ generation });
+  })
+  /**
+   * Supprimer le résultat (ou tout le lot avec `?batch=true`) du fil : la demande
+   * reste, ses images sont masquées partout. Réversible (restore).
+   */
+  .delete('/:id', zValidator('query', z.object({ batch: z.stringbool().optional() })), async c => {
+    const ids = await setRemoved(c.get('user').id, c.req.param('id'), Boolean(c.req.valid('query').batch), new Date());
+    if (!ids) return c.json({ error: 'Génération introuvable.' }, 404);
+    return c.json({ ids });
+  })
+  .post('/:id/restore', zValidator('query', z.object({ batch: z.stringbool().optional() })), async c => {
+    const ids = await setRemoved(c.get('user').id, c.req.param('id'), Boolean(c.req.valid('query').batch), null);
+    if (!ids) return c.json({ error: 'Génération introuvable.' }, 404);
+    return c.json({ ids });
   });
+
+/** Marque (ou démarque) une génération, ou tout son lot, comme supprimée du fil. */
+async function setRemoved(userId: string, id: string, batch: boolean, removedAt: Date | null): Promise<string[] | null> {
+  const [row] = await db
+    .select({ id: generations.id, batchId: generations.batchId, threadId: generations.threadId })
+    .from(generations)
+    .innerJoin(threads, eq(threads.id, generations.threadId))
+    .where(and(eq(generations.id, id), eq(generations.userId, userId), isNull(threads.deletedAt)))
+    .limit(1);
+  if (!row) return null;
+  const target =
+    batch && row.batchId
+      ? and(eq(generations.userId, userId), eq(generations.batchId, row.batchId))
+      : eq(generations.id, row.id);
+  const updated = await db.update(generations).set({ removedAt }).where(target).returning({ id: generations.id });
+  return updated.map(r => r.id);
+}
 
 export default generationsRoutes;

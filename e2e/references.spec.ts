@@ -16,9 +16,9 @@ import {
   uploadReference,
 } from './support-personas'
 
-/** Carte « Bibliothèque de références » de la fiche persona. */
+/** Carte « Photos de références » de la fiche persona. */
 const library = (page: Page) =>
-  page.locator('section', { has: page.getByRole('heading', { name: 'Bibliothèque de références' }) })
+  page.locator('section', { has: page.getByRole('heading', { name: 'Photos de références' }) })
 
 /** Vignettes de la bibliothèque (hors bouton d'ajout). */
 const libraryThumbs = (page: Page) => library(page).locator('[aria-roledescription=sortable]')

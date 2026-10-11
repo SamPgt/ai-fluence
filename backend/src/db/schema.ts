@@ -9,7 +9,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaLora, TaskKind } from '@ai-fluence/shared';
+import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaLora, PersonaVoice, TaskKind } from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -46,6 +46,9 @@ export const userSettings = pgTable('user_settings', {
   /** Clé SpicyAPI chiffrée (AES-256-GCM, cf. lib/crypto). */
   spicyApiKeyEnc: text('spicy_api_key_enc'),
   spicyApiKeyHint: text('spicy_api_key_hint'),
+  /** Clé ElevenLabs chiffrée (voix des personas). */
+  elevenLabsApiKeyEnc: text('elevenlabs_api_key_enc'),
+  elevenLabsApiKeyHint: text('elevenlabs_api_key_hint'),
   /** Dossier des médias ; null = dossier par défaut sous DATA_DIR. */
   mediaDir: text('media_dir'),
   // Modèle rapide (~5 s) : Grok 4.7 réfléchit longtemps (~30 s) pour une simple reformulation.
@@ -66,6 +69,8 @@ export const personas = pgTable(
     /** Blocs de contexte (titre, texte), toujours envoyés au prompt. */
     contextBlocks: jsonb('context_blocks').$type<PersonaContextBlock[]>().notNull().default([]),
     loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
+    /** Voix ElevenLabs du persona (choisies dans leur catalogue). */
+    voices: jsonb('voices').$type<PersonaVoice[]>().notNull().default([]),
     defaultImageFamily: text('default_image_family'),
     defaultVideoFamily: text('default_video_family'),
     position: integer('position').notNull().default(0),
@@ -135,6 +140,8 @@ export const generations = pgTable(
     errorMessage: text('error_message'),
     createdAt: createdAt(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    /** Résultat supprimé du fil par l'utilisateur : la demande reste, ses images sont masquées. */
+    removedAt: timestamp('removed_at', { withTimezone: true }),
   },
   t => [
     index('generations_thread_idx').on(t.threadId, t.createdAt),

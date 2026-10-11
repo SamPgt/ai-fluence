@@ -74,7 +74,8 @@ test.describe('sections', () => {
     await openModelMenu(page)
     await subMenuRow(page, 'Low cost').hover()
     await expect(subMenu(page)).toBeVisible()
-    expect((await rowLabels(subMenu(page))).sort()).toEqual(['Nano Banana 2.1', 'Seedream 5.0 Flash'])
+    // Nano Banana n'est pas low cost.
+    expect((await rowLabels(subMenu(page))).sort()).toEqual(['Seedream 5.0 Flash'])
 
     await subMenuRow(page, 'LoRA').hover()
     await expect(modelRow(subMenu(page), 'FLUX.1 Dev LoRA')).toBeVisible()

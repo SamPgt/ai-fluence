@@ -29,6 +29,7 @@ import type {
   UpscaleRequest,
   Balance,
   User,
+  VoiceLibraryResponse,
 } from '@ai-fluence/shared'
 
 export class ApiError extends Error {
@@ -94,6 +95,9 @@ export const settingsApi = {
   setApiKey: (apiKey: string) =>
     apiFetch<{ settings: Settings }>('/settings/api-key', { method: 'PUT', body: { apiKey } }),
   removeApiKey: () => apiFetch<{ settings: Settings }>('/settings/api-key', { method: 'DELETE' }),
+  setElevenLabsKey: (apiKey: string) =>
+    apiFetch<{ settings: Settings }>('/settings/elevenlabs-key', { method: 'PUT', body: { apiKey } }),
+  removeElevenLabsKey: () => apiFetch<{ settings: Settings }>('/settings/elevenlabs-key', { method: 'DELETE' }),
   openMediaDir: () => apiFetch<{ ok: true }>('/settings/open-media-dir', { method: 'POST' }),
   balance: () => apiFetch<{ balance: Balance | null }>('/settings/balance'),
   credits: () => apiFetch<CreditsResponse>('/settings/credits'),
@@ -139,6 +143,28 @@ export const civitaiApi = {
     apiFetch<CivitaiSearchResponse>('/civitai/search', { query: q }),
 }
 
+export interface VoiceLibraryQuery {
+  /** all : les deux ; default : voix proposées par ElevenLabs ; library : bibliothèque communautaire. */
+  source?: 'all' | 'default' | 'library'
+  search?: string
+  gender?: string
+  age?: string
+  accent?: string
+  language?: string
+  useCase?: string
+  page?: number
+}
+
+export const voicesApi = {
+  /** Catalogue de voix ElevenLabs (avec extraits à écouter). */
+  library: (query: VoiceLibraryQuery) =>
+    apiFetch<VoiceLibraryResponse>('/voices/library', {
+      query: Object.fromEntries(
+        Object.entries(query).filter(([, v]) => v !== undefined && v !== ''),
+      ) as Record<string, string>,
+    }),
+}
+
 export const trashApi = {
   list: () => apiFetch<TrashResponse>('/trash'),
   restorePersona: (id: string) => apiFetch<{ ok: true }>(`/trash/personas/${id}/restore`, { method: 'POST' }),
@@ -158,6 +184,11 @@ export const threadsApi = {
 }
 
 export const generationsApi = {
+  /** Supprime le résultat du fil (tout le lot avec `batch`) ; réversible. */
+  remove: (id: string, batch: boolean) =>
+    apiFetch<{ ids: string[] }>(`/generations/${id}`, { method: 'DELETE', query: { batch } }),
+  restore: (id: string, batch: boolean) =>
+    apiFetch<{ ids: string[] }>(`/generations/${id}/restore`, { method: 'POST', query: { batch } }),
   quote: (body: GenerationRequest) =>
     apiFetch<{ quote: QuoteResponse }>('/generations/quote', { method: 'POST', body }),
   create: (body: GenerationRequest) =>

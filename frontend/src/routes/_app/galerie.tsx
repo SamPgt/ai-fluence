@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Film, Loader2 } from 'lucide-react'
-import { getFamily, type Asset } from '@ai-fluence/shared'
+import { getFamily } from '@ai-fluence/shared'
 
 import { assetsApi } from '@/lib/api'
 import { personasQuery, qk } from '@/lib/queries'
@@ -25,10 +25,8 @@ export const Route = createFileRoute('/_app/galerie')({
 function GalleryPage() {
   const [personaId, setPersonaId] = useState<string | null>(null)
   const [media, setMedia] = useState<'image' | 'video' | null>(null)
-  const [viewing, setViewing] = useState<{
-    asset: Asset
-    prompt: string
-  } | null>(null)
+  // Média ouvert dans la visionneuse (son id) : les flèches parcourent la galerie.
+  const [viewing, setViewing] = useState<string | null>(null)
   const { data: personas = [] } = useQuery(personasQuery())
 
   const query = useInfiniteQuery({
@@ -43,6 +41,9 @@ function GalleryPage() {
     getNextPageParam: (last) => last.nextBefore,
   })
   const items = query.data?.pages.flatMap((p) => p.items) ?? []
+  const viewIndex = viewing
+    ? items.findIndex((i) => i.asset.id === viewing)
+    : -1
 
   return (
     <>
@@ -102,9 +103,7 @@ function GalleryPage() {
               className="group relative mb-3 break-inside-avoid overflow-hidden rounded-xl border border-border/40"
             >
               <button
-                onClick={() =>
-                  setViewing({ asset, prompt: generation?.prompt ?? '' })
-                }
+                onClick={() => setViewing(asset.id)}
                 className="block w-full"
               >
                 {asset.mediaType === 'video' ? (
@@ -134,6 +133,7 @@ function GalleryPage() {
                 <Link
                   to="/t/$threadId"
                   params={{ threadId: generation.threadId }}
+                  search={{ g: generation.id }}
                   className={cn(
                     'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 pt-6 pb-2 text-[11px] text-white/90 opacity-0 transition group-hover:opacity-100',
                   )}
@@ -163,8 +163,37 @@ function GalleryPage() {
         )}
       </div>
       <MediaViewer
-        asset={viewing?.asset ?? null}
+        asset={viewIndex >= 0 ? items[viewIndex].asset : null}
         onClose={() => setViewing(null)}
+        source={
+          viewIndex >= 0 && items[viewIndex].generation
+            ? {
+                threadId: items[viewIndex].generation!.threadId,
+                generationId: items[viewIndex].generation!.id,
+              }
+            : null
+        }
+        onPrev={
+          viewIndex > 0
+            ? () => setViewing(items[viewIndex - 1].asset.id)
+            : undefined
+        }
+        onNext={
+          viewIndex < 0
+            ? undefined
+            : viewIndex < items.length - 1
+              ? () => setViewing(items[viewIndex + 1].asset.id)
+              : query.hasNextPage
+                ? // Au bout de la page : on charge la suivante, puis on avance.
+                  () =>
+                    void query.fetchNextPage().then((res) => {
+                      const next = res.data?.pages.flatMap((p) => p.items)[
+                        viewIndex + 1
+                      ]
+                      if (next) setViewing(next.asset.id)
+                    })
+                : undefined
+        }
       />
     </>
   )

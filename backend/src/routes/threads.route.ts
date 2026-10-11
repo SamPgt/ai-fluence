@@ -15,7 +15,7 @@ import type { AppEnv } from '../types.js';
 const aggregates = {
   totalCost: sql<string>`(select coalesce(sum(g.cost::numeric) filter (where g.status = 'succeeded'), 0)::text from generations g where g.thread_id = "threads"."id")`,
   generationCount: sql<number>`(select count(*)::int from generations g where g.thread_id = "threads"."id")`,
-  coverAssetId: sql<string | null>`(select a.id from assets a inner join generations g on g.id = a.generation_id where g.thread_id = "threads"."id" and a.media_type = 'image' order by a.created_at desc limit 1)`,
+  coverAssetId: sql<string | null>`(select a.id from assets a inner join generations g on g.id = a.generation_id where g.thread_id = "threads"."id" and g.removed_at is null and a.media_type = 'image' order by a.created_at desc limit 1)`,
 };
 
 const threadsRoutes = new Hono<AppEnv>()

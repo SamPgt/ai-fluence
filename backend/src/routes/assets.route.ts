@@ -164,7 +164,7 @@ export const assetsRoutes = new Hono<AppEnv>()
         eq(assets.userId, user.id),
         eq(assets.kind, 'output'),
         // Pas les résultats des fils à la corbeille.
-        sql`not exists (select 1 from generations g inner join threads t on t.id = g.thread_id where g.id = ${assets.generationId} and t.deleted_at is not null)`,
+        sql`not exists (select 1 from generations g inner join threads t on t.id = g.thread_id where g.id = ${assets.generationId} and (t.deleted_at is not null or g.removed_at is not null))`,
       ];
       if (q.personaId) where.push(eq(assets.personaId, q.personaId));
       if (q.media) where.push(eq(assets.mediaType, q.media));

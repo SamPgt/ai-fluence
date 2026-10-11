@@ -9,6 +9,7 @@ import type { Balance, CreditsResponse, Settings } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { generations, userSettings } from '../db/schema.js';
 import { env, expandHome } from '../env.js';
+import { checkElevenLabsKey } from '../services/elevenlabs.service.js';
 import { apiKeyHint, encryptSecret } from '../lib/crypto.js';
 import { auth } from '../middleware/auth.js';
 import { defaultMediaDir, getSettingsRow, mediaDirOf, type SettingsRow } from '../services/settings.service.js';
@@ -21,6 +22,8 @@ function toSettings(user: SessionUser, row: SettingsRow): Settings {
     apiKeyHint: row.spicyApiKeyHint,
     mediaDir: mediaDirOf(user, row),
     defaultMediaDir: defaultMediaDir(user),
+    hasElevenLabsKey: Boolean(row.elevenLabsApiKeyEnc),
+    elevenLabsKeyHint: row.elevenLabsApiKeyHint,
     enhanceModel: row.enhanceModel,
   };
 }
@@ -81,6 +84,29 @@ const settingsRoutes = new Hono<AppEnv>()
       .where(eq(userSettings.userId, user.id))
       .returning();
     invalidateCatalog(user.id);
+    return c.json({ settings: toSettings(user, row) });
+  })
+  .put('/elevenlabs-key', zValidator('json', z.object({ apiKey: z.string().trim().min(10).max(400) })), async c => {
+    const user = c.get('user');
+    const { apiKey } = c.req.valid('json');
+    // Clé vérifiée avant d'être enregistrée (appel gratuit, jamais en test).
+    await checkElevenLabsKey(apiKey);
+    await getSettingsRow(user.id);
+    const [row] = await db
+      .update(userSettings)
+      .set({ elevenLabsApiKeyEnc: encryptSecret(apiKey), elevenLabsApiKeyHint: apiKeyHint(apiKey), updatedAt: new Date() })
+      .where(eq(userSettings.userId, user.id))
+      .returning();
+    return c.json({ settings: toSettings(user, row) });
+  })
+  .delete('/elevenlabs-key', async c => {
+    const user = c.get('user');
+    await getSettingsRow(user.id);
+    const [row] = await db
+      .update(userSettings)
+      .set({ elevenLabsApiKeyEnc: null, elevenLabsApiKeyHint: null, updatedAt: new Date() })
+      .where(eq(userSettings.userId, user.id))
+      .returning();
     return c.json({ settings: toSettings(user, row) });
   })
   .delete('/api-key', async c => {

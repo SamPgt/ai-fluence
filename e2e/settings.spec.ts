@@ -3,6 +3,7 @@
  * Clés API. Le compte e2e est partagé : chaque test le remet en état ensuite.
  */
 import { existsSync } from 'node:fs'
+import type { Page } from '@playwright/test'
 import { basename, join } from 'node:path'
 import { DATA_DIR } from './env'
 import { resetData, sql } from './db'
@@ -236,6 +237,10 @@ test.describe('Stockage', () => {
   })
 })
 
+/** Formulaire de la clé SpicyAPI (l'onglet a aussi celui d'ElevenLabs). */
+const spicyForm = (page: Page) =>
+  page.locator('form').filter({ has: page.locator('input[aria-label="Clé SpicyAPI"]') })
+
 test.describe('Clés API', () => {
   test('la clé enregistrée est affichée masquée', async ({ page }) => {
     await gotoSettings(page, 'api-key')
@@ -267,7 +272,7 @@ test.describe('Clés API', () => {
     await hydrated(page)
     const field = page.locator('input[aria-label="Clé SpicyAPI"]')
     await field.fill('sk-spicy-e2e-1111111111')
-    await page.getByRole('button', { name: 'Enregistrer' }).click()
+    await spicyForm(page).getByRole('button', { name: 'Enregistrer' }).click()
     await expect(page.getByText('Clé vérifiée et enregistrée')).toBeVisible()
     await expect(page.getByText('sk-spicy-••••1111')).toBeVisible()
 
@@ -282,7 +287,7 @@ test.describe('Clés API', () => {
     await page.getByRole('button', { name: 'Supprimer' }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Supprimer' }).click()
     await page.locator('input[aria-label="Clé SpicyAPI"]').fill('sk-spicy-remplacee-9876')
-    await page.getByRole('button', { name: 'Enregistrer' }).click()
+    await spicyForm(page).getByRole('button', { name: 'Enregistrer' }).click()
     await expect(page.getByText('sk-spicy-••••9876')).toBeVisible()
     await page.reload()
     await hydrated(page)
@@ -295,7 +300,7 @@ test.describe('Clés API', () => {
     await page.getByRole('button', { name: 'Supprimer' }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Supprimer' }).click()
     await expect(page.locator('input[aria-label="Clé SpicyAPI"]')).toBeVisible()
-    const save = page.getByRole('button', { name: 'Enregistrer' })
+    const save = spicyForm(page).getByRole('button', { name: 'Enregistrer' })
     await expect(save).toBeDisabled()
     await page.locator('input[aria-label="Clé SpicyAPI"]').fill('court')
     await save.click()
