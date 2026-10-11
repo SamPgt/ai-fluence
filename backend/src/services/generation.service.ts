@@ -495,13 +495,32 @@ async function launch(
 
 // ── ComfyUI (local) ───────────────────────────────────────────
 
+/**
+ * Envoi d'une image d'entrée à ComfyUI, une seule fois pour les envois simultanés : les images d'une série
+ * partent ensemble avec les mêmes entrées, et deux envois du même fichier se réécrivaient l'un l'autre
+ * pendant que ComfyUI le lisait (« LoadImage : Invalid data found when processing input »).
+ */
+const uploads = new Map<string, Promise<string>>();
+function uploadOnce(asset: AssetRow): Promise<string> {
+  let pending = uploads.get(asset.id);
+  if (!pending) {
+    pending = readFile(asset.filePath).then(data =>
+      uploadImage(data, `ai-fluence-${asset.id}.${extFor(asset.mime)}`, asset.mime),
+    );
+    uploads.set(asset.id, pending);
+    // Gardé une minute (le temps d'une série), puis renvoyé à la demande suivante.
+    void pending.finally(() => setTimeout(() => uploads.delete(asset.id), 60_000)).catch(() => undefined);
+    pending.catch(() => uploads.delete(asset.id));
+  }
+  return pending;
+}
+
 /** Envoie les images d'entrée à ComfyUI, remplit le workflow et le met en file. Renvoie le `prompt_id`. */
 async function submitToComfy(p: Prepared): Promise<string> {
   const endpoint = localEndpoint(p.modelId);
   if (!endpoint) throw new Error(`Workflow local introuvable pour ${p.modelId}.`);
 
-  const upload = async (asset: AssetRow) =>
-    uploadImage(await readFile(asset.filePath), `ai-fluence-${asset.id}.${extFor(asset.mime)}`, asset.mime);
+  const upload = (asset: AssetRow) => uploadOnce(asset);
 
   // Images d'entrée : l'image de départ (`image_url`) ou les références (`image_urls`), dans l'ordre.
   const refs = [

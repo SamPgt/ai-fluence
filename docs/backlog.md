@@ -47,3 +47,9 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 
 - **Compte de test** `claude-test@local.test` (créé pour tester l'interface) : à supprimer, avec ses générations.
 - **PR** : ouvrir la PR de `feat/comfyui` quand la branche est prête à être montrée (dépend de la PR Windows `SamPgt/ai-fluence#1`).
+
+## Garde-fous (à définir par Kevin)
+
+- **Filtre NSFW de ReActor désactivé** (2026-10-11) : il noircissait des tenues sexy mais habillées (score 0,99 sur résille / body en mesh). Interrupteur `REACTOR_NSFW_FILTER=0` dans `COMFYUI_LAUNCH` (patch local de `comfyui-reactor/scripts/reactor_sfw.py`, original en `.orig`, à refaire après une mise à jour du nœud). Garde-fous à poser dans l'app plutôt que dans l'outil : échange de visage réservé aux visages des personnages (pas de photo d'une personne réelle sans son accord), âge minimal des personnages, règles de contenu selon la plateforme de publication.
+- **Prompt négatif sans effet** sur les modèles locaux (CFG 1 : Z-Image Turbo, klein, Qwen Lightning, Wan lightx2v, LTX distillé). Piste : le nœud natif `NAGuidance` (Normalized Attention Guidance), qui rend le négatif actif à CFG 1, à tester modèle par modèle ; sinon retirer le champ « Prompt négatif » de Z-Image.
+

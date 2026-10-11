@@ -175,8 +175,9 @@ export function buildWanI2V(values: Record<string, unknown>, ctx: BuildContext):
 
 export const LTX_FPS = 25;
 /**
- * Prompt négatif. La fin de liste évite un défaut vu en test : sur une fin de vidéo silencieuse, LTX imite
- * l'écran de fin d'une vidéo YouTube (fond noir, logo).
+ * Prompt négatif, celui du modèle officiel de ComfyUI (et la fin de liste contre l'écran de fin de vidéo YouTube
+ * que LTX imite sur une fin silencieuse). Attention : à CFG 1 (modèle distillé), ComfyUI ignore le négatif ; il
+ * ne servirait qu'avec un CFG plus élevé ou une guidance de type NAG.
  */
 const LTX_NEGATIVE =
   'pc game, console game, video game, cartoon, childish, ugly, blurry, distorted face, bad teeth, ' +
