@@ -58,6 +58,7 @@ const voiceSchema = z.object({
 
 const personaFields = {
   name: z.string().trim().min(1).max(40),
+  kind: z.enum(['influencer', 'artistic']),
   color: z.string().regex(/^#[0-9a-f]{6}$/i),
   avatarAssetId: z.uuid().nullable(),
   contextBlocks: z.array(contextBlockSchema).max(10),
@@ -71,6 +72,7 @@ const personaFields = {
 /** Création : valeurs par défaut pour les champs absents. */
 const personaSchema = z.object({
   ...personaFields,
+  kind: personaFields.kind.default('influencer'),
   color: personaFields.color.default('#8b5cf6'),
   avatarAssetId: personaFields.avatarAssetId.default(null),
   contextBlocks: personaFields.contextBlocks.default([]),

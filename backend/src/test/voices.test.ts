@@ -66,3 +66,21 @@ describe('voix d’un persona', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('type de persona', () => {
+  it('influenceur par défaut, modifiable en artistique, sans toucher au reste', async () => {
+    const me = await signup();
+    const p = await me.createPersona({ name: 'Royaume', color: '#112233' });
+    expect(p.kind).toBe('influencer');
+    const res = await me.patch(`/personas/${p.id}`, { kind: 'artistic' });
+    expect(res.status).toBe(200);
+    expect(res.body.persona).toMatchObject({ kind: 'artistic', color: '#112233', name: 'Royaume' });
+  });
+
+  it('refuse un type inconnu', async () => {
+    const me = await signup();
+    const p = await me.createPersona({ name: 'Royaume' });
+    expect((await me.patch(`/personas/${p.id}`, { kind: 'autre' })).status).toBe(400);
+    expect((await me.post('/personas', { name: 'X', kind: 'autre' })).status).toBe(400);
+  });
+});

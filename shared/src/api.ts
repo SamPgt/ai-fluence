@@ -251,9 +251,13 @@ export interface VoiceLibraryResponse {
   hasMore: boolean;
 }
 
+/** Type de persona : il adapte la fiche (pas de voix pour un persona artistique). */
+export type PersonaKind = 'influencer' | 'artistic';
+
 export interface Persona {
   id: string;
   name: string;
+  kind: PersonaKind;
   color: string;
   avatarAssetId: string | null;
   avatarUrl: string | null;
@@ -405,6 +409,8 @@ export interface SearchResult {
   threadId: string;
   threadTitle: string;
   matchedPrompt: string | null;
+  /** Demande dont le prompt correspond : on arrive dessus dans le fil (null si seul le titre correspond). */
+  matchedGenerationId: string | null;
 }
 
 // ── Contextes (textes ajoutés à la fin du prompt) ─────────────

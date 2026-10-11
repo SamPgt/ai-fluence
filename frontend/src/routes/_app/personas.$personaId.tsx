@@ -42,6 +42,7 @@ import {
   type MediaKind,
   type Persona,
   type PersonaContextBlock,
+  type PersonaKind,
   type PersonaLora,
   type PersonaVoice,
 } from '@ai-fluence/shared'
@@ -136,10 +137,24 @@ function Card({
   )
 }
 
+const PERSONA_KINDS: { value: PersonaKind; label: string; hint: string }[] = [
+  {
+    value: 'influencer',
+    label: 'Influenceur',
+    hint: 'Une personne : photos, voix de référence et contexte.',
+  },
+  {
+    value: 'artistic',
+    label: 'Artistique',
+    hint: 'Un univers visuel : photos de référence et contexte, sans voix.',
+  },
+]
+
 /** Corps envoyé au serveur (les blocs et LoRA vides ne sont pas conservés). */
 function toPayload(p: Persona) {
   return {
     name: p.name,
+    kind: p.kind,
     color: p.color,
     avatarAssetId: p.avatarAssetId,
     contextBlocks: p.contextBlocks.filter(
@@ -369,6 +384,31 @@ function PersonaEditor({ persona }: { persona: Persona }) {
                     aria-label="Nom du persona"
                   />
                 </div>
+                {/* Type : adapte la fiche (pas de voix pour un univers artistique). */}
+                <div
+                  role="radiogroup"
+                  aria-label="Type de persona"
+                  className="inline-flex rounded-lg bg-muted/60 p-0.5"
+                >
+                  {PERSONA_KINDS.map((k) => (
+                    <button
+                      key={k.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={draft.kind === k.value}
+                      onClick={() => set('kind', k.value)}
+                      title={k.hint}
+                      className={cn(
+                        'h-7 rounded-md px-3 text-[13px] transition-colors',
+                        draft.kind === k.value
+                          ? 'bg-background text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {k.label}
+                    </button>
+                  ))}
+                </div>
                 {/* Couleur de fond des initiales : seulement sans photo. */}
                 {!draft.avatarUrl && (
                   <div className="flex gap-1.5">
@@ -457,10 +497,13 @@ function PersonaEditor({ persona }: { persona: Persona }) {
               {/* Puis les médias du persona : une image vaut mille mots. */}
               <References persona={persona} />
 
-              <PersonaVoices
-                voices={draft.voices}
-                onChange={(voices) => set('voices', voices)}
-              />
+              {/* Voix : seulement pour un persona influenceur. */}
+              {draft.kind !== 'artistic' && (
+                <PersonaVoices
+                  voices={draft.voices}
+                  onChange={(voices) => set('voices', voices)}
+                />
+              )}
 
               <Card
                 title="Modèles par défaut"

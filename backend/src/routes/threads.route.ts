@@ -38,9 +38,12 @@ const threadsRoutes = new Hono<AppEnv>()
     const pattern = `%${c.req.valid('query').q.replace(/[%_]/g, m => `\\${m}`)}%`;
     // Les 30 fils les plus récents qui correspondent (titre ou un de leurs prompts),
     // avec le dernier prompt qui correspond.
-    const matchedPrompt = sql<string | null>`(select g.prompt from generations g where g.thread_id = "threads"."id" and g.prompt ilike ${pattern} order by g.created_at desc limit 1)`;
+    const matched = (col: 'prompt' | 'id') =>
+      sql.raw(`(select g.${col} from generations g where g.thread_id = "threads"."id" and g.prompt ilike `)
+    const matchedPrompt = sql<string | null>`${matched('prompt')}${pattern} order by g.created_at desc limit 1)`;
+    const matchedGenerationId = sql<string | null>`${matched('id')}${pattern} order by g.created_at desc limit 1)`;
     const rows = await db
-      .select({ threadId: threads.id, threadTitle: threads.title, matchedPrompt })
+      .select({ threadId: threads.id, threadTitle: threads.title, matchedPrompt, matchedGenerationId })
       .from(threads)
       .where(
         and(

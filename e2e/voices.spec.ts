@@ -95,3 +95,31 @@ test('composer : bouton « Voix » pour un modèle vidéo à voix, absent en pho
   await expect(picker).toHaveText(/Sarah/)
   await expect(page.getByText(/Voix « Sarah » choisie/)).toBeVisible()
 })
+
+test('persona artistique : pas de section Voix sur la fiche ni de bouton « Voix » dans le composer @core', async ({ app, page }) => {
+  const p = await app.createPersona({
+    name: 'Royaume',
+    defaultVideoFamily: WAN,
+    voices: [{ id: 'v1', voiceId: 'fake-sarah', name: 'Sarah', previewUrl: null, labels: {} }],
+  })
+  await page.goto(`/personas/${p.id}`)
+  await waitHydrated(page)
+  const kinds = page.getByRole('radiogroup', { name: 'Type de persona' })
+  await expect(kinds.getByRole('radio', { name: 'Influenceur' })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('heading', { name: 'Voix de référence' })).toBeVisible()
+  await kinds.getByRole('radio', { name: 'Artistique' }).click()
+  await expect(page.getByRole('heading', { name: 'Voix de référence' })).toHaveCount(0)
+  await expect
+    .poll(async () => (await (await page.request.get('/api/personas')).json()).personas[0].kind)
+    .toBe('artistic')
+  // Gardé après rechargement.
+  await page.reload()
+  await waitHydrated(page)
+  await expect(page.getByRole('radiogroup', { name: 'Type de persona' }).getByRole('radio', { name: 'Artistique' })).toHaveAttribute('aria-checked', 'true')
+  // Composer : modèle vidéo à voix, mais pas de bouton « Voix ».
+  await app.gotoNew()
+  await app.selectPersona('Royaume')
+  await app.chooseMedia('Vidéo')
+  await expect(app.modelPicker).toContainText('Wan 3.0')
+  await expect(page.getByTestId('voice-picker')).toHaveCount(0)
+})

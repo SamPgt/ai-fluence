@@ -734,7 +734,7 @@ export function Composer({
                 }
               />
               {/* Voix du persona, juste à droite du modèle : seulement pour un modèle vidéo qui accepte une voix. */}
-              {persona && voiceInfo.max > 0 && (
+              {persona && persona.kind !== 'artistic' && voiceInfo.max > 0 && (
                 <VoicePicker
                   persona={persona}
                   value={selectedVoice?.id ?? null}

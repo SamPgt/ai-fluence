@@ -56,3 +56,24 @@ test('dans le fil, la visionneuse mène aussi à la demande de l’image', async
   await expect(page).toHaveURL(/\?g=/)
   await expect.poll(() => bubbleInView(page, 'demande 2')).toBe(true)
 })
+
+test('recherche (⌘K) : un prompt trouvé ouvre le fil sur cette demande, pas en bas @core', async ({ app, page }) => {
+  const thread = await longThread(app)
+  await app.gotoNew()
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k')
+  await page.getByPlaceholder(/Rechercher/).last().fill('demande 2')
+  // « demande 2 » est le prompt d'une demande ancienne du fil.
+  await page.getByRole('button', { name: /demande 2/ }).first().click()
+  await expect(page).toHaveURL(new RegExp(`/t/${thread.id}\\?g=`))
+  await expect.poll(() => bubbleInView(page, 'demande 2')).toBe(true)
+  expect(await distanceToBottom(page)).toBeGreaterThan(100)
+  // La demande commence en haut de la zone : ses images de référence seraient visibles.
+  const id = new URL(page.url()).searchParams.get('g')!
+  const top = await page.evaluate((g) => {
+    const zone = document.querySelector('[data-testid="thread-scroll"]')!.getBoundingClientRect().top
+    const node = document.querySelector(`[data-generation-ids~="${g}"]`)!.getBoundingClientRect().top
+    return node - zone
+  }, id)
+  expect(top).toBeGreaterThanOrEqual(0)
+  expect(top).toBeLessThan(40)
+})

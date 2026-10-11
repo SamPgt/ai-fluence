@@ -9,7 +9,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaLora, PersonaVoice, TaskKind } from '@ai-fluence/shared';
+import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind } from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -64,6 +64,8 @@ export const personas = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    /** influencer : une personne (voix proposées) ; artistic : un univers visuel. */
+    kind: text('kind').$type<PersonaKind>().notNull().default('influencer'),
     color: text('color').notNull().default('#8b5cf6'),
     avatarAssetId: uuid('avatar_asset_id'),
     /** Blocs de contexte (titre, texte), toujours envoyés au prompt. */

@@ -248,20 +248,6 @@ code {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 50% 15%, #bdb2ff 0%, transparent 52%), radial-gradient(circle at 15% 60%, #ffadad 0%, transparent 55%), radial-gradient(circle at 85% 70%, #fdffb6 0%, transparent 58%), linear-gradient(157deg, #ffadad, #16142a);
   }
 
-  /* Demande atteinte depuis un média : brève mise en évidence. */
-  .request-flash [data-testid='request-bubble'] {
-    animation: request-flash 1.6s ease-out;
-  }
-  @keyframes request-flash {
-    0%,
-    30% {
-      box-shadow: 0 0 0 2px rgb(255 255 255 / 0.55);
-    }
-    100% {
-      box-shadow: 0 0 0 2px rgb(255 255 255 / 0);
-    }
-  }
-
   /* Badges du dropdown de modèles */
   .badge-lora {
     @apply bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30;

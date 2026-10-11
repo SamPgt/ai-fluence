@@ -59,15 +59,14 @@ function ThreadPage() {
     scrollRef.current?.querySelector<HTMLElement>(
       `[data-generation-ids~="${CSS.escape(id)}"]`,
     ) ?? null
-  const goToTarget = (id: string, flash: boolean) => {
+  const goToTarget = (id: string) => {
     const node = targetNode(id)
     if (!node) return false
-    node.scrollIntoView({ block: 'center' })
-    if (flash) {
-      node.classList.remove('request-flash')
-      void node.offsetWidth
-      node.classList.add('request-flash')
-    }
+    // Demande alignée en haut (avec une petite marge) : ses images de
+    // référence, sa bulle et le début de son résultat restent visibles.
+    const el = scrollRef.current!
+    el.scrollTop +=
+      node.getBoundingClientRect().top - el.getBoundingClientRect().top - 16
     return true
   }
   useEffect(() => {
@@ -77,7 +76,7 @@ function ThreadPage() {
     const grew = !opened && count > shownCount.current!.count
     shownCount.current = { threadId, count }
     if (opened) {
-      if (target && goToTarget(target, true)) {
+      if (target && goToTarget(target)) {
         stick.current = false
         pinned.current = target
         return
@@ -93,7 +92,7 @@ function ThreadPage() {
   // Même fil, nouveau repère (lien depuis la visionneuse du fil).
   useEffect(() => {
     if (!target || !count || shownCount.current?.threadId !== threadId) return
-    if (goToTarget(target, true)) {
+    if (goToTarget(target)) {
       stick.current = false
       pinned.current = target
     }
@@ -111,7 +110,8 @@ function ThreadPage() {
     }
     const onScroll = () => {
       if (Date.now() > userScrollUntil) return
-      if (!pinned.current) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+      if (!pinned.current)
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     }
     // Geste de la personne : on ne la retient plus sur la demande visée.
     const release = () => {
@@ -119,7 +119,7 @@ function ThreadPage() {
       pinned.current = null
     }
     const observer = new ResizeObserver(() => {
-      if (pinned.current) goToTarget(pinned.current, false)
+      if (pinned.current) goToTarget(pinned.current)
       else if (stick.current) el.scrollTop = el.scrollHeight
     })
     el.addEventListener('scroll', onScroll, { passive: true })

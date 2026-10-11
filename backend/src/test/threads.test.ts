@@ -165,16 +165,21 @@ describe('GET /threads/search', () => {
     await insertThread(me, { title: 'Montagne' });
     const res = await me.get('/threads/search?q=PLAGE');
     expect(res.status).toBe(200);
-    expect(res.body.results).toEqual([{ threadId: t.id, threadTitle: 'Plage au coucher du soleil', matchedPrompt: null }]);
+    expect(res.body.results).toEqual([
+      { threadId: t.id, threadTitle: 'Plage au coucher du soleil', matchedPrompt: null, matchedGenerationId: null },
+    ]);
   });
 
   it('trouve un fil par le prompt d’une de ses générations', async () => {
     const me = await signup();
-    const { thread } = await me.generate({ prompt: 'un dragon violet' });
+    const { thread, generation } = await me.generate({ prompt: 'un dragon violet' });
     await me.patch(`/threads/${thread.id}`, { title: 'Sans rapport' });
     const res = await me.get('/threads/search?q=dragon');
     expect(res.status).toBe(200);
-    expect(res.body.results).toEqual([{ threadId: thread.id, threadTitle: 'Sans rapport', matchedPrompt: 'un dragon violet' }]);
+    // La demande trouvée : on l'ouvrira à sa hauteur dans le fil.
+    expect(res.body.results).toEqual([
+      { threadId: thread.id, threadTitle: 'Sans rapport', matchedPrompt: 'un dragon violet', matchedGenerationId: generation.id },
+    ]);
   });
 
   it('ne renvoie qu’un résultat par fil même si plusieurs prompts correspondent', async () => {

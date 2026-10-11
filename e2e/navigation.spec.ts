@@ -101,7 +101,8 @@ test('la recherche (⌘K) trouve un fil par son titre et l’ouvre @core', async
   await expect(dialog).not.toContainText('une voiture bleue')
   await dialog.getByRole('button', { name: /un chat orange sur un toit/ }).click()
   await expect(dialog).toBeHidden()
-  await expect(page).toHaveURL(new RegExp(`/t/${target.id}$`))
+  // Le prompt correspond aussi : le fil s'ouvre sur cette demande (?g=…).
+  await expect(page).toHaveURL(new RegExp(`/t/${target.id}(\\?g=.+)?$`))
 })
 
 test('le bouton « Rechercher… » ouvre la recherche, qui annonce l’absence de résultat', async ({ app, page }) => {

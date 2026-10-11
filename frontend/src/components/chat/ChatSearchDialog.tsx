@@ -51,9 +51,15 @@ export function ChatSearchDialog() {
     setResults([])
   }
 
-  const handleSelect = (threadId: string) => {
+  // Un prompt qui correspond : on arrive sur cette demande dans le fil (comme
+  // depuis la galerie). Seul le titre correspond : en bas du fil.
+  const handleSelect = (result: SearchResult) => {
     handleClose()
-    navigate({ to: '/t/$threadId', params: { threadId } })
+    navigate({
+      to: '/t/$threadId',
+      params: { threadId: result.threadId },
+      search: result.matchedGenerationId ? { g: result.matchedGenerationId } : {},
+    })
   }
 
   return (
@@ -107,7 +113,7 @@ export function ChatSearchDialog() {
                 {results.map((result) => (
                   <button
                     key={result.threadId}
-                    onClick={() => handleSelect(result.threadId)}
+                    onClick={() => handleSelect(result)}
                     className="flex w-full flex-col gap-2 rounded-lg px-3 py-3 text-left transition-colors hover:bg-muted"
                   >
                     <div className="flex items-center gap-2">
