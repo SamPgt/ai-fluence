@@ -715,6 +715,12 @@ ${prompt}` : prompt)
               </button>
             </div>
           )}
+          {schema?.properties?.speech && typeof params.speech === 'string' && params.speech.trim() && (
+            <p className="mx-4 mb-1 text-[11px] text-muted-foreground">
+              Pauses exactes : <code>[2s]</code> au début, entre deux phrases ou à la fin. La vidéo dure au moins la durée
+              choisie (voix plus courte : complétée par du silence).
+            </p>
+          )}
           {/* Vidéo longue (clips enchaînés) : le prompt peut raconter une suite, un passage par ligne « --- ». */}
           {schema?.properties?.speech &&
             (Number(params.duration_seconds) > 15 || (typeof params.speech === 'string' && params.speech.length > 200)) && (

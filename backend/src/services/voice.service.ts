@@ -347,24 +347,63 @@ function speechChunks(text: string, max = 250): string[] {
   return chunks;
 }
 
-/** Recolle des WAV de même format, avec une courte pause entre deux. */
-function joinWavs(parts: Uint8Array[], gapSeconds: number): Uint8Array {
+/** Recolle des WAV de même format ; `gaps[i]` : silence (en secondes) entre la partie i et la suivante. */
+function joinWavs(parts: Uint8Array[], gaps: number | number[]): Uint8Array {
   if (parts.length === 1) return parts[0];
   const layouts = parts.map(wavLayout);
   const { byteRate, blockAlign } = layouts[0];
-  const gap = Math.round((gapSeconds * byteRate) / blockAlign) * blockAlign;
-  const pcm = new Uint8Array(layouts.reduce((n, l) => n + l.dataSize, 0) + gap * (parts.length - 1));
+  const gapBytes = (i: number) => {
+    const seconds = Array.isArray(gaps) ? (gaps[i] ?? 0) : gaps;
+    return Math.round((seconds * byteRate) / blockAlign) * blockAlign;
+  };
+  const total = layouts.reduce((n, l, i) => n + l.dataSize + (i < parts.length - 1 ? gapBytes(i) : 0), 0);
+  const pcm = new Uint8Array(total);
   let at = 0;
   parts.forEach((part, i) => {
     const { dataStart, dataSize } = layouts[i];
     pcm.set(part.subarray(dataStart, dataStart + dataSize), at);
-    at += dataSize + gap;
+    at += dataSize + (i < parts.length - 1 ? gapBytes(i) : 0);
   });
   // Un WAV sans échantillons au format du premier, rallongé du silence nécessaire, puis rempli.
   const empty = new Uint8Array(parts[0].subarray(0, layouts[0].dataStart));
   const out = padWav(withDataSize(empty, 0), 0, pcm.byteLength / byteRate);
   out.set(pcm, out.byteLength - pcm.byteLength);
   return out;
+}
+
+/** Balise de pause du texte dit : `[2s]`, `[1.5 s]`, `[pause 2s]` ; `[pause]` seul vaut 1 s. */
+const PAUSE = /\[\s*(?:pause\s*)?(?:(\d+(?:[.,]\d+)?)\s*s?)?\s*\]/gi;
+
+/**
+ * Texte dit découpé en phrases et en silences exacts. Les balises de pause ne dépendent pas du modèle de voix
+ * (qui suit la ponctuation à sa façon) : chaque morceau de texte est dit à part, et l'app pose les silences.
+ */
+export function parseSpeech(text: string): { lead: number; tail: number; pieces: { text: string; pauseBefore: number }[] } {
+  const pieces: { text: string; pauseBefore: number }[] = [];
+  let pending = 0;
+  let lead = 0;
+  let last = 0;
+  const pushText = (raw: string) => {
+    const t = raw.trim();
+    if (!t) return;
+    if (!pieces.length) lead = pending;
+    pieces.push({ text: t, pauseBefore: pieces.length ? pending : 0 });
+    pending = 0;
+  };
+  for (const m of text.matchAll(PAUSE)) {
+    pushText(text.slice(last, m.index));
+    pending += m[1] ? Math.min(30, Number(m[1].replace(',', '.'))) : 1;
+    last = m.index! + m[0].length;
+  }
+  pushText(text.slice(last));
+  if (!pieces.length) lead = 0;
+  return { lead, tail: pending, pieces };
+}
+
+/** Le texte dit commence (ou finit) par une pause choisie : l'app n'ajoute pas la sienne. */
+export function speechEdges(text: string): { lead: boolean; tail: boolean } {
+  const t = text.trim();
+  return { lead: /^\[\s*(?:pause[^\]]*|\d[^\]]*)\]/i.test(t), tail: /\[\s*(?:pause[^\]]*|\d[^\]]*)\]$/i.test(t) };
 }
 
 /** En-tête WAV dont le bloc `data` annonce `size` octets. */
@@ -411,10 +450,18 @@ export async function assertCanSpeak(personaId: string | null): Promise<void> {
   await speakerOf(personaId);
 }
 
+/** Texte dit complet : chaque morceau entre deux pauses est dit à part, puis les silences exacts sont posés. */
 async function synthesizeLong(text: string, referencePath: string, exaggeration: number): Promise<Uint8Array> {
+  const { lead, tail, pieces } = parseSpeech(text);
+  if (!pieces.length) throw new HTTPException(400, { message: 'Le « Texte dit » ne contient que des pauses.' });
   const parts: Uint8Array[] = [];
-  for (const chunk of speechChunks(text)) parts.push(await synthesize(chunk, referencePath, exaggeration));
-  return joinWavs(parts, 0.25);
+  for (const piece of pieces) {
+    const chunks: Uint8Array[] = [];
+    for (const chunk of speechChunks(piece.text)) chunks.push(await synthesize(chunk, referencePath, exaggeration));
+    parts.push(joinWavs(chunks, 0.25));
+  }
+  const joined = joinWavs(parts, pieces.slice(1).map(p => p.pauseBefore));
+  return lead || tail ? padWav(joined, lead, tail) : joined;
 }
 
 /**

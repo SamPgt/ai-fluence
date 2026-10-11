@@ -39,7 +39,7 @@ import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
-import { assertCanSpeak, padWav, speechFor, unloadVoice } from './voice.service.js';
+import { assertCanSpeak, padWav, speechEdges, speechFor, unloadVoice } from './voice.service.js';
 import { LTX_FPS, ltxPlan } from './comfy-builders.js';
 import { resolveTraits } from './traits.service.js';
 import { drawSlots, resolveWildcards } from './draw.service.js';
@@ -526,6 +526,8 @@ async function submitToComfy(p: Prepared): Promise<string> {
   const refs = [
     ...(typeof p.input.image_url === 'string' ? [p.input.image_url] : []),
     ...(Array.isArray(p.input.image_urls) ? p.input.image_urls.filter((r): r is string => typeof r === 'string') : []),
+    // Image de fin (vidéo) : en 2e position, après l'image de départ.
+    ...(typeof p.input.last_image_url === 'string' ? [p.input.last_image_url] : []),
   ];
   const inputs = refs.map(ref => {
     const asset = p.references.find(a => localAssetRef(a) === ref);
@@ -542,10 +544,14 @@ async function submitToComfy(p: Prepared): Promise<string> {
   if (speech && endpoint.schema.properties?.speech) {
     const listened = typeof p.input.speech_audio === 'string' ? p.input.speech_audio : null;
     const { data, seconds } = await speechFor(p.persona?.id ?? null, speech, listened);
-    // Un souffle avant la phrase, une courte fin après (un long silence final fait inventer à LTX un écran
-    // de fin), puis du silence jusqu'à la durée exacte de la vidéo (clips enchaînés compris).
-    const lead = 0.4;
-    const plan = ltxPlan(lead + seconds + 0.6, String(p.input.resolution ?? '512p'), true);
+    // Un souffle avant la phrase et une courte fin après, sauf si le texte commence ou finit par une pause
+    // choisie ([2s]). La vidéo dure au moins la durée choisie : une voix plus courte est complétée par du
+    // silence ; plus longue, c'est elle qui l'emporte. Puis silence jusqu'à la durée exacte des clips.
+    const edges = speechEdges(speech);
+    const lead = edges.lead ? 0 : 0.4;
+    const tail = edges.tail ? 0 : 0.6;
+    const wanted = Math.max(lead + seconds + tail, Number(p.input.duration_seconds) || 0);
+    const plan = ltxPlan(wanted, String(p.input.resolution ?? '512p'), true);
     const total = plan.frames / LTX_FPS;
     const padded = padWav(data, lead, Math.max(0, total - lead - seconds));
     audio = { file: await uploadImage(padded, `ai-fluence-voix-${Date.now()}.wav`, 'audio/wav'), seconds: total };

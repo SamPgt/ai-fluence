@@ -206,6 +206,8 @@ const LTX_DISTILLED_SIGMAS = '1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.
  */
 const LTX_SINGLE_MAX_FRAMES: Record<string, number> = { '512p': 377, '720p': 233 };
 const LTX_CLIP_FRAMES = 233;
+/** Force du guide de l'image de fin (0,7 dans le modèle officiel « première et dernière image »). */
+const LTX_END_STRENGTH = 0.9;
 /** Images de recouvrement entre deux clips (8k + 1, ~0,7 s). */
 const LTX_OVERLAP = 17;
 
@@ -281,6 +283,12 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
     '16': { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } },
     '17': { class_type: 'ManualSigmas', inputs: { sigmas: LTX_DISTILLED_SIGMAS } },
   };
+  // Image de fin : préparée comme l'image de départ, posée en guide sur la dernière image du dernier clip.
+  if (ctx.images[1]) {
+    g['40'] = { class_type: 'LoadImage', inputs: { image: ctx.images[1] } };
+    g['41'] = { class_type: 'ImageScale', inputs: { image: ['40', 0], upscale_method: 'lanczos', ...size, crop: 'center' } };
+    g['42'] = { class_type: 'LTXVPreprocess', inputs: { image: ['41', 0], img_compression: 18 } };
+  }
   if (ctx.audio) {
     g['30'] = { class_type: 'LoadAudio', inputs: { audio: ctx.audio.file } };
     g['32'] = { class_type: 'SolidMask', inputs: { value: 0, ...size } };
@@ -326,6 +334,17 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
       negative = [`${p}guide`, 1];
       video = [`${p}guide`, 2];
     }
+    let guided = c > 0;
+    if (ctx.images[1] && c === plan.clips - 1) {
+      g[`${p}end`] = {
+        class_type: 'LTXVAddGuide',
+        inputs: { positive, negative, vae: ['3', 0], latent: video, image: ['42', 0], frame_idx: -1, strength: LTX_END_STRENGTH },
+      };
+      positive = [`${p}end`, 0];
+      negative = [`${p}end`, 1];
+      video = [`${p}end`, 2];
+      guided = true;
+    }
     const start = c * (L - K);
     if (ctx.audio) {
       g[`${p}cut`] = { class_type: 'TrimAudioDuration', inputs: { audio: ['30', 0], start_index: start / LTX_FPS, duration: L / LTX_FPS } };
@@ -346,8 +365,8 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
     };
     g[`${p}sep`] = { class_type: 'LTXVSeparateAVLatent', inputs: { av_latent: [`${p}smp`, 0] } };
     let samples: [string, number] = [`${p}sep`, 0];
-    if (c > 0) {
-      // Retire les images du guide ajoutées au latent.
+    if (guided) {
+      // Retire les images des guides (fin du clip précédent, image de fin) ajoutées au latent.
       g[`${p}crop`] = { class_type: 'LTXVCropGuides', inputs: { positive, negative, latent: [`${p}sep`, 0] } };
       samples = [`${p}crop`, 2];
     }

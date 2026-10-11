@@ -149,6 +149,10 @@ LTX-2.3 tient **15 s d'une seule passe** en 512p sur une RTX 3060 (9 min 20). Au
 - **Temps** : ~40 s de calcul par seconde de vidéo en 512p (18 s ≈ 13 min 30), le double en 720p. Une minute de vidéo, c'est donc ~45 min à 1 h : à lancer quand on n'a pas besoin du PC.
 - **Écran de fin** : sur une fin de vidéo silencieuse, LTX a tendance à imiter l'écran de fin d'une vidéo YouTube (fond noir, logo). La piste de voix ne garde donc qu'un court silence final (0,6 s). Le prompt négatif n'y peut rien : le modèle distillé tourne à CFG 1, où ComfyUI ignore le négatif.
 
+**Image de début et image de fin** : avec deux images jointes (pastilles **Début** / **Fin**), LTX construit le mouvement pour arriver sur la seconde (dans une vidéo longue, sur la fin du dernier clip). Les deux images doivent être cohérentes (même tenue, même lieu) : sinon LTX passe de l'une à l'autre par une coupe franche plutôt qu'un mouvement continu.
+
+**Pauses et durée** : le modèle de voix suit la ponctuation à sa façon (une virgule ou « … » ne garantissent rien). Pour des silences exacts, des balises dans le « Texte dit » : `[2s] Première phrase. [5s] Seconde phrase. [2s]`. Chaque morceau entre deux balises est dit à part, et l'app pose les silences à la durée demandée (`[pause]` seul vaut 1 s). La vidéo dure **au moins la durée choisie** : une voix plus courte est complétée par du silence, une voix plus longue l'emporte (pour ne pas couper une phrase).
+
 **Limites** : les émotions fortes (rire, pleurs, cris, chuchotement) passent mal par le texte, Chatterbox lit « ha ha ha » au lieu de rire.
 
 **Installation du serveur de voix** (`voice-server/`, son propre environnement Python, Chatterbox imposant ses versions de torch et de numpy) :

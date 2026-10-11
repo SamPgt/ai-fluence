@@ -265,10 +265,13 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
               'Vidéo longue : une ligne « --- » sépare les passages, pour raconter une suite.',
           },
           image_url: { type: 'string' },
+          // Image de fin (2e image jointe) : la vidéo arrive sur elle (dernier clip d'une vidéo longue).
+          last_image_url: { type: 'string' },
           speech: {
             type: 'string',
             description:
-              'Texte dit par le personnage, avec sa voix (fiche du personnage) : les lèvres suivent la phrase et la durée s’y ajuste.',
+              'Texte dit par le personnage, avec sa voix (fiche du personnage) : les lèvres suivent la phrase. ' +
+              'Pauses exactes : [2s] (début, entre deux phrases, fin).',
           },
           /** Piste du « Texte dit » écoutée dans le composer (média `voice`), reprise telle quelle si elle correspond. */
           speech_audio: { type: 'string' },
@@ -278,7 +281,7 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
             default: 5,
             description:
               'Au-delà de 15 s, des clips de ~9 s enchaînés. Compte ~40 s de calcul par seconde de vidéo en 512p, le double en 720p. ' +
-              'Ignorée avec un « Texte dit » (la durée suit la phrase).',
+              'Avec un « Texte dit » : durée minimale (la voix plus courte est complétée par du silence, plus longue elle l’emporte).',
           },
           resolution: { type: 'string', enum: ['512p', '720p'], default: '512p', description: '720p : plus net, ~2 fois plus long.' },
           seed: SEED,
