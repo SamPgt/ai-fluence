@@ -173,10 +173,49 @@ export function buildWanI2V(values: Record<string, unknown>, ctx: BuildContext):
 
 // ── LTX-2.3 : image → vidéo avec le son ───────────────────────
 
-const LTX_FPS = 25;
-const LTX_NEGATIVE = 'pc game, console game, video game, cartoon, childish, ugly, blurry, distorted face, bad teeth';
+export const LTX_FPS = 25;
+/**
+ * Prompt négatif. La fin de liste évite un défaut vu en test : sur une fin de vidéo silencieuse, LTX imite
+ * l'écran de fin d'une vidéo YouTube (fond noir, logo).
+ */
+const LTX_NEGATIVE =
+  'pc game, console game, video game, cartoon, childish, ugly, blurry, distorted face, bad teeth, ' +
+  'black screen, end screen, title card, text, logo, watermark, subtitles, scene cut';
 /** Sigmas du modèle distillé (8 étapes, CFG 1), repris du modèle officiel de ComfyUI. */
 const LTX_DISTILLED_SIGMAS = '1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0';
+
+/**
+ * Vidéo longue : au-delà de ce que tient une passe, des clips enchaînés. Chaque clip après le premier est guidé
+ * par les dernières images du précédent (`LTXVAddGuide` à l'image 0), retirées au recollage : le mouvement
+ * continue sans à-coup (testé sur RTX 3060 le 2026-10-11 : 2 clips, 18 s, jonction invisible, 13 min 30).
+ * Une passe tient 15 s en 512p (9 min 20), un clip enchaîné ~9 s ; en 720p, on reste sur des clips de ~9 s.
+ */
+const LTX_SINGLE_MAX_FRAMES: Record<string, number> = { '512p': 377, '720p': 233 };
+const LTX_CLIP_FRAMES = 233;
+/** Images de recouvrement entre deux clips (8k + 1, ~0,7 s). */
+const LTX_OVERLAP = 17;
+
+/** Plus petit nombre d'images LTX (8k + 1) qui couvre `frames`. */
+const ceil8k1 = (frames: number) => Math.max(1, Math.ceil((frames - 1) / 8)) * 8 + 1;
+
+/** Nombre d'images LTX pour une durée : 8k + 1, au plus près. */
+export function ltxFrames(seconds: number): number {
+  return Math.max(1, Math.round((seconds * LTX_FPS) / 8)) * 8 + 1;
+}
+
+/**
+ * Découpage d'une vidéo LTX : nombre de clips, images par clip, recouvrement et images au total.
+ * `cover` : la vidéo doit durer au moins `seconds` (piste de voix imposée), sinon au plus près.
+ */
+export function ltxPlan(seconds: number, resolution: string, cover = false) {
+  const wanted = cover ? ceil8k1(Math.ceil(seconds * LTX_FPS)) : ltxFrames(seconds);
+  if (wanted <= (LTX_SINGLE_MAX_FRAMES[resolution] ?? LTX_CLIP_FRAMES)) {
+    return { clips: 1, clipFrames: wanted, overlap: 0, frames: wanted };
+  }
+  const clips = Math.ceil((wanted - LTX_OVERLAP) / (LTX_CLIP_FRAMES - LTX_OVERLAP));
+  const clipFrames = ceil8k1(Math.ceil((wanted + (clips - 1) * LTX_OVERLAP) / clips));
+  return { clips, clipFrames, overlap: LTX_OVERLAP, frames: clipFrames + (clips - 1) * (clipFrames - LTX_OVERLAP) };
+}
 
 /** Taille LTX : le petit côté à 512 ou 704 px, les proportions de l'image de départ, multiples de 32. */
 function ltxSize(image: { width: number; height: number } | null, resolution: string) {
@@ -186,22 +225,36 @@ function ltxSize(image: { width: number; height: number } | null, resolution: st
   return ratio >= 1 ? { width: round32(short * ratio), height: short } : { width: short, height: round32(short / ratio) };
 }
 
-/** Nombre d'images LTX pour une durée : 8k + 1. */
-export function ltxFrames(seconds: number): number {
-  return Math.max(1, Math.round((seconds * LTX_FPS) / 8)) * 8 + 1;
+/**
+ * Passages du prompt (une ligne « --- » les sépare) : le passage de chaque clip, répartis dans l'ordre.
+ * Sans séparateur, le même prompt pour toute la vidéo.
+ */
+export function ltxPassages(prompt: string, clips: number): string[] {
+  const parts = prompt
+    .split(/^\s*-{3,}\s*$/m)
+    .map(p => p.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) return Array.from({ length: clips }, () => parts[0] ?? '');
+  return Array.from({ length: clips }, (_, c) => parts[Math.min(parts.length - 1, Math.floor((c * parts.length) / clips))]);
 }
 
 /**
- * LTX-2.3 distilled : anime l'image de départ et génère le son en même temps (voix, ambiance).
- * Avec `ctx.audio` (voix du personnage), le son est imposé : le latent audio est encodé et figé
- * (masque à 0), le modèle n'anime que l'image, lèvres calées sur la voix. La piste d'origine est
- * remise telle quelle dans la vidéo.
+ * LTX-2.3 distilled : anime l'image de départ et génère le son en même temps (voix, ambiance), en un ou
+ * plusieurs clips enchaînés (cf. `ltxPlan`), dans un seul workflow.
+ * Avec `ctx.audio` (voix du personnage, déjà allongée à la durée de `ltxPlan`), le son est imposé : chaque clip
+ * reçoit sa tranche de la piste, encodée et figée (masque à 0), le modèle n'anime que l'image, lèvres calées
+ * sur la voix. La piste d'origine est remise telle quelle dans la vidéo.
  * `saveAudio` : enregistre aussi la piste seule (création d'une voix de personnage).
  */
 export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opts: { saveAudio?: boolean } = {}): Graph {
-  const size = ltxSize(ctx.imageSizes[0] ?? null, String(values.resolution ?? '512p'));
-  const seconds = ctx.audio ? ctx.audio.seconds : num(values.duration_seconds, 5);
-  const length = ltxFrames(seconds);
+  const resolution = String(values.resolution ?? '512p');
+  const size = ltxSize(ctx.imageSizes[0] ?? null, resolution);
+  const plan = ctx.audio ? ltxPlan(ctx.audio.seconds, resolution, true) : ltxPlan(num(values.duration_seconds, 5), resolution);
+  const passages = ltxPassages(String(values.prompt ?? ''), plan.clips);
+  const seed = seedOf(values.seed);
+  const L = plan.clipFrames;
+  const K = plan.overlap;
+
   const g: Graph = {
     '1': { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } },
     '2': { class_type: 'DualCLIPLoaderGGUF', inputs: { clip_name1: ctx.files.encoder, clip_name2: ctx.files.connectors, type: 'ltxv' } },
@@ -210,35 +263,113 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
     '5': { class_type: 'LoadImage', inputs: { image: ctx.images[0] } },
     '6': { class_type: 'ImageScale', inputs: { image: ['5', 0], upscale_method: 'lanczos', ...size, crop: 'center' } },
     '7': { class_type: 'LTXVPreprocess', inputs: { image: ['6', 0], img_compression: 18 } },
-    '8': { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: String(values.prompt ?? '') } },
     '9': { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: LTX_NEGATIVE } },
-    '10': { class_type: 'LTXVConditioning', inputs: { positive: ['8', 0], negative: ['9', 0], frame_rate: LTX_FPS } },
-    '11': { class_type: 'EmptyLTXVLatentVideo', inputs: { ...size, length, batch_size: 1 } },
-    '12': { class_type: 'LTXVImgToVideoInplace', inputs: { vae: ['3', 0], image: ['7', 0], latent: ['11', 0], strength: 1, bypass: false } },
-    '14': { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: ['12', 0], audio_latent: ['13', 0] } },
-    '15': { class_type: 'RandomNoise', inputs: { noise_seed: seedOf(values.seed) } },
     '16': { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } },
     '17': { class_type: 'ManualSigmas', inputs: { sigmas: LTX_DISTILLED_SIGMAS } },
-    '18': { class_type: 'CFGGuider', inputs: { model: ['1', 0], positive: ['10', 0], negative: ['10', 1], cfg: 1 } },
-    '19': {
-      class_type: 'SamplerCustomAdvanced',
-      inputs: { noise: ['15', 0], guider: ['18', 0], sampler: ['16', 0], sigmas: ['17', 0], latent_image: ['14', 0] },
-    },
-    '20': { class_type: 'LTXVSeparateAVLatent', inputs: { av_latent: ['19', 0] } },
-    '21': { class_type: 'VAEDecodeTiled', inputs: { samples: ['20', 0], vae: ['3', 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 } },
-    '22': { class_type: 'LTXVAudioVAEDecode', inputs: { samples: ['20', 1], audio_vae: ['4', 0] } },
-    '23': { class_type: 'CreateVideo', inputs: { images: ['21', 0], audio: ['22', 0], fps: LTX_FPS } },
-    '9000': { class_type: 'SaveVideo', inputs: { video: ['23', 0], filename_prefix: 'ai-fluence/ltx-2.3', format: 'mp4', 'format.codec': 'h264' } },
   };
   if (ctx.audio) {
     g['30'] = { class_type: 'LoadAudio', inputs: { audio: ctx.audio.file } };
-    g['31'] = { class_type: 'LTXVAudioVAEEncode', inputs: { audio: ['30', 0], audio_vae: ['4', 0] } };
     g['32'] = { class_type: 'SolidMask', inputs: { value: 0, ...size } };
-    g['13'] = { class_type: 'SetLatentNoiseMask', inputs: { samples: ['31', 0], mask: ['32', 0] } };
-    g['23'].inputs.audio = ['30', 0];
-  } else {
-    g['13'] = { class_type: 'LTXVEmptyLatentAudio', inputs: { frames_number: length, frame_rate: LTX_FPS, batch_size: 1, audio_vae: ['4', 0] } };
   }
-  if (opts.saveAudio) g['9001'] = { class_type: 'SaveAudio', inputs: { audio: ['22', 0], filename_prefix: 'ai-fluence/voix' } };
+
+  // Un passage = un encodage du texte (les clips du même passage le partagent).
+  const conditioning = new Map<string, string>();
+  const conditioningOf = (text: string) => {
+    let id = conditioning.get(text);
+    if (!id) {
+      id = `c${conditioning.size}`;
+      g[`${id}_t`] = { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text } };
+      g[id] = { class_type: 'LTXVConditioning', inputs: { positive: [`${id}_t`, 0], negative: ['9', 0], frame_rate: LTX_FPS } };
+      conditioning.set(text, id);
+    }
+    return id;
+  };
+
+  let images: [string, number] | null = null; // images recollées jusqu'ici
+  let previous: [string, number] | null = null; // images décodées du clip précédent
+  let audio: [string, number] | null = null; // son généré recollé (sans voix imposée)
+  for (let c = 0; c < plan.clips; c++) {
+    const p = `k${c}_`;
+    const cond = conditioningOf(passages[c]);
+    let positive: [string, number] = [cond, 0];
+    let negative: [string, number] = [cond, 1];
+    let video: [string, number];
+    g[`${p}lat`] = { class_type: 'EmptyLTXVLatentVideo', inputs: { ...size, length: L, batch_size: 1 } };
+    if (c === 0) {
+      g[`${p}img`] = {
+        class_type: 'LTXVImgToVideoInplace',
+        inputs: { vae: ['3', 0], image: ['7', 0], latent: [`${p}lat`, 0], strength: 1, bypass: false },
+      };
+      video = [`${p}img`, 0];
+    } else {
+      // Guide : les K dernières images du clip précédent, au début de celui-ci.
+      g[`${p}tail`] = { class_type: 'ImageFromBatch', inputs: { image: previous, batch_index: L - K, length: K } };
+      g[`${p}guide`] = {
+        class_type: 'LTXVAddGuide',
+        inputs: { positive, negative, vae: ['3', 0], latent: [`${p}lat`, 0], image: [`${p}tail`, 0], frame_idx: 0, strength: 1 },
+      };
+      positive = [`${p}guide`, 0];
+      negative = [`${p}guide`, 1];
+      video = [`${p}guide`, 2];
+    }
+    const start = c * (L - K);
+    if (ctx.audio) {
+      g[`${p}cut`] = { class_type: 'TrimAudioDuration', inputs: { audio: ['30', 0], start_index: start / LTX_FPS, duration: L / LTX_FPS } };
+      g[`${p}aenc`] = { class_type: 'LTXVAudioVAEEncode', inputs: { audio: [`${p}cut`, 0], audio_vae: ['4', 0] } };
+      g[`${p}alat`] = { class_type: 'SetLatentNoiseMask', inputs: { samples: [`${p}aenc`, 0], mask: ['32', 0] } };
+    } else {
+      g[`${p}alat`] = {
+        class_type: 'LTXVEmptyLatentAudio',
+        inputs: { frames_number: L, frame_rate: LTX_FPS, batch_size: 1, audio_vae: ['4', 0] },
+      };
+    }
+    g[`${p}av`] = { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: video, audio_latent: [`${p}alat`, 0] } };
+    g[`${p}noise`] = { class_type: 'RandomNoise', inputs: { noise_seed: (seed + c) % 2 ** 31 } };
+    g[`${p}cfg`] = { class_type: 'CFGGuider', inputs: { model: ['1', 0], positive, negative, cfg: 1 } };
+    g[`${p}smp`] = {
+      class_type: 'SamplerCustomAdvanced',
+      inputs: { noise: [`${p}noise`, 0], guider: [`${p}cfg`, 0], sampler: ['16', 0], sigmas: ['17', 0], latent_image: [`${p}av`, 0] },
+    };
+    g[`${p}sep`] = { class_type: 'LTXVSeparateAVLatent', inputs: { av_latent: [`${p}smp`, 0] } };
+    let samples: [string, number] = [`${p}sep`, 0];
+    if (c > 0) {
+      // Retire les images du guide ajoutées au latent.
+      g[`${p}crop`] = { class_type: 'LTXVCropGuides', inputs: { positive, negative, latent: [`${p}sep`, 0] } };
+      samples = [`${p}crop`, 2];
+    }
+    g[`${p}dec`] = {
+      class_type: 'VAEDecodeTiled',
+      inputs: { samples, vae: ['3', 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 },
+    };
+    previous = [`${p}dec`, 0];
+    if (c === 0) {
+      images = previous;
+    } else {
+      // Les K premières images reprennent la fin du clip précédent : on ne garde que la suite.
+      g[`${p}new`] = { class_type: 'ImageFromBatch', inputs: { image: previous, batch_index: K, length: L - K } };
+      g[`${p}cat`] = { class_type: 'ImageBatch', inputs: { image1: images, image2: [`${p}new`, 0] } };
+      images = [`${p}cat`, 0];
+    }
+    if (!ctx.audio) {
+      g[`${p}adec`] = { class_type: 'LTXVAudioVAEDecode', inputs: { samples: [`${p}sep`, 1], audio_vae: ['4', 0] } };
+      if (c === 0) {
+        audio = [`${p}adec`, 0];
+      } else {
+        g[`${p}atrim`] = {
+          class_type: 'TrimAudioDuration',
+          inputs: { audio: [`${p}adec`, 0], start_index: K / LTX_FPS, duration: (L - K) / LTX_FPS },
+        };
+        g[`${p}acat`] = { class_type: 'AudioConcat', inputs: { audio1: audio, audio2: [`${p}atrim`, 0], direction: 'after' } };
+        audio = [`${p}acat`, 0];
+      }
+    }
+  }
+
+  g['23'] = { class_type: 'CreateVideo', inputs: { images, audio: ctx.audio ? ['30', 0] : audio, fps: LTX_FPS } };
+  g['9000'] = {
+    class_type: 'SaveVideo',
+    inputs: { video: ['23', 0], filename_prefix: 'ai-fluence/ltx-2.3', format: 'mp4', 'format.codec': 'h264' },
+  };
+  if (opts.saveAudio) g['9001'] = { class_type: 'SaveAudio', inputs: { audio, filename_prefix: 'ai-fluence/voix' } };
   return g;
 }

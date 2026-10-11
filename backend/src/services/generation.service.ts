@@ -39,7 +39,8 @@ import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
-import { speechFor, unloadVoice } from './voice.service.js';
+import { padWav, speechFor, unloadVoice } from './voice.service.js';
+import { LTX_FPS, ltxPlan } from './comfy-builders.js';
 import { resolveTraits } from './traits.service.js';
 import { drawSlots, resolveWildcards } from './draw.service.js';
 import { resolveLoraUrl } from './civitai.service.js';
@@ -519,7 +520,13 @@ async function submitToComfy(p: Prepared): Promise<string> {
   const speech = typeof p.input.speech === 'string' ? p.input.speech.trim() : '';
   if (speech && endpoint.schema.properties?.speech) {
     const { data, seconds } = await speechFor(p.persona?.id ?? null, speech);
-    audio = { file: await uploadImage(data, `ai-fluence-voix-${Date.now()}.wav`, 'audio/wav'), seconds };
+    // Un souffle avant la phrase, une courte fin après (un long silence final fait inventer à LTX un écran
+    // de fin), puis du silence jusqu'à la durée exacte de la vidéo (clips enchaînés compris).
+    const lead = 0.4;
+    const plan = ltxPlan(lead + seconds + 0.6, String(p.input.resolution ?? '512p'), true);
+    const total = plan.frames / LTX_FPS;
+    const padded = padWav(data, lead, Math.max(0, total - lead - seconds));
+    audio = { file: await uploadImage(padded, `ai-fluence-voix-${Date.now()}.wav`, 'audio/wav'), seconds: total };
   }
   // Le serveur de voix rend sa VRAM avant le modèle vidéo.
   if (endpoint.task.endsWith('video')) await unloadVoice();

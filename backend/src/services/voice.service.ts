@@ -120,7 +120,7 @@ export function wavSeconds(data: Uint8Array): number {
 }
 
 /** Ajoute du silence avant et après un WAV PCM. */
-function padWav(data: Uint8Array, leadSeconds: number, tailSeconds: number): Uint8Array {
+export function padWav(data: Uint8Array, leadSeconds: number, tailSeconds: number): Uint8Array {
   const { byteRate, blockAlign, dataStart, dataSize, fmt } = wavLayout(data);
   const silence = (s: number) => Math.round((s * byteRate) / blockAlign) * blockAlign;
   const lead = silence(leadSeconds);
@@ -332,10 +332,46 @@ export async function previewVoice(
   return synthesize(body.text, ref.filePath, body.exaggeration ?? voice.exaggeration);
 }
 
-/**
- * Texte dit d'une vidéo parlée : la piste WAV avec la voix du personnage et sa durée.
- * Un peu de silence avant (le personnage prend son souffle) et après (il finit sur une expression).
- */
+/** Morceaux d'un texte long, coupés aux fins de phrase (Chatterbox plafonne à ~40 s de parole par appel). */
+function speechChunks(text: string, max = 250): string[] {
+  const sentences = text.match(/[^.!?…]+[.!?…]+["»”’)]*\s*|[^.!?…]+$/g)?.map(t => t.trim()).filter(Boolean) ?? [text];
+  const chunks: string[] = [];
+  for (const sentence of sentences) {
+    const last = chunks.at(-1);
+    if (last && last.length + sentence.length + 1 <= max) chunks[chunks.length - 1] = `${last} ${sentence}`;
+    else chunks.push(sentence);
+  }
+  return chunks;
+}
+
+/** Recolle des WAV de même format, avec une courte pause entre deux. */
+function joinWavs(parts: Uint8Array[], gapSeconds: number): Uint8Array {
+  if (parts.length === 1) return parts[0];
+  const layouts = parts.map(wavLayout);
+  const { byteRate, blockAlign } = layouts[0];
+  const gap = Math.round((gapSeconds * byteRate) / blockAlign) * blockAlign;
+  const pcm = new Uint8Array(layouts.reduce((n, l) => n + l.dataSize, 0) + gap * (parts.length - 1));
+  let at = 0;
+  parts.forEach((part, i) => {
+    const { dataStart, dataSize } = layouts[i];
+    pcm.set(part.subarray(dataStart, dataStart + dataSize), at);
+    at += dataSize + gap;
+  });
+  // Un WAV sans échantillons au format du premier, rallongé du silence nécessaire, puis rempli.
+  const empty = new Uint8Array(parts[0].subarray(0, layouts[0].dataStart));
+  const out = padWav(withDataSize(empty, 0), 0, pcm.byteLength / byteRate);
+  out.set(pcm, out.byteLength - pcm.byteLength);
+  return out;
+}
+
+/** En-tête WAV dont le bloc `data` annonce `size` octets. */
+function withDataSize(header: Uint8Array, size: number): Uint8Array {
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  view.setUint32(header.byteLength - 4, size, true);
+  return header;
+}
+
+/** Texte dit d'une vidéo parlée : la piste WAV avec la voix du personnage et sa durée (sans silences ajoutés). */
 export async function speechFor(personaId: string | null, text: string): Promise<{ data: Uint8Array; seconds: number }> {
   if (!isVoiceEnabled()) throw new Error('Voix non configurée (VOICE_URL).');
   if (!personaId) throw new Error('Une vidéo parlée demande un personnage (pour sa voix).');
@@ -343,7 +379,9 @@ export async function speechFor(personaId: string | null, text: string): Promise
   const voice = persona ? voiceOf(persona) : null;
   const ref = await assetRow(voice?.assetId);
   if (!persona || !voice || !ref) throw new Error('Ce personnage n’a pas encore de voix (page du personnage → Voix).');
-  const data = padWav(await synthesize(text, ref.filePath, voice.exaggeration), 0.5, 1);
+  const parts: Uint8Array[] = [];
+  for (const chunk of speechChunks(text)) parts.push(await synthesize(chunk, ref.filePath, voice.exaggeration));
+  const data = joinWavs(parts, 0.25);
   return { data, seconds: wavSeconds(data) };
 }
 

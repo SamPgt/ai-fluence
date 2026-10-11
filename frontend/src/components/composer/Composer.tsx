@@ -618,10 +618,18 @@ export function Composer({
                 }
                 title={schema.properties.speech.description}
                 className="min-w-0 flex-1 bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
-                maxLength={400}
+                maxLength={2000}
               />
             </div>
           )}
+          {/* Vidéo longue (clips enchaînés) : le prompt peut raconter une suite, un passage par ligne « --- ». */}
+          {schema?.properties?.speech &&
+            (Number(params.duration_seconds) > 15 || (typeof params.speech === 'string' && params.speech.length > 200)) && (
+              <p className="mx-4 mb-1 text-[11px] text-muted-foreground">
+                Vidéo longue : sépare les passages du prompt par une ligne <code>---</code> pour raconter une suite (sinon, le même
+                prompt pour toute la vidéo). Compte ~40 s de calcul par seconde de vidéo en 512p.
+              </p>
+            )}
 
           {/* Barre d'outils */}
           <div className="flex items-center gap-2 px-2.5 pb-2.5">

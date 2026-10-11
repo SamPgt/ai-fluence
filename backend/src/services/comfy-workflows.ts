@@ -258,7 +258,9 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
         properties: {
           prompt: {
             type: 'string',
-            description: 'La scène, le mouvement et le son : « elle rit et dit "Salut !" d’une voix enjouée, bruit de cuisine ».',
+            description:
+              'La scène, le mouvement et le son : « elle rit et dit "Salut !" d’une voix enjouée, bruit de cuisine ». ' +
+              'Vidéo longue : une ligne « --- » sépare les passages, pour raconter une suite.',
           },
           image_url: { type: 'string' },
           speech: {
@@ -266,7 +268,14 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
             description:
               'Texte dit par le personnage, avec sa voix (fiche du personnage) : les lèvres suivent la phrase et la durée s’y ajuste.',
           },
-          duration_seconds: { type: 'integer', enum: [3, 5, 7, 10], default: 5, description: 'Ignorée avec un « Texte dit ».' },
+          duration_seconds: {
+            type: 'integer',
+            enum: [5, 10, 15, 20, 30, 45, 60],
+            default: 5,
+            description:
+              'Au-delà de 15 s, des clips de ~9 s enchaînés. Compte ~40 s de calcul par seconde de vidéo en 512p, le double en 720p. ' +
+              'Ignorée avec un « Texte dit » (la durée suit la phrase).',
+          },
           resolution: { type: 'string', enum: ['512p', '720p'], default: '512p', description: '720p : plus net, ~2 fois plus long.' },
           seed: SEED,
         },

@@ -103,7 +103,7 @@ Quand ComfyUI tourne, les modèles locaux (badge `LOCAL`) apparaissent dans le s
 | Z-Image (local) | texte → image, image → image, + visage (si ReActor est installé) | un ou plusieurs modèles Z-Image dans `diffusion_models` (ex. `zImageTurbo_turbo.safetensors`), `qwen_3_4b_fp8_mixed.safetensors` (text_encoders), `flux1AE_v10.safetensors` (vae) |
 | FLUX.2 klein (local) | texte → image, ou 1 à 3 images de **référence** (cohérence d'un personnage, d'un lieu) | `flux-2-klein-4b-fp8.safetensors` (diffusion_models), `flux2-vae.safetensors` (vae), l'encodeur Qwen3-4B de Z-Image |
 | Qwen Edit 2511 (local) | retouche à partir de 1 à 3 images (« la femme de l'image 1 dans la cuisine de l'image 2, en t-shirt gris ») | `qwen-image-edit-2511-Q3_K_M.gguf` (diffusion_models), `qwen_2.5_vl_7b_fp8_scaled.safetensors` (text_encoders), `qwen_image_vae.safetensors` (vae), `Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors` (loras), nœud [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) |
-| LTX-2.3 (local, vidéo + son) | image → vidéo **avec le son** (voix, ambiance), 3 à 10 s, 512p ou 720p ; « Texte dit » : vidéo parlée avec la voix du personnage (cf. [Vidéos parlées](#vidéos-parlées)) | `ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf` (unet), `gemma-3-12b-it-qat-UD-Q4_K_XL.gguf` et `ltx-2.3-22b-distilled_embeddings_connectors.safetensors` (text_encoders), `ltx-2.3-22b-distilled_video_vae` et `…_audio_vae` (vae), nœud ComfyUI-GGUF |
+| LTX-2.3 (local, vidéo + son) | image → vidéo **avec le son** (voix, ambiance), 5 à 60 s (au-delà de 15 s : clips enchaînés, cf. [Vidéos longues](#vidéos-longues)), 512p ou 720p ; « Texte dit » : vidéo parlée avec la voix du personnage (cf. [Vidéos parlées](#vidéos-parlées)) | `ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf` (unet), `gemma-3-12b-it-qat-UD-Q4_K_XL.gguf` et `ltx-2.3-22b-distilled_embeddings_connectors.safetensors` (text_encoders), `ltx-2.3-22b-distilled_video_vae` et `…_audio_vae` (vae), nœud ComfyUI-GGUF |
 | Wan 2.2 (local, vidéo) | image → vidéo, 3 ou 5 s, 480p ou 720p | `Wan2.2-I2V-A14B-HighNoise-Q3_K_M.gguf` et `…LowNoise…` (diffusion_models), `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise` / `low_noise` (loras), `umt5_xxl_fp8_e4m3fn_scaled` (text_encoders), `wan_2.1_vae` (vae), nœud ComfyUI-GGUF |
 
 Un modèle dont un fichier manque reste grisé, avec la liste des fichiers manquants.
@@ -138,6 +138,14 @@ Un personnage peut parler dans ses vidéos, avec **sa** voix, toujours la même,
 3. **La faire parler** : composer → LTX-2.3 (local), image de départ, et le champ **Texte dit**. Le texte est dit avec la voix du personnage, puis LTX anime l'image en suivant cette piste (lèvres, expressions) ; la durée de la vidéo s'ajuste à la phrase. Sans « Texte dit », LTX invente le son lui-même (voix, ambiance) d'après le prompt.
 
 Mesures sur RTX 3060 12 Go : création d'une voix ~5 min ; une phrase ~5 s (~20 s au premier essai, le temps de charger le modèle) ; vidéo parlée de 7 s en 720p ~8 min.
+
+### Vidéos longues
+
+LTX-2.3 tient **15 s d'une seule passe** en 512p sur une RTX 3060 (9 min 20). Au-delà (durée jusqu'à 60 s, ou « Texte dit » long), la vidéo est faite de **clips de ~9 s enchaînés**, dans un seul workflow (une seule génération dans le fil) : chaque clip est guidé par les 0,7 dernières secondes du précédent, retirées au recollage, et le mouvement continue sans à-coup (testé : jonction invisible à l'œil). Avec une voix, la piste est générée d'un bloc puis découpée par clip : le son reste continu.
+
+- **Passages** : pour raconter une suite, sépare les passages du prompt par une ligne `---` (« elle goûte la sauce » / « --- » / « elle montre l'assiette ») ; ils sont répartis sur les clips dans l'ordre. Sans séparateur, le même prompt pour toute la vidéo.
+- **Temps** : ~40 s de calcul par seconde de vidéo en 512p (18 s ≈ 13 min 30), le double en 720p. Une minute de vidéo, c'est donc ~45 min à 1 h : à lancer quand on n'a pas besoin du PC.
+- **Écran de fin** : sur une fin de vidéo silencieuse, LTX a tendance à imiter l'écran de fin d'une vidéo YouTube (fond noir, logo). Le prompt négatif l'écarte, et la piste de voix ne garde qu'un court silence final.
 
 **Limites** : les émotions fortes (rire, pleurs, cris, chuchotement) passent mal par le texte, Chatterbox lit « ha ha ha » au lieu de rire.
 
