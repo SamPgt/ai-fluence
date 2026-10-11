@@ -291,6 +291,8 @@ export async function createVoice(user: SessionUser, personaId: string, descript
   // La VRAM du serveur de voix est rendue avant le gros modèle vidéo.
   await unloadVoice();
   const graph = buildLtx(
+    // 512p : testé en 256p (2026-10-11), la vidéo se calcule ~2 fois plus vite, mais la voix sort nettement
+    // moins bonne (plus robotique) : le son de LTX dépend de la qualité de l'image générée avec lui.
     { prompt, resolution: '512p', duration_seconds: 7 },
     { images: [image], imageSizes: [avatar.width && avatar.height ? { width: avatar.width, height: avatar.height } : null], files },
     { saveAudio: true },
