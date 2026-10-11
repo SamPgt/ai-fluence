@@ -210,6 +210,7 @@ export const personasApi = {
   voice: (id: string) => apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice`),
   createVoice: (id: string, description: string) =>
     apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/create`, { method: 'POST', body: { description } }),
+  cancelVoice: (id: string) => apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/cancel`, { method: 'POST' }),
   decideVoice: (id: string, keep: boolean) =>
     apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/candidate`, { method: 'POST', body: { keep } }),
   updateVoice: (id: string, body: { exaggeration?: number; clearJob?: boolean }) =>

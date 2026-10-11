@@ -9,7 +9,7 @@ import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { toPersona } from '../services/serialize.js';
 import { trashPersona } from '../services/trash.service.js';
-import { createVoice, decideCandidate, getVoice, listenSpeech, previewVoice, updateVoice } from '../services/voice.service.js';
+import { cancelCreation, createVoice, decideCandidate, getVoice, listenSpeech, previewVoice, updateVoice } from '../services/voice.service.js';
 import type { AppEnv } from '../types.js';
 
 const loraSchema = z.object({
@@ -144,6 +144,7 @@ const personasRoutes = new Hono<AppEnv>()
   .post('/:id/voice/create', zValidator('json', z.object({ description: z.string().trim().max(300).default('') })), async c =>
     c.json({ voice: await createVoice(c.get('user'), c.req.param('id'), c.req.valid('json').description) }),
   )
+  .post('/:id/voice/cancel', async c => c.json({ voice: await cancelCreation(c.get('user'), c.req.param('id')) }))
   .post('/:id/voice/candidate', zValidator('json', z.object({ keep: z.boolean() })), async c =>
     c.json({ voice: await decideCandidate(c.get('user'), c.req.param('id'), c.req.valid('json').keep) }),
   )

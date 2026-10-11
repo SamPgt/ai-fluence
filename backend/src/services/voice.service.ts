@@ -20,7 +20,7 @@ import { assets, personas, type PersonaVoiceRow } from '../db/schema.js';
 import { env } from '../env.js';
 import { buildLtx } from './comfy-builders.js';
 import { LTX_FILES, resolveRequirements } from './comfy-workflows.js';
-import { deleteOutputFile, downloadFile, freeComfyMemory, getPromptState, isComfyRunning, queuePrompt, uploadImage } from './comfy.service.js';
+import { cancelPrompt, deleteOutputFile, downloadFile, freeComfyMemory, getPromptState, isComfyRunning, queuePrompt, uploadImage } from './comfy.service.js';
 import { mediaUrl } from './serialize.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { extFor, join, saveFile } from './storage.service.js';
@@ -299,6 +299,16 @@ export async function createVoice(user: SessionUser, personaId: string, descript
   );
   const promptId = await queuePrompt(graph);
   voice.job = { promptId, startedAt: new Date().toISOString(), error: null };
+  await saveVoice(persona.id, voice);
+  return toVoice(voice);
+}
+
+/** Arrête une création de voix en cours (annulée dans ComfyUI). */
+export async function cancelCreation(user: SessionUser, personaId: string): Promise<PersonaVoice> {
+  const persona = await ownedPersona(user.id, personaId);
+  const voice = voiceOf(persona);
+  if (voice.job && !voice.job.error) await cancelPrompt(voice.job.promptId).catch(() => undefined);
+  voice.job = null;
   await saveVoice(persona.id, voice);
   return toVoice(voice);
 }

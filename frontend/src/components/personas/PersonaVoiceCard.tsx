@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, Mic, Play, Sparkles, X } from 'lucide-react'
+import { Check, Loader2, Mic, Play, Sparkles, Square, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Persona, PersonaVoice } from '@ai-fluence/shared'
 import { personasApi } from '@/lib/api'
@@ -49,6 +49,11 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
 
   const create = useMutation({
     mutationFn: () => personasApi.createVoice(persona.id, description),
+    onSuccess: (r) => setVoice(r.voice),
+    onError,
+  })
+  const cancel = useMutation({
+    mutationFn: () => personasApi.cancelVoice(persona.id),
     onSuccess: (r) => setVoice(r.voice),
     onError,
   })
@@ -136,6 +141,9 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
         <div className="flex items-center gap-2 rounded-lg border border-border/60 p-3 text-sm">
           <Loader2 className="h-4 w-4 animate-spin" />
           Création de la voix dans ComfyUI… {elapsed} (environ 5 min)
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+            <Square className="h-3.5 w-3.5" /> Arrêter
+          </Button>
         </div>
       ) : voice.job?.state === 'failed' ? (
         <div className="flex items-start justify-between gap-3 rounded-lg border border-red-500/40 p-3 text-sm">

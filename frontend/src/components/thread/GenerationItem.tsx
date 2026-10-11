@@ -11,6 +11,7 @@ import {
   Pencil,
   RefreshCw,
   Shuffle,
+  Square,
   ImageUpscale,
   Trash2,
 } from 'lucide-react'
@@ -166,6 +167,16 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
     if (failed) throw failed.reason
   }
+  // Arrêter une génération locale en cours : annulée dans ComfyUI, la demande quitte le fil.
+  const stop = useMutation({
+    mutationFn: () => removeGenerations(generations.filter(isPending).map((m) => m.id)),
+    onSuccess: () => {
+      toast.success('Génération arrêtée.')
+      queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) })
+      queryClient.invalidateQueries({ queryKey: qk.threadsAll })
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
   const remove = useMutation({
     mutationFn: async (target: NonNullable<typeof deleting>) => {
       if (target.kind === 'generation') await removeGenerations(generations.map((m) => m.id))
@@ -469,6 +480,17 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                   {local ? ' · sur ton GPU' : g.estimatedCost && ` · ≈ ${formatUsd(g.estimatedCost)}`}
                 </div>
               </div>
+              {/* Local : la génération est arrêtée dans ComfyUI et la demande retirée du fil. */}
+              {local && (
+                <button
+                  onClick={() => stop.mutate()}
+                  disabled={stop.isPending}
+                  className="flex items-center gap-1 rounded-full border border-border/60 px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                  title="Arrête la génération dans ComfyUI et retire la demande du fil"
+                >
+                  {stop.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />} Arrêter
+                </button>
+              )}
             </div>
           )}
 

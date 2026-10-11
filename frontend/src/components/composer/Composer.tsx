@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Dice5, Film, Info, Loader2, Mic, Pencil, Plus, ScanText, Shapes, Volume2, X } from 'lucide-react'
+import { ArrowUp, Dice5, Film, Info, Loader2, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Volume2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
@@ -418,6 +418,21 @@ ${prompt}` : prompt)
 
   const setParam = (key: string, v: unknown) =>
     state.family && composer.setParam(state.family, key, v)
+
+  // Recette « réalisme » de Z-Image : la LoRA Realistic Snapshot si elle est installée dans ComfyUI.
+  const realismLora = (schema?.properties?.lora?.enum as string[] | undefined)?.find((l) => /realistic[-_ ]?snapshot/i.test(l))
+  const applyRealism = () => {
+    if (!realismLora) return
+    setParam('lora', realismLora)
+    setParam('lora_strength', 0.7)
+    // Réglée même sans image jointe : elle servira dès qu'une image passe Z-Image en image → image.
+    setParam('strength', 0.25)
+    toast.success(
+      schema?.properties?.strength
+        ? 'Réalisme : LoRA à 0,7 et force 0,25 (l’image jointe est retravaillée légèrement).'
+        : 'Réalisme : LoRA à 0,7. Joins une image (ex. un résultat Qwen) pour la retravailler à force 0,25.',
+    )
+  }
 
   // Texte dit (vidéo parlée) : la piste écoutée avant la vidéo, reprise telle quelle à l'envoi.
   const [speechInfo, setSpeechInfo] = useState<{ assetId: string; url: string; seconds: number } | null>(null)
@@ -860,6 +875,17 @@ ${prompt}` : prompt)
                   format={(v) => `x${v}`}
                   onChange={(v) => composer.setCount(v as number)}
                 />
+              )}
+              {/* Z-Image : recette « réalisme » (peau, grain, lumière naturelle), par ex. après Qwen Edit. */}
+              {realismLora && (
+                <button
+                  type="button"
+                  onClick={applyRealism}
+                  className="flex h-8 shrink-0 items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 text-xs text-foreground/80 hover:bg-accent/60"
+                  title={`Réalisme : LoRA ${realismLora.replace(/\.safetensors$/, '')} à 0,7, et avec une image jointe force 0,25 (garde le personnage et la scène, retrouve la peau et la lumière naturelle)`}
+                >
+                  <Sparkles className="h-3.5 w-3.5" /> Réalisme
+                </button>
               )}
               <ParamsPopover
                 schema={schema}
