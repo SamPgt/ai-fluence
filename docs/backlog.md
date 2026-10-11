@@ -27,6 +27,8 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 - **Face model ReActor** : construire un modèle de visage à partir de plusieurs photos du persona (nœuds `ReActorBuildFaceModel` / `ReActorSaveFaceModel`), plus fiable qu'une seule image.
 - **Brancher le persona** : visage de référence et description d'identité injectés automatiquement, sans pièce jointe manuelle (cf. spec wildcards § 10).
 - **LoRA locales du persona** : associer une LoRA du dossier `models/loras` de ComfyUI à un persona (aujourd'hui, les LoRA du persona ne visent que les modèles SpicyAPI).
+- **Retoucheur de visage haute résolution** (« FaceDetailer », pack Impact) : recadre le visage, le refait en grand avec Z-Image puis le recolle. Corrige le visage un peu flou de ReActor (échange en 128 × 128) et ajoute du détail de peau. Pack de nœuds à installer.
+- **Workflow conseillé pour le réalisme** (à outiller un jour en un clic) : Qwen Edit avec la référence (scène + personnage) → Z-Image image → image à 0,2–0,3 avec la LoRA Realistic Snapshot (peau, lumière naturelle), ReActor en option si le visage a dérivé.
 - **Dataset de LoRA** : exporter la planche de références d'un persona avec des légendes (JoyCaption est installé dans ComfyUI) pour entraîner une LoRA (ai-toolkit en local, fal…).
 - **Plans larges** : `inswapper_128` est faible sur les petits visages ; tester un détail / upscale du visage avant le swap, ou un autre modèle de swap.
 

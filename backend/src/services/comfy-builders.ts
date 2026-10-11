@@ -95,12 +95,25 @@ export function buildQwenEdit(values: Record<string, unknown>, ctx: BuildContext
       inputs: { conditioning: [key, 0], reference_latents_method: 'index_timestep_zero' },
     };
   }
+  // Format : par défaut celui de l'image 1 (`adaptive`) ; sinon une toile neuve aux proportions choisies, ~1 Mpx.
+  const ratio = /^(\d+):(\d+)$/.exec(String(values.aspect_ratio ?? ''));
+  const latent: [string, number] = ['50', 0];
+  if (ratio) {
+    const r = Number(ratio[1]) / Number(ratio[2]);
+    const round16 = (n: number) => Math.max(256, Math.round(n / 16) * 16);
+    const pixels = 1024 * 1024;
+    g['50'] = {
+      class_type: 'EmptySD3LatentImage',
+      inputs: { width: round16(Math.sqrt(pixels * r)), height: round16(Math.sqrt(pixels / r)), batch_size: 1 },
+    };
+  } else {
+    g['50'] = { class_type: 'VAEEncode', inputs: { pixels: images.image1, vae: ['3', 0] } };
+  }
   Object.assign(g, {
-    '50': { class_type: 'VAEEncode', inputs: { pixels: images.image1, vae: ['3', 0] } },
     '51': {
       class_type: 'KSampler',
       inputs: {
-        model: ['6', 0], positive: ['42', 0], negative: ['43', 0], latent_image: ['50', 0],
+        model: ['6', 0], positive: ['42', 0], negative: ['43', 0], latent_image: latent,
         seed: seedOf(values.seed), steps: num(values.steps, 4), cfg: 1, sampler_name: 'euler', scheduler: 'simple', denoise: 1,
       },
     },

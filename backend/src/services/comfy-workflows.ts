@@ -217,6 +217,8 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
         properties: {
           prompt: { type: 'string', description: 'La retouche : « la femme de l’image 1 dans la cuisine de l’image 2, en t-shirt gris ».' },
           image_urls: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+          // « Auto » : le format de l'image 1 ; sinon une image neuve aux proportions choisies.
+          aspect_ratio: { type: 'string', enum: ['adaptive', ...ASPECT_RATIOS], default: 'adaptive' },
           steps: { type: 'integer', default: 4, minimum: 4, maximum: 8 },
           seed: SEED,
         },
