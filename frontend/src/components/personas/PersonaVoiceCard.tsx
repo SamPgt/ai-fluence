@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, Mic, Play, Sparkles, Square, X } from 'lucide-react'
+import { Check, Loader2, Mic, Play, Sparkles, Square, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Persona, PersonaVoice } from '@ai-fluence/shared'
 import { personasApi } from '@/lib/api'
@@ -57,10 +57,31 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
     onSuccess: (r) => setVoice(r.voice),
     onError,
   })
+  const fileRef = useRef<HTMLInputElement | null>(null)
+  const { data: voices = [] } = useQuery({
+    queryKey: ['voices'],
+    queryFn: () => personasApi.voices().then((r) => r.voices),
+    enabled: Boolean(voice?.enabled),
+  })
+  const otherVoices = voices.filter((v) => v.personaId !== persona.id)
+  const importFile = useMutation({
+    mutationFn: (file: File) => personasApi.importVoice(persona.id, file),
+    onSuccess: (r) => {
+      setVoice(r.voice)
+      toast.success('Voix importée : écoute-la, puis garde-la ou écarte-la.')
+    },
+    onError,
+  })
+  const copy = useMutation({
+    mutationFn: (fromPersonaId: string) => personasApi.copyVoice(persona.id, fromPersonaId),
+    onSuccess: (r) => setVoice(r.voice),
+    onError,
+  })
   const decide = useMutation({
     mutationFn: (keep: boolean) => personasApi.decideVoice(persona.id, keep),
     onSuccess: (r, keep) => {
       setVoice(r.voice)
+      queryClient.invalidateQueries({ queryKey: ['voices'] })
       if (keep) toast.success(`C’est la voix de ${persona.name}.`)
     },
     onError,
@@ -171,6 +192,43 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
           {!persona.avatarAssetId && (
             <p className="text-xs text-muted-foreground">Il faut d’abord une image de référence (avatar) au personnage.</p>
           )}
+          {/* Sans passer par LTX : un fichier audio, ou la voix d'un autre personnage. Proposée, puis gardée ou écartée. */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-muted-foreground">
+            ou
+            <Button size="sm" variant="ghost" onClick={() => fileRef.current?.click()} disabled={importFile.isPending}>
+              {importFile.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              Importer un extrait audio
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".wav,.mp3,.flac,.ogg,audio/wav,audio/mpeg,audio/flac,audio/ogg"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) importFile.mutate(f)
+                e.target.value = ''
+              }}
+            />
+            {otherVoices.length > 0 && (
+              <select
+                value=""
+                onChange={(e) => e.target.value && copy.mutate(e.target.value)}
+                className="h-8 rounded-md border border-border/60 bg-background px-2 text-xs text-foreground"
+                aria-label="Reprendre la voix d’un autre personnage"
+              >
+                <option value="">Reprendre la voix de…</option>
+                {otherVoices.map((v) => (
+                  <option key={v.personaId} value={v.personaId}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Extrait de 5 à 10 s d’une seule voix, sans musique (wav, mp3, flac, ogg) : seules les 10 premières secondes de voix sont gardées.
+          </p>
         </div>
       )}
 

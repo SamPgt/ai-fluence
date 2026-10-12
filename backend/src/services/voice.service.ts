@@ -313,6 +313,76 @@ export async function cancelCreation(user: SessionUser, personaId: string): Prom
   return toVoice(voice);
 }
 
+/** Formats audio lus par le serveur de voix (libsndfile). */
+export const VOICE_IMPORT_EXTENSIONS = ['wav', 'mp3', 'flac', 'ogg'];
+
+/** Enregistre un extrait de voix (10 s au plus, sans silences aux bords) comme voix proposée. */
+async function proposeReference(user: SessionUser, persona: PersonaRow, source: string, stamp: number): Promise<PersonaVoice> {
+  const voice = voiceOf(persona);
+  const refPath = join(await voiceDir(user, persona), `voix-${stamp}.wav`);
+  const res = await voicePost('/reference', { source, output: refPath, max_seconds: 10 });
+  const { duration } = (await res.json()) as { duration: number };
+  const ref = await readFile(refPath);
+  const [row] = await db
+    .insert(assets)
+    .values({
+      userId: user.id,
+      personaId: persona.id,
+      kind: 'voice',
+      mediaType: 'audio',
+      mime: 'audio/wav',
+      filePath: refPath,
+      bytes: ref.byteLength,
+      durationSeconds: duration,
+    })
+    .returning({ id: assets.id });
+  voice.candidateAssetId = row.id;
+  voice.candidateVideoAssetId = null;
+  await saveVoice(persona.id, voice);
+  return toVoice(voice);
+}
+
+/** Importe un fichier audio (ta voix, une voix déjà créée ailleurs…) comme voix proposée, sans passer par LTX. */
+export async function importVoice(
+  user: SessionUser,
+  personaId: string,
+  file: { name: string; data: Uint8Array },
+): Promise<PersonaVoice> {
+  if (!isVoiceEnabled()) throw new HTTPException(400, { message: 'Voix non configurée (VOICE_URL, COMFYUI_URL).' });
+  const persona = await ownedPersona(user.id, personaId);
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (!VOICE_IMPORT_EXTENSIONS.includes(ext)) {
+    throw new HTTPException(400, { message: `Formats acceptés : ${VOICE_IMPORT_EXTENSIONS.join(', ')}.` });
+  }
+  const stamp = Date.now();
+  const saved = await saveFile(join(await voiceDir(user, persona), `import-${stamp}.${ext}`), file.data);
+  return proposeReference(user, persona, saved.path, stamp);
+}
+
+/** Propose la voix d'un autre personnage (même extrait de référence, partagé). */
+export async function copyVoice(user: SessionUser, personaId: string, fromPersonaId: string): Promise<PersonaVoice> {
+  const persona = await ownedPersona(user.id, personaId);
+  const from = await ownedPersona(user.id, fromPersonaId);
+  const source = voiceOf(from).assetId;
+  if (!source) throw new HTTPException(400, { message: `${from.name} n’a pas de voix.` });
+  const voice = voiceOf(persona);
+  voice.candidateAssetId = source;
+  voice.candidateVideoAssetId = null;
+  await saveVoice(persona.id, voice);
+  return toVoice(voice);
+}
+
+/** Personnages qui ont une voix (pour en reprendre une). */
+export async function listVoices(user: SessionUser): Promise<{ personaId: string; name: string; url: string }[]> {
+  const rows = await db
+    .select({ id: personas.id, name: personas.name, voice: personas.voice })
+    .from(personas)
+    .where(and(eq(personas.userId, user.id), isNull(personas.deletedAt)));
+  return rows
+    .filter(r => r.voice?.assetId)
+    .map(r => ({ personaId: r.id, name: r.name, url: mediaUrl(r.voice!.assetId!) }));
+}
+
 /** Adopte la voix proposée, ou l'écarte. */
 export async function decideCandidate(user: SessionUser, personaId: string, keep: boolean): Promise<PersonaVoice> {
   const persona = await ownedPersona(user.id, personaId);

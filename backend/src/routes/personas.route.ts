@@ -9,7 +9,7 @@ import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { toPersona } from '../services/serialize.js';
 import { trashPersona } from '../services/trash.service.js';
-import { cancelCreation, createVoice, decideCandidate, getVoice, listenSpeech, previewVoice, updateVoice } from '../services/voice.service.js';
+import { cancelCreation, copyVoice, createVoice, decideCandidate, importVoice, listVoices, getVoice, listenSpeech, previewVoice, updateVoice } from '../services/voice.service.js';
 import type { AppEnv } from '../types.js';
 
 const loraSchema = z.object({
@@ -140,7 +140,22 @@ const personasRoutes = new Hono<AppEnv>()
     return c.json({ ok: true });
   })
   // ── Voix (vidéos parlées, local) ──
+  /** Voix existantes (personnages qui en ont une), pour en reprendre une. */
+  .get('/voices', async c => c.json({ voices: await listVoices(c.get('user')) }))
   .get('/:id/voice', async c => c.json({ voice: await getVoice(c.get('user'), c.req.param('id')) }))
+  /** Importe un fichier audio comme voix proposée (wav, mp3, flac, ogg ; 25 Mo au plus). */
+  .post('/:id/voice/import', async c => {
+    const body = await c.req.parseBody();
+    const file = body.file;
+    if (!(file instanceof File)) return c.json({ error: 'Fichier manquant.' }, 400);
+    if (file.size > 25 * 1024 * 1024) return c.json({ error: 'Fichier trop lourd (25 Mo max).' }, 400);
+    return c.json({
+      voice: await importVoice(c.get('user'), c.req.param('id'), { name: file.name, data: new Uint8Array(await file.arrayBuffer()) }),
+    });
+  })
+  .post('/:id/voice/copy', zValidator('json', z.object({ fromPersonaId: z.uuid() })), async c =>
+    c.json({ voice: await copyVoice(c.get('user'), c.req.param('id'), c.req.valid('json').fromPersonaId) }),
+  )
   .post('/:id/voice/create', zValidator('json', z.object({ description: z.string().trim().max(300).default('') })), async c =>
     c.json({ voice: await createVoice(c.get('user'), c.req.param('id'), c.req.valid('json').description) }),
   )

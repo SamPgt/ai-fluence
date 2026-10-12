@@ -210,6 +210,14 @@ export const personasApi = {
   voice: (id: string) => apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice`),
   createVoice: (id: string, description: string) =>
     apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/create`, { method: 'POST', body: { description } }),
+  voices: () => apiFetch<{ voices: { personaId: string; name: string; url: string }[] }>('/personas/voices'),
+  importVoice: (id: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/import`, { method: 'POST', body: form })
+  },
+  copyVoice: (id: string, fromPersonaId: string) =>
+    apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/copy`, { method: 'POST', body: { fromPersonaId } }),
   cancelVoice: (id: string) => apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/cancel`, { method: 'POST' }),
   decideVoice: (id: string, keep: boolean) =>
     apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/candidate`, { method: 'POST', body: { keep } }),
