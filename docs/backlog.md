@@ -55,3 +55,13 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 - **Filtre NSFW de ReActor désactivé** (2026-10-11) : il noircissait des tenues sexy mais habillées (score 0,99 sur résille / body en mesh). Interrupteur `REACTOR_NSFW_FILTER=0` dans `COMFYUI_LAUNCH` (patch local de `comfyui-reactor/scripts/reactor_sfw.py`, original en `.orig`, à refaire après une mise à jour du nœud). Garde-fous à poser dans l'app plutôt que dans l'outil : échange de visage réservé aux visages des personnages (pas de photo d'une personne réelle sans son accord), âge minimal des personnages, règles de contenu selon la plateforme de publication.
 - **Prompt négatif sans effet** sur les modèles locaux (CFG 1 : Z-Image Turbo, klein, Qwen Lightning, Wan lightx2v, LTX distillé). Piste : le nœud natif `NAGuidance` (Normalized Attention Guidance), qui rend le négatif actif à CFG 1, à tester modèle par modèle ; sinon retirer le champ « Prompt négatif » de Z-Image.
 
+## Licences des modèles (si le projet devient commercial)
+
+Tant que le projet reste pour le plaisir (pas de revenus), tous les modèles installés sont utilisables. Le jour où l'influenceuse rapporte de l'argent (partenariats, monétisation, contenus payants, service payant) :
+
+- **Libres, usage commercial autorisé** : Z-Image Turbo, Qwen Edit 2511, FLUX.2 klein **4B**, Wan 2.2 (Apache 2.0) ; LoRA Realistic Snapshot (usage commercial autorisé sur sa page Civitai). Le workflow réalisme conseillé (Qwen Edit → Z-Image + Realistic Snapshot) est entièrement dans ce groupe.
+- **Non commercial (probable)** : FLUX.2 klein **9B**. Page verrouillée chez Black Forest Labs : lire le texte en acceptant la licence sur Hugging Face. Les licences FLUX « dev » laissent utiliser les images produites, mais réservent le modèle à un usage non commercial (zone grise pour un compte rémunéré). Sinon : licence commerciale à acheter chez Black Forest Labs.
+- **Sous conditions** : Krea 2 (licence communautaire, gratuite sous un seuil de chiffre d'affaires) ; LTX-2.3 (licence communautaire de Lightricks, à vérifier de la même façon).
+- **Outils** : Chatterbox (MIT), JoyCaption (licence Llama 3.1 de Meta, à vérifier), LatentSync (Apache 2.0, n'est plus utilisé dans l'app).
+- À faire le moment venu : relire chaque licence, retirer ou remplacer les modèles non conformes, ou acheter les licences nécessaires.
+
