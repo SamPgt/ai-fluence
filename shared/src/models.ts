@@ -345,6 +345,16 @@ export const LOCAL_FAMILIES: ModelFamilyDef[] = [
     score: 900, // guess score (FLUX.2 klein 4B)
   },
   {
+    id: 'local/flux2-klein-9b',
+    label: 'FLUX.2 klein 9B (local)',
+    media: 'image',
+    badges: ['LOCAL', 'REF'],
+    hint: 'Grand frère du 4B : même peau, anatomie plus solide, un peu plus lent. Licence à vérifier (non commerciale ?)',
+    provider: 'black-forest-labs',
+    runtime: 'comfy',
+    score: 930, // guess score (FLUX.2 klein 9B)
+  },
+  {
     id: 'local/qwen-image-edit-2511',
     label: 'Qwen Edit 2511 (local)',
     media: 'image',

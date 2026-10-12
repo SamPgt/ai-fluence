@@ -35,7 +35,10 @@ const seedOf = (v: unknown) => (typeof v === 'number' ? v : randomInt(2 ** 31 - 
 /** FLUX.2 klein 4B : texte → image, ou avec 1 à 3 images de référence (cohérence personnage / lieu). */
 export function buildKlein(values: Record<string, unknown>, ctx: BuildContext, size: { width: number; height: number }): Graph {
   const g: Graph = {
-    '1': { class_type: 'UNETLoader', inputs: { unet_name: ctx.files.unet, weight_dtype: 'default' } },
+    // 4B en fp8 (UNETLoader), 9B en GGUF (UnetLoaderGGUF).
+    '1': ctx.files.unet.endsWith('.gguf')
+      ? { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } }
+      : { class_type: 'UNETLoader', inputs: { unet_name: ctx.files.unet, weight_dtype: 'default' } },
     '2': { class_type: 'CLIPLoader', inputs: { clip_name: ctx.files.encoder, type: 'flux2', device: 'default' } },
     '3': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
     '4': { class_type: 'CLIPTextEncode', inputs: { text: String(values.prompt ?? ''), clip: ['2', 0] } },
@@ -55,6 +58,10 @@ export function buildKlein(values: Record<string, unknown>, ctx: BuildContext, s
     neg = [`${b + 4}`, 0];
   });
   const steps = num(values.steps, 4);
+  // Force < 1 (« filtre ») : on part de l'image 1, légèrement bruitée, au lieu d'une toile vide. La composition et
+  // l'anatomie viennent de l'image, klein n'apporte que sa peau et ses couleurs (la fin des étapes seulement).
+  const strength = num(values.strength, 1);
+  const filter = strength < 1 && ctx.images.length > 0;
   Object.assign(g, {
     '90': { class_type: 'EmptyFlux2LatentImage', inputs: { ...size, batch_size: 1 } },
     '91': { class_type: 'Flux2Scheduler', inputs: { steps, ...size } },
@@ -63,11 +70,18 @@ export function buildKlein(values: Record<string, unknown>, ctx: BuildContext, s
     '94': { class_type: 'CFGGuider', inputs: { model: ['1', 0], positive: pos, negative: neg, cfg: 1 } },
     '95': {
       class_type: 'SamplerCustomAdvanced',
-      inputs: { noise: ['93', 0], guider: ['94', 0], sampler: ['92', 0], sigmas: ['91', 0], latent_image: ['90', 0] },
+      inputs: {
+        noise: ['93', 0],
+        guider: ['94', 0],
+        sampler: ['92', 0],
+        sigmas: filter ? ['98', 1] : ['91', 0],
+        latent_image: filter ? ['12', 0] : ['90', 0],
+      },
     },
     '96': { class_type: 'VAEDecodeTiled', inputs: { samples: ['95', 0], vae: ['3', 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 } },
     '9': { class_type: 'SaveImage', inputs: { images: ['96', 0], filename_prefix: 'ai-fluence/flux2-klein' } },
   });
+  if (filter) g['98'] = { class_type: 'SplitSigmasDenoise', inputs: { sigmas: ['91', 0], denoise: strength } };
   return g;
 }
 

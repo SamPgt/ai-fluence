@@ -150,6 +150,50 @@ const KLEIN_COMMON: InputSchema['properties'] = {
   seed: SEED,
 };
 
+/** FLUX.2 klein 9B : même pipeline que le 4B, modèle en GGUF et encodeur Qwen3-8B. */
+const KLEIN_9B_FILES: LocalEndpoint['requires'] = {
+  unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /flux-2-klein-9b.*\.gguf$/i },
+  encoder: { loader: 'CLIPLoader', input: 'clip_name', match: /qwen_3_8b/i },
+  vae: { loader: 'VAELoader', input: 'vae_name', files: ['flux2-vae.safetensors'] },
+};
+
+/** Texte → image et image → image (références, ou « filtre » avec une force < 1) d'un modèle klein. */
+function kleinEndpoints(family: string, requires: LocalEndpoint['requires']): Partial<Record<TaskKind, LocalEndpoint>> {
+  const build: LocalEndpoint['build'] = (values, ctx) =>
+    buildKlein(values, ctx, { width: Number(values.width), height: Number(values.height) });
+  // klein est entraîné autour de 1 Mpx.
+  const common = { outputNode: '9', slots: {}, sized: true, pixels: 1024 * 1024, requires, build };
+  return {
+    'text-to-image': {
+      ...common,
+      modelId: `${family}/text-to-image`,
+      task: 'text-to-image',
+      schema: { type: 'object', required: ['prompt'], properties: KLEIN_COMMON },
+    },
+    'image-to-image': {
+      ...common,
+      modelId: `${family}/image-to-image`,
+      task: 'image-to-image',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          ...KLEIN_COMMON,
+          image_urls: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+          strength: {
+            type: 'number',
+            default: 1,
+            minimum: 0.05,
+            maximum: 1,
+            description:
+              '1 : nouvelle image d’après les références. 0,2–0,4 : « filtre », retravaille l’image 1 (composition et anatomie gardées).',
+          },
+        },
+      },
+    },
+  };
+}
+
 const QWEN_EDIT_FILES: LocalEndpoint['requires'] = {
   unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /qwen[-_]image[-_]edit[-_]2511.*\.gguf$/i },
   encoder: { loader: 'CLIPLoader', input: 'clip_name', match: /qwen_2\.5_vl_7b/i },
@@ -188,36 +232,8 @@ export const LTX_FILES: LocalEndpoint['requires'] = {
 };
 
 export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpoint>>> = {
-  'local/flux2-klein-4b': {
-    'text-to-image': {
-      modelId: 'local/flux2-klein-4b/text-to-image',
-      task: 'text-to-image',
-      outputNode: '9',
-      schema: { type: 'object', required: ['prompt'], properties: KLEIN_COMMON },
-      slots: {},
-      sized: true,
-      // klein est entraîné autour de 1 Mpx.
-      pixels: 1024 * 1024,
-      requires: KLEIN_FILES,
-      build: (values, ctx) => buildKlein(values, ctx, { width: Number(values.width), height: Number(values.height) }),
-    },
-    'image-to-image': {
-      modelId: 'local/flux2-klein-4b/image-to-image',
-      task: 'image-to-image',
-      outputNode: '9',
-      schema: {
-        type: 'object',
-        required: ['prompt'],
-        properties: { ...KLEIN_COMMON, image_urls: { type: 'array', items: { type: 'string' }, maxItems: 3 } },
-      },
-      slots: {},
-      sized: true,
-      // klein est entraîné autour de 1 Mpx.
-      pixels: 1024 * 1024,
-      requires: KLEIN_FILES,
-      build: (values, ctx) => buildKlein(values, ctx, { width: Number(values.width), height: Number(values.height) }),
-    },
-  },
+  'local/flux2-klein-4b': kleinEndpoints('local/flux2-klein-4b', KLEIN_FILES),
+  'local/flux2-klein-9b': kleinEndpoints('local/flux2-klein-9b', KLEIN_9B_FILES),
   'local/krea-2': {
     'text-to-image': {
       modelId: 'local/krea-2/text-to-image',
