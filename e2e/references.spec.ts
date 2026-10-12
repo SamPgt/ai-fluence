@@ -261,6 +261,20 @@ test.describe('Bouton « + » du composer', () => {
     await expect(counter).toHaveText('4/3')
     await expect(counter).toHaveClass(/text-amber-300/)
   })
+
+  test('propose un fichier ou une librairie, la librairie s’ouvre au centre', async ({ app, page }) => {
+    await app.gotoNew()
+    await page.getByRole('button', { name: 'Ajouter un fichier' }).click()
+    await expect(page.getByRole('button', { name: 'Importer un fichier' })).toBeVisible()
+    await page.getByRole('button', { name: 'Choisir depuis une librairie' }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Choisir depuis une librairie' })
+    await expect(dialog).toBeVisible()
+    // En test, pas de clé Unsplash : la librairie le dit, sans appel extérieur.
+    await expect(dialog).toContainText(/(UNSPLASH_ACCESS_KEY|PEXELS_API_KEY)/)
+    await dialog.getByRole('button', { name: 'Fermer' }).click()
+    await expect(dialog).toBeHidden()
+  })
 })
 
 test.describe('Envoi', () => {

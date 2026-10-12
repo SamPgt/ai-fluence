@@ -6,7 +6,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Film, Info, Loader2, Pencil, Plus, X } from 'lucide-react'
+import {
+  ArrowUp,
+  Film,
+  FolderOpen,
+  Info,
+  Loader2,
+  Pencil,
+  Plus,
+  Upload,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
@@ -37,6 +47,11 @@ import {
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { ModelPicker } from './ModelPicker'
 import {
   AspectRatioPicker,
@@ -47,6 +62,7 @@ import {
 import { ParamsPopover } from './ParamFields'
 import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
+import { LibraryBrowser } from './LibraryBrowser'
 import { VoicePicker } from './VoicePicker'
 import { MediaViewer } from '@/components/thread/MediaViewer'
 
@@ -122,6 +138,8 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(0)
+  const [addOpen, setAddOpen] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const [dragging, setDragging] = useState(false)
   // Pièce jointe ouverte dans la visionneuse (son id).
   const [viewing, setViewing] = useState<string | null>(null)
@@ -669,34 +687,65 @@ export function Composer({
                 className="hidden"
                 onChange={(e) => onFiles(e.target.files)}
               />
-              {/* Ajouter un fichier, avec le compteur d'images du modèle (n / max). */}
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className={cn(
-                  'flex h-8 shrink-0 items-center justify-center gap-1 rounded-full text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60',
-                  imageInfo.max > 0 ? 'px-2.5' : 'w-8',
-                )}
-                title={
-                  imageInfo.max > 0
-                    ? `Ajouter des images (${imageInfo.max} au maximum pour ce modèle)`
-                    : 'Ajouter un fichier'
-                }
-                aria-label="Ajouter un fichier"
-              >
-                <Plus className="size-3.5" />
-                {imageInfo.max > 0 && (
-                  <span
+              {/* Ajouter : depuis l'ordinateur ou une librairie, avec le compteur d'images du modèle (n / max). */}
+              <Popover open={addOpen} onOpenChange={setAddOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
                     className={cn(
-                      'tabular-nums',
-                      state.attachments.length > imageInfo.max &&
-                        'text-amber-300',
+                      'flex h-8 shrink-0 items-center justify-center gap-1 rounded-full text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60',
+                      imageInfo.max > 0 ? 'px-2.5' : 'w-8',
                     )}
+                    title={
+                      imageInfo.max > 0
+                        ? `Ajouter des images (${imageInfo.max} au maximum pour ce modèle)`
+                        : 'Ajouter un fichier'
+                    }
+                    aria-label="Ajouter un fichier"
                   >
-                    {state.attachments.length}/{imageInfo.max}
-                  </span>
-                )}
-              </button>
+                    <Plus className="size-3.5" />
+                    {imageInfo.max > 0 && (
+                      <span
+                        className={cn(
+                          'tabular-nums',
+                          state.attachments.length > imageInfo.max &&
+                            'text-amber-300',
+                        )}
+                      >
+                        {state.attachments.length}/{imageInfo.max}
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  className="w-auto min-w-56 rounded-2xl p-1.5"
+                >
+                  <AddMenuItem
+                    icon={<Upload className="size-4" />}
+                    label="Importer un fichier"
+                    onClick={() => {
+                      setAddOpen(false)
+                      fileRef.current?.click()
+                    }}
+                  />
+                  <AddMenuItem
+                    icon={<FolderOpen className="size-4" />}
+                    label="Choisir depuis une librairie"
+                    onClick={() => {
+                      setAddOpen(false)
+                      setLibraryOpen(true)
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              <LibraryBrowser
+                open={libraryOpen}
+                onOpenChange={setLibraryOpen}
+                personaId={personaId}
+                onImport={(asset) => composer.addAttachments([asset])}
+              />
               {persona && (
                 <ReferencePicker
                   persona={persona}
@@ -868,5 +917,29 @@ export function Composer({
         )}
       </div>
     </div>
+  )
+}
+
+/** Entrée du menu du bouton + : icône dans une pastille, libellé. */
+function AddMenuItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-11 w-full items-center gap-3 rounded-xl px-2.5 text-left text-sm whitespace-nowrap text-foreground outline-none hover:bg-white/[0.05] focus-visible:bg-white/[0.05]"
+    >
+      <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-white/[0.06] text-muted-foreground">
+        {icon}
+      </span>
+      {label}
+    </button>
   )
 }

@@ -48,7 +48,7 @@ function customDevTest() {
     `CLIENT_URL=${APP_URL}`,
     `DATA_DIR=${DATA_DIR}`,
     `APP_SECRET=${'0'.repeat(64)}`,
-    'SPICY_FAKE=true CIVITAI_KEY= tsx src/index.ts',
+    'SPICY_FAKE=true CIVITAI_KEY= UNSPLASH_ACCESS_KEY= PEXELS_API_KEY= tsx src/index.ts',
   ].join(' ')
   const front = `npx wait-on -t 90000 http-get://localhost:${api}/health && cd frontend && npx cross-env VITE_BACKEND_URL=${API_URL} vite dev --port ${app} --strictPort`
   return `npx concurrently -k '${back}' '${front}'`

@@ -57,6 +57,8 @@ Puis remplir `backend/.env` :
 | `CLIENT_URL` | URL du front (http://localhost:3070 par défaut) |
 | `DATA_DIR` | Dossier des fichiers générés (`~/Documents/ai-influence-app` par défaut) |
 | `CIVITAI_KEY` | Optionnel. Active la bibliothèque LoRA Civitai et les téléchargements protégés. La clé reste dans le backend, SpicyAPI reçoit seulement un lien signé temporaire. |
+| `UNSPLASH_ACCESS_KEY` | Optionnel. Active la librairie de photos libres de droits Unsplash dans le bouton + du composer. La clé reste dans le backend. |
+| `PEXELS_API_KEY` | Optionnel. Active la librairie de photos libres de droits Pexels dans le bouton + du composer. La clé reste dans le backend. |
 | `spicyApiKey` | Facultatif, utilisé seulement par le serveur MCP SpicyAPI de `.mcp.json` |
 
 ## Lancer l'app

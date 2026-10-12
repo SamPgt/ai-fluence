@@ -205,6 +205,34 @@ export interface CivitaiSearchResponse {
   nextCursor: string | null;
 }
 
+// ── Librairies de photos libres de droits (Unsplash, Pexels) ──
+
+export type LibrarySource = 'unsplash' | 'pexels';
+
+export interface LibraryPhoto {
+  id: string;
+  description: string;
+  width: number;
+  height: number;
+  /** Couleur dominante, affichée pendant le chargement de l'image. */
+  color: string;
+  /** Image servie par le CDN de la source (affichage direct). */
+  thumbUrl: string;
+  /** Page de la photo sur la source (attribution). */
+  pageUrl: string;
+  /** Photographe : nom, pseudo (affiché « @pseudo », null si inconnu) et profil. */
+  author: { name: string; username: string | null; profileUrl: string };
+}
+
+export interface LibrarySearchResponse {
+  items: LibraryPhoto[];
+  /** Page suivante, ou null en fin de liste. */
+  nextPage: number | null;
+}
+
+/** Sources configurées (clé présente dans backend/.env). */
+export type LibraryStatus = Record<LibrarySource, boolean>;
+
 /** Taille maximale du texte d'un bloc de contexte. */
 /** Longueur maximale saisie dans un bloc de contexte. */
 export const CONTEXT_BLOCK_MAX = 500;

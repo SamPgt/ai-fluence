@@ -41,6 +41,8 @@ export default defineConfig({
             DATA_DIR: here('./.vitest-data'),
             SPICY_FAKE: 'true',
             CIVITAI_KEY: '',
+            UNSPLASH_ACCESS_KEY: '',
+            PEXELS_API_KEY: '',
           },
         },
       },

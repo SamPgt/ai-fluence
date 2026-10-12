@@ -1,25 +1,21 @@
 import { createReadStream } from 'node:fs';
-import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { assets, generations, personas } from '../db/schema.js';
+import { assets, generations } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { toAsset } from '../services/serialize.js';
-import { getSettingsRow, mediaDirOf, slug } from '../services/settings.service.js';
 import {
   ACCEPTED_UPLOAD_MIMES,
   MAX_IMAGE_BYTES,
   MAX_VIDEO_BYTES,
-  extFor,
   fileSize,
-  join,
   mediaTypeOf,
-  saveFile,
 } from '../services/storage.service.js';
+import { ownedPersona, storeUpload } from '../services/upload.service.js';
 import type { AppEnv } from '../types.js';
 
 const PG_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?([+-]\d{2}(:?\d{2})?|Z)?$/;
@@ -40,16 +36,6 @@ function decodeCursor(raw: string): { at: string; id: string } | null {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function ownedPersona(userId: string, personaId: string | null | undefined) {
-  if (!personaId) return null;
-  const [p] = await db
-    .select()
-    .from(personas)
-    .where(and(eq(personas.id, personaId), eq(personas.userId, userId)))
-    .limit(1);
-  return p ?? null;
-}
-
 export const assetsRoutes = new Hono<AppEnv>()
   .use(auth)
   /** Upload d'une image ou vidéo (référence, avatar…). Multipart : `file`, `personaId?`, `isReference?`. */
@@ -68,29 +54,12 @@ export const assetsRoutes = new Hono<AppEnv>()
     const personaId = typeof body.personaId === 'string' && body.personaId ? body.personaId : null;
     // Un id mal formé ferait planter Postgres : refusé avant.
     if (personaId && !UUID_RE.test(personaId)) return c.json({ error: 'Persona invalide.' }, 400);
-    const persona = await ownedPersona(user.id, personaId);
-    const dir = join(
-      mediaDirOf(user, await getSettingsRow(user.id)),
-      'references',
-      persona ? slug(persona.name) : 'divers',
-    );
-    const saved = await saveFile(
-      join(dir, `${randomUUID().slice(0, 12)}.${extFor(file.type)}`),
-      new Uint8Array(await file.arrayBuffer()),
-    );
-    const [row] = await db
-      .insert(assets)
-      .values({
-        userId: user.id,
-        personaId: persona?.id ?? null,
-        kind: 'upload',
-        mediaType,
-        mime: file.type,
-        filePath: saved.path,
-        bytes: saved.bytes,
-        isReference: body.isReference === 'true' && Boolean(persona),
-      })
-      .returning();
+    const row = await storeUpload(user, {
+      personaId,
+      mime: file.type,
+      data: new Uint8Array(await file.arrayBuffer()),
+      isReference: body.isReference === 'true',
+    });
     return c.json({ asset: toAsset(row) }, 201);
   })
   /** Bibliothèque de références d'un persona. */

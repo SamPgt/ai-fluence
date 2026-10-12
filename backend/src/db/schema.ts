@@ -204,3 +204,15 @@ export const promptPresets = pgTable(
   },
   t => [index('prompt_presets_user_idx').on(t.userId)],
 );
+
+/**
+ * Cache partagé des librairies de photos (Unsplash, Pexels), aux quotas serrés.
+ * Clé préfixée par la source : `unsplash GET <chemin>` pour une réponse de l'API,
+ * `unsplash photo:<id>` pour les liens d'import d'une photo, `unsplash track:<id>`
+ * pour un téléchargement à signaler plus tard.
+ */
+export const libraryCache = pgTable('library_cache', {
+  key: text('key').primaryKey(),
+  data: jsonb('data').notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).defaultNow().notNull(),
+});

@@ -28,6 +28,9 @@ import type {
   UpdateSettingsRequest,
   UpscaleRequest,
   Balance,
+  LibrarySearchResponse,
+  LibrarySource,
+  LibraryStatus,
   User,
   VoiceLibraryResponse,
 } from '@ai-fluence/shared'
@@ -141,6 +144,14 @@ export const civitaiApi = {
   status: () => apiFetch<{ enabled: boolean }>('/civitai/status'),
   search: (q: { family?: string; query?: string; sort: CivitaiSort; nsfw: boolean; cursor?: string }) =>
     apiFetch<CivitaiSearchResponse>('/civitai/search', { query: q }),
+}
+
+export const libraryApi = {
+  status: () => apiFetch<LibraryStatus>('/library/status'),
+  search: (source: LibrarySource, q: { query?: string; page: number }) =>
+    apiFetch<LibrarySearchResponse>(`/library/${source}/search`, { query: q }),
+  import: (source: LibrarySource, photoId: string, personaId?: string | null) =>
+    apiFetch<{ asset: Asset }>(`/library/${source}/import`, { method: 'POST', body: { photoId, personaId: personaId ?? null } }),
 }
 
 export interface VoiceLibraryQuery {
