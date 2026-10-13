@@ -11,9 +11,17 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { LOCAL_FAMILIES, type CatalogFamily, type InputSchema, type TaskKind } from '@ai-fluence/shared';
+import {
+  LOCAL_FAMILIES,
+  type CatalogFamily,
+  type InputSchema,
+  type LocalModelsConfig,
+  type LocalModelsResponse,
+  type TaskKind,
+} from '@ai-fluence/shared';
 import { env } from '../env.js';
-import { getNodeOptions, hasNodes, isComfyRunning } from './comfy.service.js';
+import { getNodeOptions, hasNodes, isComfyRunning, modelFileSize } from './comfy.service.js';
+import { getSettingsRow } from './settings.service.js';
 import { buildKlein, buildKrea, buildLtx, buildQwenEdit, buildWanI2V, type BuildContext, type Graph, type RetouchBox } from './comfy-builders.js';
 
 /** Entrée d'un nœud du workflow : [id du nœud, nom de l'entrée]. */
@@ -42,11 +50,6 @@ export interface LocalEndpoint {
   sized?: boolean;
   /** Nombre de pixels visé (taille native du modèle) ; défaut : celui de Z-Image (1,33 Mpx). */
   pixels?: number;
-  /**
-   * Paramètre `model` : fichier au choix parmi ceux installés dans ComfyUI (liste lue en direct).
-   * `match` filtre les fichiers compatibles avec le workflow.
-   */
-  model?: { loader: string; input: string; match: RegExp; preferred: string };
   /** Paramètres `lora` / `lora_strength` : un `LoraLoaderModelOnly` est inséré entre `from` et `to`. */
   lora?: { from: [node: string, output: number]; to: Slot };
   /**
@@ -117,14 +120,6 @@ const Z_IMAGE_SLOTS = {
   model: ['66', 'unet_name'],
   precision: ['66', 'weight_dtype'],
 } satisfies LocalEndpoint['slots'];
-
-/** Z-Image : tous les fichiers de `diffusion_models` dont le nom évoque Z-Image (Turbo, finetunes…). */
-const Z_IMAGE_MODEL: LocalEndpoint['model'] = {
-  loader: 'UNETLoader',
-  input: 'unet_name',
-  match: /z[-_ ]?image/i,
-  preferred: 'zImageTurbo_turbo.safetensors',
-};
 
 /** La LoRA s'applique au modèle chargé (66), avant le réglage d'échantillonnage (69). */
 const Z_IMAGE_LORA: LocalEndpoint['lora'] = { from: ['66', 0], to: ['69', 'model'] };
@@ -377,7 +372,6 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
         },
       },
       slots: { ...Z_IMAGE_SLOTS, width: ['68', 'width'], height: ['68', 'height'] },
-      model: Z_IMAGE_MODEL,
       lora: Z_IMAGE_LORA,
       faceSwap: Z_IMAGE_FACE,
     },
@@ -402,7 +396,6 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
         },
       },
       slots: { ...Z_IMAGE_SLOTS, strength: ['70', 'denoise'], image: ['73', 'image'] },
-      model: Z_IMAGE_MODEL,
       lora: Z_IMAGE_LORA,
       faceSwap: Z_IMAGE_FACE,
     },
@@ -421,10 +414,15 @@ export function sizeFor(aspectRatio: string, pixels = TARGET_PIXELS): { width: n
  * Fichiers de modèles retenus pour un endpoint (le premier installé par rôle) et ceux qui manquent.
  * Lu en direct dans ComfyUI : un fichier ajouté est pris en compte sans redémarrer l'app.
  */
-export async function resolveRequirements(endpoint: LocalEndpoint): Promise<{ files: Record<string, string>; missing: string[] }> {
-  const files: Record<string, string> = {};
+export async function resolveRequirements(
+  endpoint: LocalEndpoint,
+  /** Fichiers imposés par rôle (le modèle de diffusion choisi : `unet`). */
+  overrides: Record<string, string> = {},
+): Promise<{ files: Record<string, string>; missing: string[] }> {
+  const files: Record<string, string> = { ...overrides };
   const missing: string[] = [];
   for (const [role, req] of Object.entries(endpoint.requires ?? {})) {
+    if (overrides[role]) continue;
     const installed = await getNodeOptions(req.loader, req.input).catch(() => [] as string[]);
     const pick = req.files?.find(f => installed.includes(f)) ?? (req.match ? installed.find(f => req.match!.test(f)) : undefined);
     if (pick) files[role] = pick;
@@ -463,7 +461,9 @@ export async function buildGraph(
   if (sized && !fixedSize) Object.assign(values, sizeFor(String(values.aspect_ratio ?? '9:16'), endpoint.pixels));
 
   if (endpoint.build) {
-    const { files: models, missing } = await resolveRequirements(endpoint);
+    // Modèle de diffusion choisi (menu « Modèle », cf. Paramètres → Modèles locaux).
+    const chosen: Record<string, string> = endpoint.requires?.unet && typeof values.model === 'string' ? { unet: values.model } : {};
+    const { files: models, missing } = await resolveRequirements(endpoint, chosen);
     if (missing.length) throw new Error(`Fichiers manquants dans ComfyUI : ${missing.join(', ')}.`);
     const images = files.images ?? (files.image ? [files.image] : []);
     return endpoint.build(values, {
@@ -523,7 +523,7 @@ async function canSwapFaces(): Promise<boolean> {
  * Schéma complété avec ce qui est installé dans ComfyUI : modèles compatibles et LoRA.
  * Un fichier ajouté dans ComfyUI apparaît donc dans l'app sans toucher au code.
  */
-async function liveSchema(endpoint: LocalEndpoint, faces: boolean): Promise<InputSchema> {
+async function liveSchema(endpoint: LocalEndpoint, faces: boolean, models: string[] | null): Promise<InputSchema> {
   const properties = { ...endpoint.schema.properties };
   if (endpoint.faceSwap && faces) {
     const models = await getNodeOptions(REACTOR, 'face_restore_model');
@@ -536,13 +536,8 @@ async function liveSchema(endpoint: LocalEndpoint, faces: boolean): Promise<Inpu
       };
     }
   }
-  if (endpoint.model) {
-    const { loader, input, match, preferred } = endpoint.model;
-    const files = (await getNodeOptions(loader, input)).filter(f => match.test(f));
-    if (files.length) {
-      properties.model = { type: 'string', enum: files, default: files.includes(preferred) ? preferred : files[0] };
-    }
-  }
+  // Modèle de diffusion au choix : les fichiers visibles de la famille, le préféré en premier.
+  if (models?.length) properties.model = { type: 'string', enum: models, default: models[0] };
   if (endpoint.lora) {
     const loras = await getNodeOptions('LoraLoaderModelOnly', 'lora_name');
     if (loras.length) {
@@ -553,23 +548,79 @@ async function liveSchema(endpoint: LocalEndpoint, faces: boolean): Promise<Inpu
   return { ...endpoint.schema, properties };
 }
 
-/** Familles locales du catalogue : présentes seulement si ComfyUI est configuré. */
-export async function getLocalFamilies(): Promise<CatalogFamily[]> {
+// ── Modèles de diffusion : reconnus par leur nom, ou rattachés à une famille dans Paramètres ──
+
+/** Familles dont on choisit le modèle de diffusion (plusieurs variantes possibles) : nom reconnu, fichier préféré. */
+const MAIN_MODEL: Record<string, { match: RegExp; preferred?: string }> = {
+  'local/z-image-turbo': { match: /z[-_ ]?image/i, preferred: 'zImageTurbo_turbo.safetensors' },
+  'local/flux2-klein-4b': { match: /flux-2-klein-4b/i, preferred: 'flux-2-klein-4b-fp8.safetensors' },
+  'local/flux2-klein-9b': { match: /flux-2-klein-9b/i },
+  'local/krea-2': { match: /krea2/i },
+  'local/qwen-image-edit-2511': { match: /qwen[-_]image[-_]edit[-_]2511/i },
+  'local/ltx-2.3': { match: /ltx-2\.3.*distilled/i },
+};
+/** Wan : une paire de fichiers (bruit fort, bruit faible), reconnue par son nom ; on peut seulement la cacher. */
+const FIXED_MODEL: Record<string, RegExp> = { 'local/wan-2.2-i2v': /wan2\.2-i2v/i };
+
+/** Rattachables à la main (Paramètres) : les familles à modèle de diffusion unique. */
+export const ASSIGNABLE_FAMILIES = Object.keys(MAIN_MODEL);
+
+/** Fichiers des dossiers `diffusion_models` et `unet` de ComfyUI (safetensors et GGUF). */
+export async function diffusionFiles(): Promise<string[]> {
+  const lists = await Promise.all(
+    [getNodeOptions('UNETLoader', 'unet_name'), getNodeOptions('UnetLoaderGGUF', 'unet_name')].map(p => p.catch(() => [] as string[])),
+  );
+  return [...new Set(lists.flat())].sort((a, b) => a.localeCompare(b));
+}
+
+/** Famille déduite du nom du fichier (null : non reconnu). */
+export function detectFamily(file: string): string | null {
+  for (const [id, { match }] of Object.entries(MAIN_MODEL)) if (match.test(file)) return id;
+  for (const [id, match] of Object.entries(FIXED_MODEL)) if (match.test(file)) return id;
+  return null;
+}
+
+/** Fichiers d'une famille : tous (cachés compris) et visibles, le préféré en premier. */
+function familyModels(familyId: string, files: string[], config: LocalModelsConfig) {
+  const preferred = MAIN_MODEL[familyId]?.preferred;
+  const all = files
+    .filter(f => (config[f]?.family ?? detectFamily(f)) === familyId)
+    .sort((a, b) => Number(b === preferred) - Number(a === preferred));
+  return { all, visible: all.filter(f => !config[f]?.hidden) };
+}
+
+/**
+ * Familles locales du catalogue : présentes seulement si ComfyUI est configuré. Réglages de l'utilisateur
+ * (Paramètres → Modèles locaux) : une famille dont tous les fichiers sont cachés n'est pas proposée.
+ */
+export async function getLocalFamilies(userId: string): Promise<CatalogFamily[]> {
   if (!env.COMFYUI_URL) return [];
   const running = await isComfyRunning();
   const faces = running && (await canSwapFaces());
-  return Promise.all(
-    LOCAL_FAMILIES.map(async (def): Promise<CatalogFamily> => {
+  const config = (await getSettingsRow(userId)).localModels;
+  const files = running ? await diffusionFiles() : [];
+  const families = await Promise.all(
+    LOCAL_FAMILIES.map(async (def): Promise<CatalogFamily | null> => {
+      const { all, visible } = familyModels(def.id, files, config);
+      if (all.length && !visible.length) return null;
+      if (FIXED_MODEL[def.id] && visible.length < all.length) return null;
+      const main = MAIN_MODEL[def.id] ? visible : null;
       const tasks: CatalogFamily['tasks'] = {};
       const endpoints = Object.values(LOCAL_ENDPOINTS[def.id] ?? {});
       for (const endpoint of endpoints) {
         // ComfyUI arrêté : schéma de base, la famille est de toute façon indisponible.
-        const schema = running ? await liveSchema(endpoint, faces).catch(() => endpoint.schema) : endpoint.schema;
+        const schema = running ? await liveSchema(endpoint, faces, main).catch(() => endpoint.schema) : endpoint.schema;
         tasks[endpoint.task] = { modelId: endpoint.modelId, schema, startingPrice: null, policyTier: null };
       }
       // Fichiers de modèles requis : sans eux, le modèle est grisé (ex. Qwen Edit pas encore téléchargé).
+      const chosen: Record<string, string> = main?.[0] ? { unet: main[0] } : {};
       const missing = running
-        ? [...new Set((await Promise.all(endpoints.map(e => resolveRequirements(e)))).flatMap(r => r.missing))]
+        ? [
+            ...new Set([
+              ...(main && !main.length ? [`modèle de diffusion (${def.label})`] : []),
+              ...(await Promise.all(endpoints.map(e => resolveRequirements(e, chosen)))).flatMap(r => r.missing),
+            ]),
+          ]
         : [];
       const ready = running && Object.keys(tasks).length > 0 && missing.length === 0;
       return {
@@ -587,6 +638,29 @@ export async function getLocalFamilies(): Promise<CatalogFamily[]> {
       };
     }),
   );
+  return families.filter((f): f is CatalogFamily => f !== null);
+}
+
+/** Paramètres → Modèles locaux : chaque fichier de diffusion, sa famille et sa visibilité. */
+export async function listLocalModels(userId: string): Promise<LocalModelsResponse> {
+  const config = (await getSettingsRow(userId)).localModels;
+  const files = await diffusionFiles();
+  return {
+    files: await Promise.all(
+      files.map(async file => {
+        const detected = detectFamily(file);
+        return {
+          file,
+          bytes: await modelFileSize(file),
+          detected,
+          family: config[file]?.family ?? detected,
+          assigned: Boolean(config[file]?.family),
+          hidden: Boolean(config[file]?.hidden),
+        };
+      }),
+    ),
+    families: LOCAL_FAMILIES.map(f => ({ id: f.id, label: f.label, assignable: ASSIGNABLE_FAMILIES.includes(f.id) })),
+  };
 }
 
 /** Endpoint local d'un model ID (`local/z-image-turbo/text-to-image`). */

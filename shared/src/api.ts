@@ -714,3 +714,30 @@ export interface TrashResponse {
   personas: TrashedPersona[];
   threads: TrashedThread[];
 }
+
+/**
+ * Modèles locaux, réglés par fichier de ComfyUI (dossiers `diffusion_models` et `unet`) : `family` impose son type
+ * (sinon il est déduit du nom), `hidden` le retire des choix. Une famille dont tous les fichiers sont cachés
+ * disparaît des modèles proposés.
+ */
+export type LocalModelsConfig = Record<string, { family?: string; hidden?: boolean }>;
+
+/** Un fichier de modèle de ComfyUI, vu par Paramètres → Modèles locaux. */
+export interface LocalModelFile {
+  file: string;
+  /** Taille en octets (si le dossier de ComfyUI est connu). */
+  bytes: number | null;
+  /** Famille déduite du nom du fichier (null : non reconnu). */
+  detected: string | null;
+  /** Famille retenue : imposée, sinon déduite. */
+  family: string | null;
+  /** Type imposé à la main (sinon déduit du nom). */
+  assigned: boolean;
+  hidden: boolean;
+}
+
+export interface LocalModelsResponse {
+  files: LocalModelFile[];
+  /** Familles locales auxquelles on peut rattacher un fichier. */
+  families: { id: string; label: string; assignable: boolean }[];
+}

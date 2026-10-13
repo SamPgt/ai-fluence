@@ -231,6 +231,12 @@ async function modelSizes(): Promise<Map<string, number>> {
   return sizes;
 }
 
+/** Taille d'un fichier de modèle de ComfyUI (null sans `COMFYUI_DIR`, ou introuvable). */
+export async function modelFileSize(name: string): Promise<number | null> {
+  if (!env.COMFYUI_DIR) return null;
+  return (await modelSizes()).get(name.replace(/\\/g, '/').split('/').pop()!.toLowerCase()) ?? null;
+}
+
 /** Noms des fichiers de modèles cités par un workflow (`unet_name`, `clip_name`, `lora_name`…). */
 function graphModels(graph: unknown): Set<string> {
   const files = new Set<string>();

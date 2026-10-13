@@ -268,6 +268,10 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     loras,
   });
 
+  // Modèle de diffusion au choix (local) : sans choix, celui proposé par défaut, enregistré avec la demande.
+  const modelProp = endpoint.schema.properties?.model;
+  if (local && built.input.model === undefined && typeof modelProp?.default === 'string') built.input.model = modelProp.default;
+
   // Le visage ne passe pas par le schéma : il est ajouté au workflow au lancement.
   if (face) built.input.face_image_url = localAssetRef(face);
 

@@ -290,6 +290,8 @@ Le dossier se change dans Paramétrage → Stockage. Supprimer un fil, une deman
 
 Ajoute une ligne dans `shared/src/models.ts` avec l'identifiant de la famille SpicyAPI (par exemple `bytedance/seedream-5.0-pro`) et ses badges. Le formulaire de paramètres se construit tout seul à partir du schéma live du modèle.
 
+**Modèle local (ComfyUI)** : un fichier posé dans `diffusion_models` ou `unet` apparaît dans **Paramètres → Modèles locaux** sans redémarrer. Reconnu à son nom (`flux-2-klein-9b…`, `krea2…`, un nom contenant « zimage »…), il est rangé tout seul dans sa famille ; sinon, on choisit son type (Z-Image, klein 4B, klein 9B, Krea 2, Qwen Edit, LTX). Une famille peut avoir plusieurs fichiers (3 ou 4 variantes de klein 4B, un Q5 et un Q8…) : un menu **Modèle** apparaît alors dans la barre du composer. L'œil cache un fichier ; une famille dont tous les fichiers sont cachés disparaît des modèles proposés. Une variante garde l'encodeur de texte et le VAE de sa famille : elle doit en être vraiment une. Wan 2.2 (une paire de fichiers) peut seulement être caché. Un modèle d'une nouvelle architecture demande toujours son workflow (`backend/src/services/comfy-builders.ts`).
+
 ## Base de données
 
 ```bash

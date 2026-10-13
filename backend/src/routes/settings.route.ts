@@ -11,6 +11,7 @@ import { generations, userSettings } from '../db/schema.js';
 import { expandHome } from '../env.js';
 import { apiKeyHint, encryptSecret } from '../lib/crypto.js';
 import { auth } from '../middleware/auth.js';
+import { ASSIGNABLE_FAMILIES, listLocalModels } from '../services/comfy-workflows.js';
 import { defaultMediaDir, getSettingsRow, mediaDirOf, type SettingsRow } from '../services/settings.service.js';
 import { callSpicy, clientFor, clientForUser, invalidateCatalog } from '../services/spicy.service.js';
 import type { AppEnv, SessionUser } from '../types.js';
@@ -90,6 +91,41 @@ const settingsRoutes = new Hono<AppEnv>()
     invalidateCatalog(user.id);
     return c.json({ settings: toSettings(user, row) });
   })
+  /** Paramètres → Modèles locaux : fichiers de diffusion de ComfyUI, leur famille et leur visibilité. */
+  .get('/local-models', async c => c.json(await listLocalModels(c.get('user').id)))
+  /** Type imposé (`family`, null : déduit du nom) et visibilité d'un fichier. */
+  .patch(
+    '/local-models',
+    zValidator(
+      'json',
+      z.object({
+        file: z.string().min(1).max(500),
+        family: z.string().nullable().optional(),
+        hidden: z.boolean().optional(),
+      }),
+    ),
+    async c => {
+      const user = c.get('user');
+      const { file, family, hidden } = c.req.valid('json');
+      if (family && !ASSIGNABLE_FAMILIES.includes(family)) return c.json({ error: 'Type de modèle inconnu.' }, 400);
+      const config = { ...(await getSettingsRow(user.id)).localModels };
+      const entry = { ...config[file] };
+      if (family !== undefined) {
+        if (family) entry.family = family;
+        else delete entry.family;
+      }
+      if (hidden !== undefined) {
+        if (hidden) entry.hidden = true;
+        else delete entry.hidden;
+      }
+      if (Object.keys(entry).length) config[file] = entry;
+      else delete config[file];
+      await db.update(userSettings).set({ localModels: config }).where(eq(userSettings.userId, user.id));
+      // Le catalogue (modèles proposés, menu « Modèle ») est gardé en cache : il est recalculé.
+      invalidateCatalog(user.id);
+      return c.json(await listLocalModels(user.id));
+    },
+  )
   .post('/open-media-dir', async c => {
     const user = c.get('user');
     const dir = mediaDirOf(user, await getSettingsRow(user.id));

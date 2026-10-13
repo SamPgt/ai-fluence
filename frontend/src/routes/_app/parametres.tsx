@@ -22,9 +22,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ShortcutsTab } from '@/components/settings/ShortcutsTab'
+import { LocalModelsTab } from '@/components/settings/LocalModelsTab'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
-const TABS = ['account', 'shortcuts', 'credits', 'storage', 'api-key'] as const
+const TABS = ['account', 'shortcuts', 'models', 'credits', 'storage', 'api-key'] as const
 type Tab = (typeof TABS)[number]
 
 export const Route = createFileRoute('/_app/parametres')({
@@ -75,6 +76,7 @@ function SettingsPage() {
             <TabsList className="w-full justify-start overflow-x-auto">
               <TabsTrigger value="account">Compte</TabsTrigger>
               <TabsTrigger value="shortcuts">Raccourcis</TabsTrigger>
+              <TabsTrigger value="models">Modèles locaux</TabsTrigger>
               <TabsTrigger value="credits">Crédits</TabsTrigger>
               <TabsTrigger value="storage">Stockage</TabsTrigger>
               <TabsTrigger value="api-key">Clés API</TabsTrigger>
@@ -87,6 +89,9 @@ function SettingsPage() {
             </TabsContent>
             <TabsContent value="credits">
               <CreditsTab />
+            </TabsContent>
+            <TabsContent value="models">
+              <LocalModelsTab />
             </TabsContent>
             <TabsContent value="shortcuts">
               <ShortcutsTab />

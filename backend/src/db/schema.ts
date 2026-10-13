@@ -22,6 +22,7 @@ import type {
   LibraryZone,
   ModelProvider,
   PersonaContextBlock,
+  LocalModelsConfig,
   PersonaLora,
   ReferencePoses,
   TraitSlot,
@@ -81,6 +82,8 @@ export const userSettings = pgTable('user_settings', {
   mediaDir: text('media_dir'),
   // Modèle rapide (~5 s) : Grok 4.7 réfléchit longtemps (~30 s) pour une simple reformulation.
   enhanceModel: text('enhance_model').notNull().default('deepseek/v4.1-flash/chat'),
+  /** Modèles locaux (Paramètres → Modèles locaux) : type choisi et visibilité, par fichier de ComfyUI. */
+  localModels: jsonb('local_models').$type<LocalModelsConfig>().notNull().default({}),
   updatedAt: updatedAt(),
 });
 

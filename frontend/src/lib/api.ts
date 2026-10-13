@@ -28,6 +28,7 @@ import type {
   ThumbnailQuote,
   LoginRequest,
   MastersResponse,
+  LocalModelsResponse,
   Persona,
   ReferencePose,
   PersonaInput,
@@ -114,6 +115,10 @@ export const settingsApi = {
   openMediaDir: () => apiFetch<{ ok: true }>('/settings/open-media-dir', { method: 'POST' }),
   balance: () => apiFetch<{ balance: Balance | null }>('/settings/balance'),
   credits: () => apiFetch<CreditsResponse>('/settings/credits'),
+  /** Modèles locaux : fichiers de diffusion de ComfyUI, leur type et leur visibilité. */
+  localModels: () => apiFetch<LocalModelsResponse>('/settings/local-models'),
+  setLocalModel: (body: { file: string; family?: string | null; hidden?: boolean }) =>
+    apiFetch<LocalModelsResponse>('/settings/local-models', { method: 'PATCH', body }),
 }
 
 export const comfyApi = {

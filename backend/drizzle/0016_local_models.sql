@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "local_models" jsonb DEFAULT '{}'::jsonb NOT NULL;

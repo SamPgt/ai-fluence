@@ -90,7 +90,7 @@ export async function getCatalog(userId: string): Promise<CatalogResponse> {
     };
   });
   const textModels = models.filter(m => m.modality === 'text' && m.enabled).map(m => m.model);
-  return { families: [...families, ...(await getLocalFamilies())], textModels };
+  return { families: [...families, ...(await getLocalFamilies(userId))], textModels };
 }
 
 // ── Erreurs ───────────────────────────────────────────────────

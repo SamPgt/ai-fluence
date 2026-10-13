@@ -38,17 +38,22 @@ export interface RetouchBox {
   height: number;
 }
 
-const num =(v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+
+/** Chargeur du modèle de diffusion selon son format : GGUF (ComfyUI-GGUF) ou safetensors (fp8, bf16…). */
+function unetLoader(file: string): Graph[string] {
+  return file.toLowerCase().endsWith('.gguf')
+    ? { class_type: 'UnetLoaderGGUF', inputs: { unet_name: file } }
+    : { class_type: 'UNETLoader', inputs: { unet_name: file, weight_dtype: 'default' } };
+}
 const seedOf = (v: unknown) => (typeof v === 'number' ? v : randomInt(2 ** 31 - 1));
 
 /** FLUX.2 klein 4B : texte → image, ou avec 1 à 3 images de référence (cohérence personnage / lieu). */
 export function buildKlein(values: Record<string, unknown>, ctx: BuildContext, size: { width: number; height: number }): Graph {
   if (ctx.mask) return buildKleinRetouch(values, ctx, ctx.mask);
   const g: Graph = {
-    // 4B en fp8 (UNETLoader), 9B en GGUF (UnetLoaderGGUF).
-    '1': ctx.files.unet.endsWith('.gguf')
-      ? { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } }
-      : { class_type: 'UNETLoader', inputs: { unet_name: ctx.files.unet, weight_dtype: 'default' } },
+    // 4B en fp8 (UNETLoader), 9B en GGUF (UnetLoaderGGUF), ou une variante choisie dans Paramètres.
+    '1': unetLoader(ctx.files.unet),
     '2': { class_type: 'CLIPLoader', inputs: { clip_name: ctx.files.encoder, type: 'flux2', device: 'default' } },
     '3': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
     '4': { class_type: 'CLIPTextEncode', inputs: { text: String(values.prompt ?? ''), clip: ['2', 0] } },
@@ -140,9 +145,7 @@ export function buildKleinRetouch(values: Record<string, unknown>, ctx: BuildCon
       class_type: 'ImageCompositeMasked',
       inputs: { destination: ['5', 0], source: ['10', 0], x: 0, y: 0, resize_source: false, mask: ['12', 0] },
     },
-    '20': ctx.files.unet.endsWith('.gguf')
-      ? { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } }
-      : { class_type: 'UNETLoader', inputs: { unet_name: ctx.files.unet, weight_dtype: 'default' } },
+    '20': unetLoader(ctx.files.unet),
     '21': { class_type: 'CLIPLoader', inputs: { clip_name: ctx.files.encoder, type: 'flux2', device: 'default' } },
     '22': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
     '24': { class_type: 'DifferentialDiffusion', inputs: { model: ['20', 0] } },
@@ -187,7 +190,7 @@ export function buildKleinRetouch(values: Record<string, unknown>, ctx: BuildCon
 /** Qwen-Image-Edit-2511 : retouche guidée par 1 à 3 images ; l'image produite reprend le cadre de la première. */
 export function buildQwenEdit(values: Record<string, unknown>, ctx: BuildContext): Graph {
   const g: Graph = {
-    '1': { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } },
+    '1': unetLoader(ctx.files.unet),
     '2': { class_type: 'CLIPLoader', inputs: { clip_name: ctx.files.encoder, type: 'qwen_image', device: 'default' } },
     '3': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
     '4': { class_type: 'ModelSamplingAuraFlow', inputs: { model: ['1', 0], shift: 3.1 } },
@@ -306,7 +309,7 @@ export function buildWanI2V(values: Record<string, unknown>, ctx: BuildContext):
  */
 export function buildKrea(values: Record<string, unknown>, ctx: BuildContext, size?: { width: number; height: number }): Graph {
   const g: Graph = {
-    '10': { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } },
+    '10': unetLoader(ctx.files.unet),
     '11': { class_type: 'CLIPLoader', inputs: { clip_name: ctx.files.encoder, type: 'krea2', device: 'default' } },
     '12': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
     '6': { class_type: 'CLIPTextEncode', inputs: { clip: ['11', 0], text: String(values.prompt ?? '') } },
@@ -421,7 +424,7 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
   const K = plan.overlap;
 
   const g: Graph = {
-    '1': { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } },
+    '1': unetLoader(ctx.files.unet),
     '2': { class_type: 'DualCLIPLoaderGGUF', inputs: { clip_name1: ctx.files.encoder, clip_name2: ctx.files.connectors, type: 'ltxv' } },
     '3': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
     '4': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.audioVae } },
