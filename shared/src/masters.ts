@@ -43,7 +43,7 @@ export const MASTER_TARGETS: Record<CreatorKind, { total: number; perAxis: numbe
   place: { total: 12, perAxis: 3 },
 };
 
-const STUDIO = 'wearing a plain grey t-shirt, plain light grey background, soft even lighting, realistic photo';
+const STUDIO = 'wearing a plain grey t-shirt, plain light grey background, soft natural indirect daylight, realistic photo';
 
 export const MASTER_AXES: MasterAxisDef[] = [
   {
@@ -96,14 +96,14 @@ export const MASTER_AXES: MasterAxisDef[] = [
     label: 'Tenues',
     hint: 'Décontracté, élégant, sport, hiver…',
     variants: [
-      { id: 'casual', label: 'Décontracté', fragment: 'waist-up photo wearing a casual t-shirt and jeans, plain light grey background, soft lighting, realistic photo' },
-      { id: 'elegant', label: 'Élégant', fragment: 'waist-up photo wearing an elegant evening outfit, plain light grey background, soft lighting, realistic photo' },
-      { id: 'sweater', label: 'Pull douillet', fragment: 'waist-up photo wearing a cozy knit sweater, plain light grey background, soft lighting, realistic photo' },
-      { id: 'sport', label: 'Sport', fragment: 'waist-up photo wearing sportswear, plain light grey background, soft lighting, realistic photo' },
-      { id: 'business', label: 'Business', fragment: 'waist-up photo wearing a smart business outfit with a blazer, plain light grey background, soft lighting, realistic photo' },
-      { id: 'summer', label: 'Été', fragment: 'waist-up photo wearing light summer clothes, plain light grey background, soft lighting, realistic photo' },
-      { id: 'winter', label: 'Hiver', fragment: 'waist-up photo wearing a warm winter coat and a scarf, plain light grey background, soft lighting, realistic photo' },
-      { id: 'streetwear', label: 'Streetwear', fragment: 'waist-up photo wearing streetwear with a hoodie, plain light grey background, soft lighting, realistic photo' },
+      { id: 'casual', label: 'Décontracté', fragment: 'waist-up photo wearing a casual t-shirt and jeans, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'elegant', label: 'Élégant', fragment: 'waist-up photo wearing an elegant evening outfit, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'sweater', label: 'Pull douillet', fragment: 'waist-up photo wearing a cozy knit sweater, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'sport', label: 'Sport', fragment: 'waist-up photo wearing sportswear, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'business', label: 'Business', fragment: 'waist-up photo wearing a smart business outfit with a blazer, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'summer', label: 'Été', fragment: 'waist-up photo wearing light summer clothes, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'winter', label: 'Hiver', fragment: 'waist-up photo wearing a warm winter coat and a scarf, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'streetwear', label: 'Streetwear', fragment: 'waist-up photo wearing streetwear with a hoodie, plain light grey background, soft natural indirect daylight, realistic photo' },
     ],
   },
   {
@@ -113,9 +113,9 @@ export const MASTER_AXES: MasterAxisDef[] = [
     variants: [
       { id: 'face', label: 'Gros plan', fragment: `extreme close-up of the face, ${STUDIO}` },
       { id: 'waist', label: 'Buste', fragment: `waist-up shot, ${STUDIO}` },
-      { id: 'knees', label: 'Plan américain', fragment: 'medium shot from the knees up, standing, wearing a casual outfit, plain light grey background, soft lighting, realistic photo' },
-      { id: 'full', label: 'En pied', fragment: 'full body shot, standing, wearing a casual outfit, plain light grey studio background, soft lighting, realistic photo' },
-      { id: 'sitting', label: 'Assis', fragment: 'full body shot sitting on a chair, wearing a casual outfit, plain light grey background, soft lighting, realistic photo' },
+      { id: 'knees', label: 'Plan américain', fragment: 'medium shot from the knees up, standing, wearing a casual outfit, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'full', label: 'En pied', fragment: 'full body shot, standing, wearing a casual outfit, plain light grey background, soft natural indirect daylight, realistic photo' },
+      { id: 'sitting', label: 'Assis', fragment: 'full body shot sitting on a chair, wearing a casual outfit, plain light grey background, soft natural indirect daylight, realistic photo' },
       { id: 'walking', label: 'En marchant', fragment: 'full body shot walking in a city street, wearing a casual outfit, natural daylight, realistic photo' },
     ],
   },

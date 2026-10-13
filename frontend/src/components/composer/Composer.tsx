@@ -220,11 +220,6 @@ ${prompt}` : prompt)
     if (state.focusTick) textareaRef.current?.focus()
   }, [state.focusTick])
 
-  // Persona créé avec le créateur : sa fiche d'identité arrive en bulles, si aucune n'est déjà posée.
-  useEffect(() => {
-    if (persona?.identity.length && composerStore.state.traits.length === 0) composer.load({ traits: persona.identity })
-  }, [persona?.id, state.threadKey]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const family = families.find((f) => f.id === state.family)
   const media: MediaKind = family?.media ?? 'image'
   // Bascule photo / vidéo : même cascade, pour le nouveau type.
@@ -284,6 +279,24 @@ ${prompt}` : prompt)
   const imageInfo = family
     ? imageInputInfo(family.media, family.tasks, state.refMode)
     : { max: 0, mode: 'none' as const }
+  // Persona créé avec le créateur : sa fiche d'identité arrive en bulles (une fois par fil, si aucune n'est posée),
+  // seulement pour un modèle qui ne reprend pas les références du persona. Un modèle à références (klein, Qwen Edit)
+  // ou une vidéo (l'image porte le personnage) suit mieux ses images : des bulles de traits tireraient son visage
+  // vers un visage « type ». Une bulle reste ajoutable à la main (changer sa coupe…).
+  // Le modèle est lu dans le store : les effets de choix du modèle, déclarés plus haut, viennent de le fixer.
+  const identitySeeded = useRef<string | null>(null)
+  useEffect(() => {
+    if (!persona || !catalog || !personasLoaded) return
+    const current = families.find((f) => f.id === composerStore.state.family)
+    if (!current) return
+    const key = `${persona.id}:${state.threadKey}`
+    if (identitySeeded.current === key) return
+    identitySeeded.current = key
+    const followsReferences = current.media === 'video' || imageInputInfo(current.media, current.tasks).mode === 'reference'
+    if (!followsReferences && persona.identity.length && composerStore.state.traits.length === 0) {
+      composer.load({ traits: persona.identity })
+    }
+  }, [persona?.id, state.threadKey, state.family, catalog, personasLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
   // Vidéo : le modèle sait animer une image de départ ET partir de références.
   const canChooseRefMode = Boolean(
     family?.media === 'video' &&
@@ -664,6 +677,15 @@ ${prompt}` : prompt)
                   </button>
                 </span>
               ))}
+              <button
+                type="button"
+                onClick={composer.clearBubbles}
+                className="flex h-7 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Retirer toutes les bulles"
+              >
+                <X className="h-3 w-3" />
+                Tout effacer
+              </button>
             </div>
           )}
 

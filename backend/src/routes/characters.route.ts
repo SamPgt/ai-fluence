@@ -16,12 +16,19 @@ import type { AppEnv } from '../types.js';
 
 type DraftRow = typeof characterDrafts.$inferSelect;
 
-/** Prompt neutre des variantes : on juge le personnage (ou le lieu), pas la scène. Prolonge la phrase des traits. */
+/**
+ * Prompt neutre des variantes : on juge le personnage (ou le lieu), pas la scène. Prolonge la phrase des traits.
+ * Lumière du jour indirecte (grande fenêtre, pas de soleil direct) : plus naturelle qu'un éclairage de studio
+ * uniforme, qui donne un rendu « IA » ; le fond reste neutre pour ne retenir que le personnage.
+ */
 const DEFAULT_PREVIEW: Record<CreatorKind, string> = {
   character:
-    'head and shoulders studio portrait photo, wearing a plain grey t-shirt, plain light grey background, soft even lighting, looking at the camera, realistic photo',
+    'head and shoulders portrait photo, wearing a plain grey t-shirt, plain light grey background, soft natural indirect daylight from a large window, gentle shadows, looking at the camera, realistic photo',
   place: 'wide-angle photo of the whole place, no people, natural daylight, realistic photo',
 };
+/** Ancien prompt par défaut (éclairage de studio) : une création qui l'a encore passe au nouveau. */
+const LEGACY_PREVIEW =
+  'head and shoulders studio portrait photo, wearing a plain grey t-shirt, plain light grey background, soft even lighting, looking at the camera, realistic photo';
 const ZONE: Record<CreatorKind, 'character' | 'place'> = { character: 'character', place: 'place' };
 
 function toDraft(row: DraftRow): CharacterDraft {
@@ -31,7 +38,7 @@ function toDraft(row: DraftRow): CharacterDraft {
     name: row.name,
     gender: row.gender,
     slots: row.slots,
-    previewPrompt: row.previewPrompt,
+    previewPrompt: row.previewPrompt === LEGACY_PREVIEW ? DEFAULT_PREVIEW.character : row.previewPrompt,
     family: row.family,
     threadId: row.threadId,
     personaId: row.personaId,

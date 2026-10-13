@@ -270,6 +270,8 @@ export const composer = {
     }),
   removeSlot: (categoryId: string) => composerStore.setState((s) => ({ ...s, slots: s.slots.filter((x) => x.categoryId !== categoryId) })),
   setPlace: (placeId: string | null) => composerStore.setState((s) => ({ ...s, placeId })),
+  /** Retire toutes les bulles d'un coup : traits, 🎲 et lieu. */
+  clearBubbles: () => composerStore.setState((s) => ({ ...s, traits: [], slots: [], placeId: null })),
   /** Charge une scène : remplace les bulles hors personnage (tenue, action, lieu, photo), garde l'identité du persona. */
   loadScene: (scene: { traits: GenerationTrait[]; slots: TraitSlot[]; placeId: string | null; prompt: string }) =>
     composerStore.setState((s) => ({
