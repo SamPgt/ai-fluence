@@ -181,8 +181,13 @@ const personasRoutes = new Hono<AppEnv>()
     async c => c.json({ voice: await updateVoice(c.get('user'), c.req.param('id'), c.req.valid('json')) }),
   )
   /** Texte dit écouté dans le composer avant la vidéo : la piste est gardée pour la génération. */
-  .post('/:id/voice/speech', zValidator('json', z.object({ text: z.string().trim().min(1).max(2000) })), async c =>
-    c.json(await listenSpeech(c.get('user'), c.req.param('id'), c.req.valid('json').text)),
+  .post(
+    '/:id/voice/speech',
+    zValidator('json', z.object({ text: z.string().trim().min(1).max(2000), exaggeration: z.number().min(0.2).max(1.2).optional() })),
+    async c => {
+      const { text, exaggeration } = c.req.valid('json');
+      return c.json(await listenSpeech(c.get('user'), c.req.param('id'), text, exaggeration));
+    },
   )
   /** Essai de la voix : renvoie le WAV directement, rien n'est enregistré. */
   .post(

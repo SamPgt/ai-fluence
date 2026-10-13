@@ -340,6 +340,8 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
           },
           /** Piste du « Texte dit » écoutée dans le composer (média `voice`), reprise telle quelle si elle correspond. */
           speech_audio: { type: 'string' },
+          /** Expressivité du « Texte dit » pour cette vidéo (0,2 calme → 1,2 très expressive) ; sinon celle de la voix. */
+          speech_exaggeration: { type: 'number', minimum: 0.2, maximum: 1.2 },
           duration_seconds: {
             type: 'integer',
             enum: [5, 10, 15, 20, 30, 45, 60],

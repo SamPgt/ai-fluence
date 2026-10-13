@@ -568,16 +568,19 @@ export async function speechFor(
   personaId: string | null,
   text: string,
   listenedAssetId?: string | null,
+  /** Expressivité de cette vidéo (curseur du composer) ; sinon celle de la voix. */
+  exaggeration?: number,
 ): Promise<{ data: Uint8Array; seconds: number }> {
   const { voice, ref } = await speakerOf(personaId);
+  const ex = exaggeration ?? voice.exaggeration;
   const listened = await assetRow(listenedAssetId);
   if (listened && listened.kind === 'voice' && listened.personaId === personaId) {
-    if (listened.filePath.includes(speechKey(ref.id, voice.exaggeration, text))) {
+    if (listened.filePath.includes(speechKey(ref.id, ex, text))) {
       const data = new Uint8Array(await readFile(listened.filePath));
       return { data, seconds: wavSeconds(data) };
     }
   }
-  const data = await synthesizeLong(text, ref.filePath, voice.exaggeration);
+  const data = await synthesizeLong(text, ref.filePath, ex);
   return { data, seconds: wavSeconds(data) };
 }
 
@@ -589,11 +592,14 @@ export async function listenSpeech(
   user: SessionUser,
   personaId: string,
   text: string,
+  /** Expressivité de cette vidéo (curseur du composer) ; sinon celle de la voix. */
+  exaggeration?: number,
 ): Promise<{ assetId: string; url: string; seconds: number }> {
   const persona = await ownedPersona(user.id, personaId);
   const { voice, ref } = await speakerOf(persona.id);
-  const key = speechKey(ref.id, voice.exaggeration, text);
-  const data = await synthesizeLong(text, ref.filePath, voice.exaggeration);
+  const ex = exaggeration ?? voice.exaggeration;
+  const key = speechKey(ref.id, ex, text);
+  const data = await synthesizeLong(text, ref.filePath, ex);
   const seconds = wavSeconds(data);
   const saved = await saveFile(join(await voiceDir(user, persona), `texte-${Date.now()}-${key}.wav`), data);
   const [row] = await db

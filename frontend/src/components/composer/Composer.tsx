@@ -470,6 +470,14 @@ ${prompt}` : prompt)
   const [speechInfo, setSpeechInfo] = useState<{ assetId: string; url: string; seconds: number } | null>(null)
   const [listening, setListening] = useState(false)
   const speechAudioRef = useRef<HTMLAudioElement | null>(null)
+  // Expressivité de cette vidéo : celle de la voix du personnage par défaut, modifiable ici.
+  const { data: personaVoice } = useQuery({
+    queryKey: qk.voice(persona?.id ?? ''),
+    queryFn: () => personasApi.voice(persona!.id).then((r) => r.voice),
+    enabled: Boolean(persona && schema?.properties?.speech_exaggeration),
+  })
+  const speechExaggeration =
+    typeof params.speech_exaggeration === 'number' ? params.speech_exaggeration : (personaVoice?.exaggeration ?? null)
   const listenSpeech = async () => {
     const text = typeof params.speech === 'string' ? params.speech.trim() : ''
     if (!persona || !text) return
@@ -479,7 +487,7 @@ ${prompt}` : prompt)
     if (!url) {
       setListening(true)
       try {
-        const info = await personasApi.listenSpeech(persona.id, text)
+        const info = await personasApi.listenSpeech(persona.id, text, speechExaggeration ?? undefined)
         setSpeechInfo(info)
         setParam('speech_audio', info.assetId)
         url = info.url
@@ -751,6 +759,29 @@ ${prompt}` : prompt)
                 className="min-w-0 flex-1 bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
                 maxLength={2000}
               />
+              {/* Expressivité de cette vidéo (celle de la voix par défaut) : changer refait la piste. */}
+              {schema.properties.speech_exaggeration && persona && speechExaggeration !== null && (
+                <label
+                  className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"
+                  title={`Expressivité pour cette vidéo : de calme (0,2) à très expressive (1,2). Celle de la voix de ${persona.name} : ${personaVoice?.exaggeration.toFixed(2) ?? '—'}`}
+                >
+                  Calme
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={1.2}
+                    step={0.05}
+                    value={speechExaggeration}
+                    onChange={(e) => {
+                      setParam('speech_exaggeration', Number(e.target.value))
+                      if (params.speech_audio) setParam('speech_audio', undefined)
+                    }}
+                    className="w-20 accent-brand"
+                    aria-label="Expressivité"
+                  />
+                  Expressive
+                </label>
+              )}
               {speechInfo && params.speech_audio === speechInfo.assetId && (
                 <span className="shrink-0 text-[11px] text-muted-foreground" title="Durée de la piste, temps de calcul estimé de la vidéo">
                   {speechInfo.seconds.toFixed(1)} s · vidéo ≈ {videoMinutes(speechInfo.seconds, String(params.resolution ?? '512p'))} min

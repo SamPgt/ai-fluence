@@ -569,7 +569,8 @@ async function submitToComfy(p: Prepared): Promise<string> {
   const speech = typeof p.input.speech === 'string' ? p.input.speech.trim() : '';
   if (speech && endpoint.schema.properties?.speech) {
     const listened = typeof p.input.speech_audio === 'string' ? p.input.speech_audio : null;
-    const { data, seconds } = await speechFor(p.persona?.id ?? null, speech, listened);
+    const ex = typeof p.input.speech_exaggeration === 'number' ? p.input.speech_exaggeration : undefined;
+    const { data, seconds } = await speechFor(p.persona?.id ?? null, speech, listened, ex);
     // Un souffle avant la phrase et une courte fin après, sauf si le texte commence ou finit par une pause
     // choisie ([2s]). La vidéo dure au moins la durée choisie : une voix plus courte est complétée par du
     // silence ; plus longue, c'est elle qui l'emporte. Puis silence jusqu'à la durée exacte des clips.

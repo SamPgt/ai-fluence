@@ -230,8 +230,11 @@ export const personasApi = {
   updateVoice: (id: string, body: { exaggeration?: number; clearJob?: boolean }) =>
     apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice`, { method: 'PATCH', body }),
   /** Texte dit écouté avant la vidéo : la piste est gardée et reprise telle quelle par la génération. */
-  listenSpeech: (id: string, text: string) =>
-    apiFetch<{ assetId: string; url: string; seconds: number }>(`/personas/${id}/voice/speech`, { method: 'POST', body: { text } }),
+  listenSpeech: (id: string, text: string, exaggeration?: number) =>
+    apiFetch<{ assetId: string; url: string; seconds: number }>(`/personas/${id}/voice/speech`, {
+      method: 'POST',
+      body: { text, exaggeration },
+    }),
   /** Essai de la voix : un WAV à écouter tout de suite (rien n'est enregistré). */
   previewVoice: async (id: string, body: { text: string; exaggeration?: number; candidate?: boolean }): Promise<Blob> => {
     const res = await fetch(`/api/personas/${id}/voice/preview`, {
