@@ -19,7 +19,7 @@ test.afterEach(async ({ page }) => {
   await restoreSharedUser(page.request)
 })
 
-test('les onglets sont Compte, Raccourcis, Crédits, Stockage et Clés API, rien d’autre @core', async ({ page }) => {
+test('les onglets sont Compte, Raccourcis, Crédits, Stockage et Clés API, rien d’autre @core @smoke', async ({ page }) => {
   await gotoSettings(page)
   await expect(page.getByRole('tab')).toHaveText(['Compte', 'Raccourcis', 'Crédits', 'Stockage', 'Clés API'])
   for (const absent of ['Modèles', 'Logo', 'Couleur']) {
@@ -174,7 +174,7 @@ test.describe('Crédits', () => {
     await expect(stat('En cours')).toContainText('0,00 $')
     await expect(stat('Dépensé les 30 derniers jours')).toContainText('0,00 $')
     await expect(stat('Dépensé les 30 derniers jours')).toContainText('0 appel(s) avec cette clé')
-    await expect(stat('Dépense totale')).toContainText('0,010 $')
+    await expect(stat('Dépense totale')).toContainText('0,01 $')
     await expect(stat('Dépense totale')).toContainText('1 génération réussie')
   })
 

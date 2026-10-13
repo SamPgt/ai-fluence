@@ -1,6 +1,6 @@
 /**
  * État du composer (modèle choisi, paramètres, pièces jointes, prompt).
- * Global pour que les actions d'un résultat (Éditer, Animer, Relancer avec…)
+ * Global pour que les actions d'un résultat (Éditer, Animer)
  * puissent pré-remplir le composer depuis n'importe où dans le fil.
  */
 import { Store } from '@tanstack/react-store'
@@ -236,6 +236,28 @@ export const composer = {
       fromAction: true,
       focusTick: s.focusTick + 1,
     })),
+  /**
+   * Bouton « Réinitialiser » : composer remis à zéro (texte, images, raccourcis, LoRA,
+   * réglages, nombre d'images), sur le modèle par défaut donné. Renvoie l'état d'avant,
+   * pour « Annuler ».
+   */
+  reset: (family: string | null): { threadKey: string | null; draft: Draft } => {
+    const s = composerStore.state
+    const before = { threadKey: s.threadKey, draft: draftOf(s) }
+    composerStore.setState((prev) => ({
+      ...prev,
+      ...BLANK,
+      personaId: prev.personaId,
+      ...(family ? withFamily(BLANK, family) : {}),
+      focusTick: prev.focusTick + 1,
+    }))
+    return before
+  },
+  /** « Annuler » la réinitialisation, seulement sur le même brouillon. */
+  restore: (saved: { threadKey: string | null; draft: Draft }) =>
+    composerStore.setState((s) =>
+      s.threadKey === saved.threadKey ? { ...s, ...saved.draft, personaId: s.personaId } : s,
+    ),
   setPrompt: (prompt: string) =>
     composerStore.setState((s) => ({ ...s, prompt })),
   setParam: (family: string, key: string, value: unknown) =>
@@ -319,7 +341,7 @@ export const composer = {
       editAssetId: null,
       fromAction: false,
     })),
-  /** Pré-remplit le composer (Modifier la demande, Relancer avec…). */
+  /** Pré-remplit le composer (Modifier la demande). */
   load: (
     patch: Partial<
       Pick<

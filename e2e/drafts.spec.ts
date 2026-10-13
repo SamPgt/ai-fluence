@@ -8,7 +8,7 @@ const GPT = 'openai/gpt-image-2.5-sunburst'
 const QWEN = 'alibaba/qwen-image-3.0-pro'
 
 test.describe('nouveau fil', () => {
-  test('le brouillon et ses réglages survivent au rechargement @core', async ({ app }) => {
+  test('le brouillon et ses réglages survivent au rechargement @core @smoke', async ({ app }) => {
     await app.gotoNew()
     await app.prompt.fill('une plage au coucher du soleil')
     await app.chooseRatio('16:9')

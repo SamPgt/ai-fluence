@@ -133,7 +133,7 @@ test.describe('Demande dans le fil', () => {
 })
 
 test.describe('Modifier la demande (↺)', () => {
-  test('remet prompt, références, réglages, modèle, raccourci et nombre d’images dans le composer @core', async ({
+  test('remet prompt, références, réglages, modèle, raccourci et nombre d’images dans le composer @core @smoke', async ({
     app,
     page,
   }) => {
@@ -220,7 +220,7 @@ test.describe('Résultat', () => {
     const { thread } = await generateDone(page, { prompt: 'cout simple' })
     await app.gotoThread(thread.id)
     const cost = page.getByTestId('result-cost')
-    await expect(cost).toHaveText('0,010 $')
+    await expect(cost).toHaveText('0,01 $')
     await expect(cost).not.toContainText('Série')
     await expect(page.locator(`img[alt="cout simple"]`)).toHaveCount(1)
   })
@@ -232,7 +232,7 @@ test.describe('Résultat', () => {
     const { thread } = await generateDone(page, { prompt: 'serie grille', count: 4 })
     await app.gotoThread(thread.id)
     const cost = page.getByTestId('result-cost')
-    await expect(cost).toContainText('0,040 $')
+    await expect(cost).toContainText('0,04 $')
     await expect(cost).toContainText('Série · 4 images')
     await expect(page.locator('img[alt="serie grille"]')).toHaveCount(4)
     for (const n of [1, 2, 3, 4]) await expect(page.getByText(`#${n}`, { exact: true })).toBeVisible()
@@ -244,7 +244,7 @@ test.describe('Résultat', () => {
     const { thread } = await generateDone(page, { prompt: 'total un' })
     await generateDone(page, { threadId: thread.id, prompt: 'total deux' })
     await app.gotoThread(thread.id)
-    await expect(page.getByText(/Total du fil :/)).toContainText('0,020 $')
+    await expect(page.getByText(/Total du fil :/)).toContainText('0,02 $')
   })
 
   test('clic sur un résultat : la visionneuse s’ouvre, Échap la ferme @core', async ({ app, page }) => {
@@ -314,12 +314,12 @@ test.describe('Résultat', () => {
     })
     await app.gotoThread(thread.id)
     await expect(page.getByText('Génération en cours', { exact: true })).toBeVisible()
-    await expect(page.getByText(/≈ 0,010 \$/).first()).toBeVisible()
+    await expect(page.getByText(/≈ 0,01 \$/).first()).toBeVisible()
     await expect(page.getByRole('button', { name: 'Relancer', exact: true })).toHaveCount(0)
     // Rafraîchissement automatique : le résultat apparaît.
     await expect(page.locator('img[alt="en attente"]')).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText('Génération en cours', { exact: true })).toHaveCount(0)
-    await expect(page.getByTestId('result-cost')).toHaveText('0,010 $')
+    await expect(page.getByTestId('result-cost')).toHaveText('0,01 $')
   })
 
   test('envoyée depuis le composer, la génération apparaît dans le fil', async ({ app, page }) => {

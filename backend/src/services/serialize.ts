@@ -68,6 +68,9 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
   return {
     id: row.id,
     threadId: row.threadId,
+    workflowId: row.workflowId,
+    workflowNodeId: row.workflowNodeId,
+    voiceId: row.voiceId,
     personaId: row.personaId,
     prompt: row.prompt,
     finalPrompt: row.finalPrompt,

@@ -15,7 +15,7 @@ const SETTINGS_KEYS = ['apiKeyHint', 'defaultMediaDir', 'elevenLabsKeyHint', 'en
 const tempDir = () => join(env.DATA_DIR, 'settings-tests', randomUUID().slice(0, 8));
 
 describe('GET /settings', () => {
-  it('renvoie exactement les champs attendus, sans champ obsolète', async () => {
+  it('renvoie exactement les champs attendus, sans champ obsolète @smoke', async () => {
     const me = await signup();
     const res = await me.get('/settings');
     expect(res.status).toBe(200);

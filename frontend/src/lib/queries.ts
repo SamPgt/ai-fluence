@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { catalogApi, personasApi, presetsApi, settingsApi, threadsApi } from './api'
+import { ApiError, catalogApi, personasApi, presetsApi, settingsApi, threadsApi, workflowsApi } from './api'
 
 export const qk = {
   catalog: ['catalog'] as const,
@@ -14,6 +14,9 @@ export const qk = {
   references: (personaId: string) => ['references', personaId] as const,
   trash: ['trash'] as const,
   gallery: (personaId: string | null, media: string | null) => ['gallery', personaId ?? 'all', media ?? 'all'] as const,
+  workflows: ['workflows'] as const,
+  workflow: (id: string) => ['workflow', id] as const,
+  workflowState: (id: string) => ['workflow-state', id] as const,
 }
 
 export const settingsQuery = () =>
@@ -58,4 +61,23 @@ export const threadQuery = (id: string) =>
     // Tant qu'une génération tourne, on rafraîchit le fil.
     refetchInterval: (q) =>
       q.state.data?.generations.some((g) => g.status === 'queued' || g.status === 'running') ? 2500 : false,
+  })
+
+export const workflowsQuery = () =>
+  queryOptions({ queryKey: qk.workflows, queryFn: () => workflowsApi.list().then((r) => r.workflows), staleTime: 15_000 })
+
+export const workflowQuery = (id: string) =>
+  queryOptions({
+    queryKey: qk.workflow(id),
+    queryFn: () => workflowsApi.get(id).then((r) => r.workflow),
+    // Introuvable : inutile de réessayer.
+    retry: (n, e) => !(e instanceof ApiError && e.status === 404) && n < 2,
+  })
+
+/** Exécution et résultats d'un workflow ; rafraîchis tant qu'une exécution tourne. */
+export const workflowStateQuery = (id: string) =>
+  queryOptions({
+    queryKey: qk.workflowState(id),
+    queryFn: () => workflowsApi.state(id),
+    refetchInterval: (q) => (q.state.data?.run?.status === 'running' ? 1500 : false),
   })

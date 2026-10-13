@@ -201,7 +201,7 @@ function ThreadPage() {
       >
         <div
           ref={contentRef}
-          className="mx-auto max-w-[810px] space-y-8 px-4 py-6"
+          className="mx-auto max-w-[855px] space-y-8 px-4 py-6"
         >
           {isLoading && (
             <div className="flex justify-center py-20">

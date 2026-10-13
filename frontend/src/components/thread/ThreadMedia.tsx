@@ -43,7 +43,8 @@ export function ThreadMediaProvider({
           key: refKey(request.id, r.id),
           asset: r,
           generationId: request.id,
-          threadId: request.threadId,
+          // Visionneuse d'un fil : ses générations ont toujours un fil.
+          threadId: request.threadId!,
         })
       for (const g of group)
         for (const a of g.outputs)
@@ -51,7 +52,7 @@ export function ThreadMediaProvider({
             key: outputKey(g.id, a.id),
             asset: a,
             generationId: g.id,
-            threadId: g.threadId,
+            threadId: g.threadId!,
           })
     }
     return out

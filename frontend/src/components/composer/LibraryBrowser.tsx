@@ -1,18 +1,22 @@
 /**
  * Librairies de photos libres de droits (Unsplash, Pexels), ouvertes depuis le
  * bouton + du composer. Un clic importe la photo et la joint au composer.
+ * Depuis un nœud Image source, la fenêtre s'ouvre d'abord sur les assets personnels :
+ * les photos de référence de chaque persona, à cocher.
  *
  * Quotas serrés (Unsplash : 50 appels par heure en mode démo) : pas de
  * défilement infini, la page suivante se charge au clic sur « Voir plus », et
  * les réponses sont gardées en cache (ici 1 h, 24 h côté serveur).
  */
 import { useEffect, useRef, useState } from 'react'
-import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
-import { GlobeOff, Loader2, Plus, Search, X } from 'lucide-react'
+import { useInfiniteQuery, useMutation, useQueries, useQuery } from '@tanstack/react-query'
+import { Check, FolderHeart, GlobeOff, Loader2, Plus, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Asset, LibraryPhoto, LibrarySource } from '@ai-fluence/shared'
 
-import { libraryApi } from '@/lib/api'
+import { assetsApi, libraryApi } from '@/lib/api'
+import { personasQuery, qk } from '@/lib/queries'
+import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
 import { cn } from '@/lib/utils'
 import {
   Dialog,
@@ -101,13 +105,17 @@ export function LibraryBrowser({
   onOpenChange,
   personaId,
   onImport,
+  personal,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   personaId?: string | null
   /** Photo importée : jointe au composer. */
   onImport: (asset: Asset) => void
+  /** Assets personnels (photos des personas) à cocher, proposés avant les librairies. */
+  personal?: { selectedIds: string[]; onToggle: (asset: Asset) => void }
 }) {
+  const [tab, setTab] = useState<'personal' | 'library'>(personal ? 'personal' : 'library')
   const [source, setSource] = useState<LibrarySource>('unsplash')
   const [category, setCategory] = useState(0)
   const [text, setText] = useState('')
@@ -117,6 +125,7 @@ export function LibraryBrowser({
   // Chaque ouverture repart de zéro : Unsplash, catégorie « Populaires », sans recherche.
   useEffect(() => {
     if (!open) return
+    setTab(personal ? 'personal' : 'library')
     setSource('unsplash')
     setCategory(0)
     setText('')
@@ -144,7 +153,7 @@ export function LibraryBrowser({
   const status = useQuery({
     queryKey: ['library', 'status'],
     queryFn: libraryApi.status,
-    enabled: open,
+    enabled: open && tab === 'library',
     staleTime: HOUR,
   })
   const enabled = status.data?.[source] === true
@@ -155,7 +164,7 @@ export function LibraryBrowser({
       libraryApi.search(source, { query: query || undefined, page: pageParam }),
     initialPageParam: 1,
     getNextPageParam: (last) => last.nextPage ?? undefined,
-    enabled: open && enabled,
+    enabled: open && enabled && tab === 'library',
     staleTime: HOUR,
     gcTime: HOUR,
     retry: false,
@@ -200,6 +209,25 @@ export function LibraryBrowser({
 
         {/* Sources */}
         <aside className="hidden w-52 shrink-0 flex-col gap-1 border-r border-border/60 p-3 sm:flex">
+          {personal && (
+            <>
+              <div className="px-2 pt-1 pb-2 text-[11px] font-medium text-muted-foreground">Mes assets</div>
+              <button
+                type="button"
+                onClick={() => setTab('personal')}
+                aria-pressed={tab === 'personal'}
+                className={cn(
+                  'mb-3 flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm transition-colors',
+                  tab === 'personal'
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                )}
+              >
+                <FolderHeart className="h-3.5 w-3.5" />
+                Assets personnels
+              </button>
+            </>
+          )}
           <div className="px-2 pt-1 pb-2 text-[11px] font-medium text-muted-foreground">
             Librairies
           </div>
@@ -207,11 +235,14 @@ export function LibraryBrowser({
             <button
               key={id}
               type="button"
-              onClick={() => setSource(id)}
-              aria-pressed={source === id}
+              onClick={() => {
+                setTab('library')
+                setSource(id)
+              }}
+              aria-pressed={tab === 'library' && source === id}
               className={cn(
                 'flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm transition-colors',
-                source === id
+                tab === 'library' && source === id
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
               )}
@@ -222,6 +253,9 @@ export function LibraryBrowser({
           ))}
         </aside>
 
+        {tab === 'personal' && personal ? (
+          <PersonalAssets selectedIds={personal.selectedIds} onToggle={personal.onToggle} />
+        ) : (
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Recherche */}
           <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 pr-3 pl-4">
@@ -350,6 +384,7 @@ export function LibraryBrowser({
             . Un clic ajoute la photo au composer.
           </div>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -461,6 +496,96 @@ function Offline({ message }: { message: string }) {
         strokeWidth={1.5}
       />
       <p className="max-w-xs text-xs text-muted-foreground">{message}</p>
+    </div>
+  )
+}
+
+/**
+ * Assets personnels : une section par persona (son nom, un séparateur, ses photos de
+ * référence), chaque photo se coche ou se décoche d'un clic.
+ */
+function PersonalAssets({
+  selectedIds,
+  onToggle,
+}: {
+  selectedIds: string[]
+  onToggle: (asset: Asset) => void
+}) {
+  const { data: personas = [], isPending } = useQuery(personasQuery())
+  const references = useQueries({
+    queries: personas.map((p) => ({
+      queryKey: qk.references(p.id),
+      queryFn: () => assetsApi.references(p.id).then((r) => r.assets),
+    })),
+  })
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 pr-3 pl-4">
+        <span className="flex-1 text-sm font-medium">Assets personnels</span>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {selectedIds.length > 1 ? `${selectedIds.length} images choisies` : `${selectedIds.length} image choisie`}
+        </span>
+        <DialogClose
+          aria-label="Fermer"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <X className="h-[18px] w-[18px]" />
+        </DialogClose>
+      </div>
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
+        {isPending ? (
+          <Skeletons />
+        ) : personas.length === 0 ? (
+          <Empty>Aucun persona pour l’instant : ses photos de référence apparaîtront ici.</Empty>
+        ) : (
+          personas.map((persona, i) => {
+            const images = (references[i]?.data ?? []).filter((a) => a.mediaType === 'image')
+            return (
+              <section key={persona.id} data-testid="persona-assets" aria-label={persona.name} className="space-y-3">
+                <div className="flex items-center gap-2.5 border-b border-border/60 pb-2">
+                  <PersonaAvatar persona={persona} size={24} className="rounded-md" />
+                  <h3 className="text-sm font-medium">{persona.name}</h3>
+                </div>
+                {references[i]?.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : images.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Aucune photo de référence.</p>
+                ) : (
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
+                    {images.map((a) => {
+                      const on = selectedIds.includes(a.id)
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          aria-pressed={on}
+                          aria-label={`Photo de ${persona.name}`}
+                          onClick={() => onToggle(a)}
+                          className={cn(
+                            'relative aspect-square overflow-hidden rounded-xl border-2 transition',
+                            on ? 'border-sky-400' : 'border-transparent hover:border-border',
+                          )}
+                        >
+                          <img src={a.url} alt="" loading="lazy" draggable={false} className="h-full w-full object-cover" />
+                          <span
+                            className={cn(
+                              'absolute top-1.5 right-1.5 grid h-5 w-5 place-items-center rounded-full border transition',
+                              on ? 'border-sky-400 bg-sky-400 text-black' : 'border-white/70 bg-black/30 text-transparent',
+                            )}
+                          >
+                            <Check className="h-3 w-3" strokeWidth={3} />
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
+            )
+          })
+        )}
+      </div>
     </div>
   )
 }

@@ -61,7 +61,7 @@ describe('GET /personas', () => {
 });
 
 describe('POST /personas', () => {
-  it('crée un persona avec les valeurs par défaut', async () => {
+  it('crée un persona avec les valeurs par défaut @smoke', async () => {
     const me = await signup();
     const res = await me.post('/personas', { name: '  Léa  ' });
     expect(res.status).toBe(201);

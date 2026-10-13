@@ -49,7 +49,7 @@ describe('GET /voices/library', () => {
 });
 
 describe('voix d’un persona', () => {
-  it('se créent, se modifient seules et gardent le reste du persona', async () => {
+  it('se créent, se modifient seules et gardent le reste du persona @smoke', async () => {
     const me = await signup();
     const p = await me.createPersona({ name: 'Léa', color: '#112233' });
     expect(p.voices).toEqual([]);

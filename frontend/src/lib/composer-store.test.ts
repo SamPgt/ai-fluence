@@ -298,3 +298,45 @@ describe('corbeille', () => {
     expect(stored()).not.toHaveProperty('A')
   })
 })
+
+describe('réinitialiser', () => {
+  it('remet tout à zéro sur le modèle donné, puis « Annuler » rend l’état d’avant', async () => {
+    const { composer, composerStore } = await load()
+    composer.enterThread('A', 'p1')
+    composer.setFamily('openai/gpt-image-2.5-sunburst')
+    composer.setPrompt('texte')
+    composer.addAttachments([asset('a'), asset('b')])
+    composer.setCount(4)
+    composer.toggleContext('c1')
+    composer.toggleLora('l1', ['w'])
+    composer.setParam('openai/gpt-image-2.5-sunburst', 'aspect_ratio', '16:9')
+
+    const saved = composer.reset('bytedance/seedream-5.0-flash')
+    expect(composerStore.state).toMatchObject({
+      prompt: '',
+      attachments: [],
+      count: 1,
+      contextIds: [],
+      loras: {},
+      paramsByFamily: {},
+      family: 'bytedance/seedream-5.0-flash',
+      personaId: 'p1',
+      threadKey: 'A',
+    })
+
+    composer.restore(saved)
+    expect(composerStore.state).toMatchObject({ prompt: 'texte', count: 4, contextIds: ['c1'], family: 'openai/gpt-image-2.5-sunburst' })
+    expect(composerStore.state.attachments.map(a => a.id)).toEqual(['a', 'b'])
+    expect(composerStore.state.paramsByFamily['openai/gpt-image-2.5-sunburst']).toEqual({ aspect_ratio: '16:9' })
+  })
+
+  it('« Annuler » après être passé sur un autre fil : rien n’est remis', async () => {
+    const { composer, composerStore } = await load()
+    composer.enterThread('A')
+    composer.setPrompt('texte A')
+    const saved = composer.reset(null)
+    composer.enterThread('B')
+    composer.restore(saved)
+    expect(composerStore.state.prompt).toBe('')
+  })
+})

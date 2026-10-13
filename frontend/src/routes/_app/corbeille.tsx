@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ImageIcon, Loader2, RotateCcw, Trash2 } from 'lucide-react'
+import { ImageIcon, Loader2, RotateCcw, Trash2, Workflow } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { trashApi } from '@/lib/api'
@@ -34,6 +34,7 @@ const TEXT = {
   empty: 'La corbeille est vide.',
   groupPersonas: 'Personas',
   groupThreads: 'Fils',
+  groupWorkflows: 'Workflows',
   restore: 'Restaurer',
   restored: (name: string) => `${name} restauré`,
   purge: 'Supprimer définitivement',
@@ -48,6 +49,7 @@ const TEXT = {
   cancel: 'Annuler',
   confirmInputLabel: 'Écris confirmer',
   threadCount: (n: number) => (n > 1 ? `${n} fils` : `${n} fil`),
+  nodeCount: (n: number) => (n > 1 ? `${n} nœuds` : `${n} nœud`),
   purgeToday: 'Supprimé définitivement aujourd’hui',
   purgeIn: (days: number) =>
     days > 1
@@ -63,7 +65,11 @@ function remaining(purgeAt: string): string {
   return days <= 0 ? TEXT.purgeToday : TEXT.purgeIn(days)
 }
 
-type Target = { kind: 'persona' | 'thread'; id: string; name: string }
+type Target = {
+  kind: 'persona' | 'thread' | 'workflow'
+  id: string
+  name: string
+}
 
 function TrashPage() {
   const queryClient = useQueryClient()
@@ -78,6 +84,7 @@ function TrashPage() {
     queryClient.invalidateQueries({ queryKey: qk.trash })
     queryClient.invalidateQueries({ queryKey: qk.personas })
     queryClient.invalidateQueries({ queryKey: qk.threadsAll })
+    queryClient.invalidateQueries({ queryKey: qk.workflows })
   }
   const onError = (e: Error) => toast.error(e.message)
 
@@ -85,7 +92,9 @@ function TrashPage() {
     mutationFn: (t: Target) =>
       t.kind === 'persona'
         ? trashApi.restorePersona(t.id)
-        : trashApi.restoreThread(t.id),
+        : t.kind === 'thread'
+          ? trashApi.restoreThread(t.id)
+          : trashApi.restoreWorkflow(t.id),
     onSuccess: (_, t) => {
       refresh()
       toast.success(TEXT.restored(t.name))
@@ -96,7 +105,9 @@ function TrashPage() {
     mutationFn: (t: Target) =>
       t.kind === 'persona'
         ? trashApi.purgePersona(t.id)
-        : trashApi.purgeThread(t.id),
+        : t.kind === 'thread'
+          ? trashApi.purgeThread(t.id)
+          : trashApi.purgeWorkflow(t.id),
     onSuccess: () => {
       setPurging(null)
       refresh()
@@ -115,7 +126,9 @@ function TrashPage() {
 
   const personas = data?.personas ?? []
   const threads = data?.threads ?? []
-  const isEmpty = personas.length === 0 && threads.length === 0
+  const workflows = data?.workflows ?? []
+  const isEmpty =
+    personas.length === 0 && threads.length === 0 && workflows.length === 0
 
   return (
     <>
@@ -135,7 +148,7 @@ function TrashPage() {
         <span className="text-sm font-medium">{TEXT.pageTitle}</span>
       </PageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[810px] space-y-6 px-6 py-6">
+        <div className="mx-auto max-w-[830px] space-y-6 px-6 py-6">
           <p className="text-sm text-muted-foreground">
             {TEXT.intro(data?.days ?? 7)}
           </p>
@@ -207,6 +220,34 @@ function TrashPage() {
                         subtitle={`${t.personaName ? `${t.personaName} · ` : ''}${remaining(t.purgeAt)}`}
                         restoring={
                           restore.isPending && restore.variables?.id === t.id
+                        }
+                        onRestore={() => restore.mutate(target)}
+                        onPurge={() => setPurging(target)}
+                      />
+                    )
+                  })}
+                </Group>
+              )}
+              {workflows.length > 0 && (
+                <Group title={TEXT.groupWorkflows}>
+                  {workflows.map((w) => {
+                    const target: Target = {
+                      kind: 'workflow',
+                      id: w.id,
+                      name: w.name,
+                    }
+                    return (
+                      <Row
+                        key={w.id}
+                        media={
+                          <span className="grid h-10 w-10 place-items-center rounded-lg bg-muted text-muted-foreground">
+                            <Workflow className="h-4 w-4" />
+                          </span>
+                        }
+                        title={w.name}
+                        subtitle={`${TEXT.nodeCount(w.nodeCount)} · ${remaining(w.purgeAt)}`}
+                        restoring={
+                          restore.isPending && restore.variables?.id === w.id
                         }
                         onRestore={() => restore.mutate(target)}
                         onPurge={() => setPurging(target)}

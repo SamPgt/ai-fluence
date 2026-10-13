@@ -62,7 +62,7 @@ test.describe('déconnecté', () => {
     await expect(page).toHaveURL(/\/connexion/)
   })
 
-  test('la connexion réussie ouvre l’app @core', async ({ page }) => {
+  test('la connexion réussie ouvre l’app @core @smoke', async ({ page }) => {
     await page.goto('/connexion')
     await hydrated(page)
     await page.getByLabel('E-mail').fill(USER.email)

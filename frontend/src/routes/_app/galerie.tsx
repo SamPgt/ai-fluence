@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { Film, Loader2 } from 'lucide-react'
+import { Film, Loader2, Workflow } from 'lucide-react'
 import { getFamily } from '@ai-fluence/shared'
 
 import { assetsApi } from '@/lib/api'
 import { personasQuery, qk } from '@/lib/queries'
-import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { MediaViewer } from '@/components/thread/MediaViewer'
 import { Button } from '@/components/ui/button'
@@ -17,6 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+
+/** Légende d'une image au survol : prompt et modèle, lien vers sa demande. */
+const GALLERY_CAPTION =
+  'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 pt-6 pb-2 text-[11px] text-white/90 opacity-0 transition group-hover:opacity-100'
 
 export const Route = createFileRoute('/_app/galerie')({
   component: GalleryPage,
@@ -129,23 +132,32 @@ function GalleryPage() {
               {asset.mediaType === 'video' && (
                 <Film className="absolute top-2 left-2 h-4 w-4 text-white drop-shadow" />
               )}
-              {generation && (
-                <Link
-                  to="/t/$threadId"
-                  params={{ threadId: generation.threadId }}
-                  search={{ g: generation.id }}
-                  className={cn(
-                    'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 pt-6 pb-2 text-[11px] text-white/90 opacity-0 transition group-hover:opacity-100',
-                  )}
-                >
-                  <span className="line-clamp-2">
-                    {generation.prompt || '(sans prompt)'}
-                  </span>
-                  <span className="text-white/60">
-                    {getFamily(generation.family)?.label}
-                  </span>
-                </Link>
+              {generation?.workflowId && (
+                <span className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white/90">
+                  <Workflow className="h-3 w-3" /> Workflow
+                </span>
               )}
+              {generation &&
+                (generation.threadId ? (
+                  <Link
+                    to="/t/$threadId"
+                    params={{ threadId: generation.threadId }}
+                    search={{ g: generation.id }}
+                    className={GALLERY_CAPTION}
+                  >
+                    <span className="line-clamp-2">{generation.prompt || '(sans prompt)'}</span>
+                    <span className="text-white/60">{getFamily(generation.family)?.label}</span>
+                  </Link>
+                ) : generation.workflowId ? (
+                  <Link
+                    to="/workflows/$workflowId"
+                    params={{ workflowId: generation.workflowId }}
+                    className={GALLERY_CAPTION}
+                  >
+                    <span className="line-clamp-2">{generation.prompt || '(sans prompt)'}</span>
+                    <span className="text-white/60">{getFamily(generation.family)?.label} · Voir dans le workflow</span>
+                  </Link>
+                ) : null)}
             </div>
           ))}
         </div>
@@ -169,6 +181,7 @@ function GalleryPage() {
           viewIndex >= 0 && items[viewIndex].generation
             ? {
                 threadId: items[viewIndex].generation!.threadId,
+                workflowId: items[viewIndex].generation!.workflowId,
                 generationId: items[viewIndex].generation!.id,
               }
             : null

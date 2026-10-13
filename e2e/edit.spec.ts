@@ -7,7 +7,7 @@ import { expect, test } from './helpers'
 const GPT = 'openai/gpt-image-2.5-sunburst'
 
 test.describe('Éditer', () => {
-  test('repart de zéro : image en position 1 avec le crayon, modèle de la génération @core', async ({
+  test('repart de zéro : image en position 1 avec le crayon, modèle de la génération @core @smoke', async ({
     app,
   }) => {
     const { thread } = await app.generate({ prompt: 'fil edit', family: GPT })

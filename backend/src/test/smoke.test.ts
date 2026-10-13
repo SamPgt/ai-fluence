@@ -6,7 +6,7 @@ describe('santé', () => {
     expect((await call('GET', '/health')).body).toEqual({ status: 'ok' });
   });
 
-  it('une génération simulée réussit avec un fichier', async () => {
+  it('une génération simulée réussit avec un fichier @smoke', async () => {
     const me = await signup();
     const { generation } = await me.generate();
     expect(generation.status).toBe('succeeded');

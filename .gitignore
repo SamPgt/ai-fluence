@@ -13,6 +13,7 @@ dist
 .DS_Store
 frontend/src/routeTree.gen.ts
 -archives
+-commits
 # Tests E2E
 e2e/.auth
 .e2e-data
@@ -21,3 +22,4 @@ playwright-report
 
 .vitest-data
 .e2e-data-*
+private

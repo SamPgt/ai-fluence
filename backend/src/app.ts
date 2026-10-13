@@ -16,6 +16,7 @@ import civitaiRoutes from './routes/civitai.route.js';
 import trashRoutes from './routes/trash.route.js';
 import voicesRoutes from './routes/voices.route.js';
 import libraryRoutes from './routes/library.route.js';
+import workflowsRoutes from './routes/workflows.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,7 +35,7 @@ const app = new Hono<AppEnv>()
   // Un `:id` qui n'est pas un UUID ferait planter Postgres : on répond 404 avant.
   .use('*', async (c, next) => {
     const segments = c.req.path.split('/');
-    const idx = segments.findIndex(s => ['media', 'threads', 'generations', 'personas', 'assets', 'presets'].includes(s));
+    const idx = segments.findIndex(s => ['media', 'threads', 'generations', 'personas', 'assets', 'presets', 'workflows'].includes(s));
     const id = idx >= 0 ? segments[idx + 1] : undefined;
     if (id && !['search', 'references', 'gallery', 'quote', 'upscale', 'order'].includes(id) && !UUID_RE.test(id)) {
       return c.json({ error: 'Introuvable.' }, 404);
@@ -55,7 +56,8 @@ const app = new Hono<AppEnv>()
   .route('/civitai', civitaiRoutes)
   .route('/trash', trashRoutes)
   .route('/voices', voicesRoutes)
-  .route('/library', libraryRoutes);
+  .route('/library', libraryRoutes)
+  .route('/workflows', workflowsRoutes);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {

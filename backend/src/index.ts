@@ -6,6 +6,7 @@ import { env } from './env.js';
 import { client, db } from './db/index.js';
 import { resumeWatchers } from './services/generation.service.js';
 import { schedulePurge } from './services/trash.service.js';
+import { resumeRuns } from './services/workflow-runner.service.js';
 
 async function main() {
   // Garde-fou : un serveur de test ne parle jamais au vrai SpicyAPI (aucun coût).
@@ -23,6 +24,7 @@ async function main() {
   console.log(`🚀 API sur http://localhost:${env.API_PORT}`);
 
   await resumeWatchers();
+  await resumeRuns();
   schedulePurge();
 
   const shutdown = async () => {

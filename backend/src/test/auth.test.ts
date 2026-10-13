@@ -13,7 +13,7 @@ function rawSessionCookie(headers: Headers): string | undefined {
 }
 
 describe('POST /auth/signup', () => {
-  it('crée le compte, répond 201 et pose un cookie de session httpOnly', async () => {
+  it('crée le compte, répond 201 et pose un cookie de session httpOnly @smoke', async () => {
     const email = newEmail();
     const res = await call('POST', '/auth/signup', { email, name: 'Alice', password: PASSWORD });
     expect(res.status).toBe(201);

@@ -66,7 +66,7 @@ function SettingsPage() {
         <span className="text-sm font-medium">Paramétrage</span>
       </PageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[810px] px-6 py-6">
+        <div className="mx-auto max-w-[830px] px-6 py-6">
           <Tabs
             value={tab}
             onValueChange={(v) => navigate({ search: { tab: v as Tab } })}
@@ -383,7 +383,7 @@ function CreditsTab() {
           />
         )}
         {data.balance && (
-          <Stat label="Disponible" value={formatUsd(data.balance.available)} />
+          <Stat label="Disponible" value={formatUsd(data.balance.available, 'balance')} />
         )}
         {data.usage && (
           <Stat

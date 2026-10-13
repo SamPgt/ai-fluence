@@ -12,6 +12,9 @@ test('supprimer le résultat : emplacement « Contenu supprimé », puis Annuler
   await page.getByRole('menuitem', { name: 'Supprimer le résultat' }).click()
   await expect(page.getByTestId('removed-result')).toHaveText('Contenu supprimé')
   await expect(page.locator('img[alt="fil suppression"]')).toHaveCount(0)
+  // Plus de coût ni de « Relancer » sous un contenu supprimé.
+  await expect(page.getByTestId('result-cost')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Relancer' })).toHaveCount(0)
   // La demande reste.
   await expect(page.getByTestId('request-bubble')).toHaveText('fil suppression')
   await page.getByRole('button', { name: 'Annuler' }).click()
@@ -32,9 +35,14 @@ test('une série propose « Supprimer le lot » et retire les 4 images', async (
   await page.getByRole('menuitem', { name: 'Supprimer le lot' }).click()
   await expect(page.getByTestId('removed-result')).toHaveCount(1)
   await expect(page.locator('img[alt="quatre images"]')).toHaveCount(0)
+  // Plus de « Série · 4 images » au-dessus d'un contenu supprimé.
+  await expect(page.getByText('Série · 4 images')).toHaveCount(0)
   // La première génération est intacte.
   await expect(page.locator('img[alt="fil lot"]')).toHaveCount(1)
   await page.reload()
   await app.ready()
   await expect(page.getByTestId('removed-result')).toHaveCount(1)
+  await expect(page.getByText('Série · 4 images')).toHaveCount(0)
+  // Emplacement étroit : 190 px.
+  expect((await page.getByTestId('removed-result').boundingBox())!.width).toBe(190)
 })

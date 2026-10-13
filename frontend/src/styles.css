@@ -289,3 +289,24 @@ code {
     display: none;
   }
 }
+
+/*
+ * Workflows : nos nœuds dessinent leur propre carte. Le type intégré « output » de
+ * React Flow ajouterait une carte grise sous la nôtre (sa feuille de style est chargée
+ * après celle-ci, d'où la spécificité renforcée).
+ */
+.react-flow .react-flow__node.react-flow__node-output,
+.react-flow .react-flow__node.react-flow__node-output.selected,
+.react-flow .react-flow__node.react-flow__node-output:focus,
+.react-flow .react-flow__node.react-flow__node-output:focus-visible,
+.react-flow .react-flow__node.react-flow__node-output.selectable:hover {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
+  padding: 0;
+  width: auto;
+  box-shadow: none !important;
+  outline: none !important;
+  color: inherit;
+  text-align: left;
+}

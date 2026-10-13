@@ -1,25 +1,19 @@
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Wallet } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { undoToast } from '@/lib/undo-toast'
 
 import { threadsApi, trashApi } from '@/lib/api'
 import { composer } from '@/lib/composer-store'
-import {
-  balanceQuery,
-  personasQuery,
-  qk,
-  settingsQuery,
-  threadsQuery,
-} from '@/lib/queries'
-import { formatUsd } from '@/lib/format'
+import { personasQuery, qk, threadsQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { useIsMac } from '@/lib/platform'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import { ChatListItem } from '@/components/chat/ChatListItem'
 import { ChatSearchDialog } from '@/components/chat/ChatSearchDialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { CreditFooter } from './CreditFooter'
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -38,8 +32,6 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
   const { data: personas = [] } = useQuery(personasQuery())
   const persona = personas.find((p) => p.id === personaId)
   const { data: threads = [] } = useQuery(threadsQuery(personaId || null))
-  const { data: settings } = useQuery(settingsQuery())
-  const { data: balance } = useQuery(balanceQuery(Boolean(settings?.hasApiKey)))
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: qk.threadsAll })
@@ -150,24 +142,7 @@ export function ThreadPanel({ collapsed }: { collapsed: boolean }) {
           </div>
         </ScrollArea>
 
-        <Link
-          to="/parametres"
-          search={{ tab: 'credits' }}
-          className="flex items-center gap-2 border-t border-border/40 px-4 py-3 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <Wallet className="h-3.5 w-3.5" />
-          {settings && !settings.hasApiKey ? (
-            <span className="text-amber-300">Clé API manquante</span>
-          ) : (
-            <span>
-              {/* Crédit SpicyAPI :{' '} */}
-              Crédit :{' '}
-              <span className="font-medium text-foreground">
-                {balance ? formatUsd(balance.available) : '…'}
-              </span>
-            </span>
-          )}
-        </Link>
+        <CreditFooter />
       </div>
     </aside>
   )

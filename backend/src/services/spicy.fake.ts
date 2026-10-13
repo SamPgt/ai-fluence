@@ -2,7 +2,8 @@
  * Faux client SpicyAPI pour les tests (SPICY_FAKE=1) : aucune requête réseau,
  * aucun coût. Le catalogue est une capture réelle (test/fixtures/spicy-models.json),
  * les tâches réussissent tout de suite avec une petite image. Un prompt
- * contenant FAIL_TEST donne une tâche en échec (pour tester l'affichage des erreurs).
+ * contenant FAIL_TEST donne une tâche en échec (pour tester l'affichage des erreurs),
+ * SLOW_TEST une tâche qui reste en cours un instant (pour tester un arrêt).
  */
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -16,6 +17,9 @@ const inAnHour = () => new Date(Date.now() + 3600_000).toISOString();
 
 export const FAIL_MARKER = 'FAIL_TEST';
 const failing = new Set<string>();
+export const SLOW_MARKER = 'SLOW_TEST';
+/** Tâches lentes : en cours jusqu'à cette date. */
+const slow = new Map<string, number>();
 
 const fake = {
   listModels: async () => ({ items: MODELS }),
@@ -30,10 +34,13 @@ const fake = {
   createTask: async ({ input }: { input: Record<string, unknown> }) => {
     const taskId = randomUUID();
     if (String(input.prompt ?? '').includes(FAIL_MARKER)) failing.add(taskId);
+    if (String(input.prompt ?? '').includes(SLOW_MARKER)) slow.set(taskId, Date.now() + 1500);
     return { taskId, estimatedCost: PRICE };
   },
   getTask: async (taskId: string) =>
-    failing.has(taskId)
+    (slow.get(taskId) ?? 0) > Date.now()
+      ? { taskId, state: 'running', cost: PRICE, settled: false }
+      : failing.has(taskId)
       ? {
           taskId,
           state: 'failed',

@@ -91,7 +91,7 @@ describe('POST /generations/quote', () => {
     expect((await call('POST', '/generations/quote', body())).status).toBe(401);
   });
 
-  it('texte vers image sans référence', async () => {
+  it('texte vers image sans référence @smoke', async () => {
     const me = await signup();
     const res = await me.post('/generations/quote', body());
     expect(res.status, JSON.stringify(res.body)).toBe(200);

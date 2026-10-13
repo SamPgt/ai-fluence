@@ -31,6 +31,8 @@ const generationSchema = z.object({
   loraIds: z.array(z.string().max(64)).max(12).optional(),
   loraWords: z.record(z.string().max(64), z.array(z.string().max(60)).max(20)).optional(),
   expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+  /** Voix du persona (id dans le persona), envoyée comme référence si le modèle l'accepte. */
+  voiceId: z.string().max(64).optional(),
 });
 
 const upscaleSchema = z.object({

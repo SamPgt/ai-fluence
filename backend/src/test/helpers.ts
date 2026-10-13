@@ -21,7 +21,7 @@ export const SEEDANCE_MINI = 'bytedance/seedance-2.0-mini';
 export async function resetDb() {
   await db.execute(
     sql.raw(
-      'TRUNCATE users, sessions, user_settings, personas, threads, generations, assets, prompt_presets, library_cache RESTART IDENTITY CASCADE',
+      'TRUNCATE users, sessions, user_settings, personas, threads, generations, assets, prompt_presets, library_cache, workflows, voice_samples RESTART IDENTITY CASCADE',
     ),
   );
 }

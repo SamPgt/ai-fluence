@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   boolean,
   index,
   integer,
@@ -9,7 +10,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind } from '@ai-fluence/shared';
+import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind, WorkflowGraph, WorkflowNodeStatus, WorkflowRunStatus } from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -106,13 +107,17 @@ export const generations = pgTable(
   'generations',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    threadId: uuid('thread_id')
-      .notNull()
-      .references(() => threads.id, { onDelete: 'cascade' }),
+    /** Fil de la génération ; vide pour un résultat de workflow (cf. `workflowId`). */
+    threadId: uuid('thread_id').references(() => threads.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'set null' }),
+    /** Résultat d'un nœud de workflow (sans fil). */
+    workflowId: uuid('workflow_id').references((): AnyPgColumn => workflows.id, { onDelete: 'cascade' }),
+    workflowNodeId: text('workflow_node_id'),
+    /** Voix du persona envoyée comme référence (id de la voix dans le persona). */
+    voiceId: text('voice_id'),
     prompt: text('prompt').notNull(),
     finalPrompt: text('final_prompt').notNull(),
     family: text('family').notNull(),
@@ -147,6 +152,7 @@ export const generations = pgTable(
   },
   t => [
     index('generations_thread_idx').on(t.threadId, t.createdAt),
+    index('generations_workflow_idx').on(t.workflowId, t.workflowNodeId),
     index('generations_status_idx').on(t.status),
   ],
 );
@@ -215,4 +221,85 @@ export const libraryCache = pgTable('library_cache', {
   key: text('key').primaryKey(),
   data: jsonb('data').notNull(),
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Workflow : graphe de nœuds (React Flow), global à l'utilisateur. */
+export const workflows = pgTable(
+  'workflows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    graph: jsonb('graph').$type<WorkflowGraph>().notNull().default({ nodes: [], edges: [] }),
+    /** Couverture choisie (sinon : la dernière image produite par le workflow). */
+    coverAssetId: uuid('cover_asset_id').references((): AnyPgColumn => assets.id, { onDelete: 'set null' }),
+    /** Corbeille : masqué de l'app, supprimé pour de bon après 7 jours. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  t => [index('workflows_user_idx').on(t.userId, t.updatedAt)],
+);
+
+/** Exécution d'un workflow : les nœuds payants lancés ensemble, dans l'ordre de leurs dépendances. */
+export const workflowRuns = pgTable(
+  'workflow_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => workflows.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: text('status').$type<WorkflowRunStatus>().notNull().default('running'),
+    /** Nœuds lancés par cette exécution. */
+    nodeIds: jsonb('node_ids').$type<string[]>().notNull().default([]),
+    /** Graphe au lancement (instantané : l'exécution ne suit pas les modifications faites pendant). */
+    graph: jsonb('graph').$type<WorkflowGraph>().notNull(),
+    /** Devis confirmé par l'utilisateur ; l'exécution s'arrête avant de le dépasser de plus de 20 %. */
+    estimatedCost: text('estimated_cost'),
+    errorMessage: text('error_message'),
+    createdAt: createdAt(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  t => [index('workflow_runs_workflow_idx').on(t.workflowId, t.createdAt)],
+);
+
+/** Résultat d'un nœud dans une exécution : une génération (image, vidéo) ou un texte. */
+export const workflowNodeResults = pgTable(
+  'workflow_node_results',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: 'cascade' }),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => workflows.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    status: text('status').$type<WorkflowNodeStatus>().notNull().default('pending'),
+    generationId: uuid('generation_id').references(() => generations.id, { onDelete: 'set null' }),
+    text: text('text'),
+    cost: text('cost'),
+    errorMessage: text('error_message'),
+    createdAt: createdAt(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  t => [index('workflow_node_results_node_idx').on(t.workflowId, t.nodeId, t.createdAt)],
+);
+
+/**
+ * Extrait de référence d'une voix ElevenLabs (une dizaine de secondes), généré une seule
+ * fois et partagé par tous les personas et comptes qui utilisent cette voix.
+ */
+export const voiceSamples = pgTable('voice_samples', {
+  /** Identifiant ElevenLabs de la voix. */
+  voiceId: text('voice_id').primaryKey(),
+  filePath: text('file_path').notNull(),
+  mime: text('mime').notNull(),
+  bytes: integer('bytes').notNull().default(0),
+  createdAt: createdAt(),
 });

@@ -29,7 +29,7 @@ test('les fichiers envoyés à la main n’apparaissent pas, seulement les résu
   await expect(page.getByText('Rien ici pour l’instant.')).toBeVisible()
 })
 
-test('liste les résultats du plus récent au plus ancien @core', async ({ app, page }) => {
+test('liste les résultats du plus récent au plus ancien @core @smoke', async ({ app, page }) => {
   void app
   for (const prompt of ['premier resultat', 'deuxieme resultat', 'troisieme resultat']) {
     await generateDone(page, { prompt })

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import bcrypt from 'bcrypt';
+import { env } from '../env.js';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AuthResponse, User } from '@ai-fluence/shared';
@@ -44,7 +45,8 @@ const authRoutes = new Hono<AppEnv>()
     const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
     if (existing) return c.json({ error: 'Un compte existe déjà avec cet e-mail.' }, 409);
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    // Tests : coût minimal (des centaines de comptes créés), sinon le coût habituel.
+    const passwordHash = await bcrypt.hash(password, env.NODE_ENV === 'test' ? 4 : 10);
     const [user] = await db.insert(users).values({ email, name, passwordHash }).returning();
     await seedDefaultPresets(user.id);
     await createSession(c, user.id);

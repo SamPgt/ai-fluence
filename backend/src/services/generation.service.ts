@@ -33,6 +33,7 @@ import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
 import { assemblePrompt } from './prompt.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { resolveLoraUrl } from './civitai.service.js';
+import { voiceSampleUri } from './voice-sample.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -66,6 +67,8 @@ interface Prepared {
   references: AssetRow[];
   dropped: number;
   lorasApplied: number;
+  /** Voix du persona réellement envoyée (null : aucune). */
+  voiceId: string | null;
 }
 
 async function prepare(user: SessionUser, req: GenerationRequest, forCreate = false): Promise<Prepared> {
@@ -169,6 +172,15 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     loras,
   });
 
+  // Voix du persona : son extrait de référence, pour les modèles qui en acceptent un
+  // (mode références). Ailleurs (synchronisation des lèvres…), elle n'est pas envoyée.
+  const voice = req.voiceId ? persona?.voices.find(v => v.id === req.voiceId) : undefined;
+  let voiceId: string | null = null;
+  if (voice && endpoint.schema.properties?.reference_audio_urls && resolution.task === 'reference-to-video') {
+    built.input.reference_audio_urls = [await voiceSampleUri(client, user.id, voice.voiceId)];
+    voiceId = voice.id;
+  }
+
   const required = endpoint.schema.required ?? [];
   if (required.includes('prompt') && !built.input.prompt) {
     throw new HTTPException(400, { message: 'Ce modèle a besoin d’un prompt.' });
@@ -186,6 +198,7 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     references,
     dropped: built.dropped,
     lorasApplied: built.lorasApplied,
+    voiceId,
   };
 }
 
@@ -233,7 +246,7 @@ export async function createGeneration(
     if (i > 0 && typeof params.seed === 'number') params.seed = (params.seed + i) % MAX_SEED;
     const pi = i === 0 ? p : await prepare(user, { ...req, params }, true);
     const qi = i === 0 ? quote : await callSpicy(() => pi.client.quoteTask({ model: pi.modelId, input: pi.input }));
-    const res = await launch(user, pi, qi, {
+    const res = await launchInThread(user, pi, qi, {
       threadId,
       personaId: pi.persona?.id ?? null,
       family: req.family,
@@ -266,21 +279,23 @@ function toQuoteResponse(p: Prepared, quote: Quote, count = 1): QuoteResponse {
   };
 }
 
-/** Crée (ou reprend) le fil, enregistre la génération, lance la tâche et démarre son suivi. */
-async function launch(
+interface LaunchMeta {
+  threadId: string | null;
+  personaId: string | null;
+  family: string;
+  prompt: string;
+  refMode: 'start-frame' | 'reference';
+  params: Record<string, unknown>;
+  batchId?: string | null;
+  batchIndex?: number;
+}
+
+/** Génération d'un fil : crée (ou reprend) le fil, puis lance. */
+async function launchInThread(
   user: SessionUser,
   p: Prepared,
   quote: Quote,
-  meta: {
-    threadId: string | null;
-    personaId: string | null;
-    family: string;
-    prompt: string;
-    refMode: 'start-frame' | 'reference';
-    params: Record<string, unknown>;
-    batchId?: string | null;
-    batchIndex?: number;
-  },
+  meta: LaunchMeta,
 ): Promise<CreateGenerationResponse> {
   // Fil : existant (vérifié) ou créé à partir du prompt.
   let thread: typeof threads.$inferSelect | undefined;
@@ -299,13 +314,64 @@ async function launch(
       .returning();
   }
 
+  const generation = await launch(user, p, quote, { ...meta, personaId: meta.personaId ?? thread.personaId }, { threadId: thread.id });
+  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, thread.id));
+  return { generation, thread: toThread(thread) };
+}
+
+/**
+ * Génération d'un nœud de workflow (sans fil). `maxCost` : plafond restant de
+ * l'exécution ; au-delà, rien n'est lancé.
+ */
+export async function createWorkflowGeneration(
+  user: SessionUser,
+  req: GenerationRequest,
+  owner: { workflowId: string; nodeId: string },
+  maxCost?: number,
+): Promise<Generation> {
+  const p = await prepare(user, req, true);
+  const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
+  if (maxCost !== undefined && Number(quote.estimatedCost) > maxCost + 1e-9) {
+    throw new HTTPException(402, { message: 'Le coût dépasse le devis confirmé : exécution arrêtée.' });
+  }
+  return launch(
+    user,
+    p,
+    quote,
+    {
+      threadId: null,
+      personaId: p.persona?.id ?? null,
+      family: req.family,
+      prompt: req.prompt,
+      refMode: req.refMode ?? 'start-frame',
+      params: req.params ?? {},
+    },
+    { workflowId: owner.workflowId, workflowNodeId: owner.nodeId },
+  );
+}
+
+/** Devis d'une génération de workflow (même calcul que le composer). */
+export async function quoteWorkflowGeneration(user: SessionUser, req: GenerationRequest) {
+  const p = await prepare(user, req);
+  const quote = await callSpicy(() => p.client.quoteTask({ model: p.modelId, input: p.input }));
+  return { task: p.task, estimatedCost: quote.estimatedCost };
+}
+
+/** Enregistre la génération (dans un fil ou un nœud de workflow), lance la tâche et démarre son suivi. */
+async function launch(
+  user: SessionUser,
+  p: Prepared,
+  quote: Quote,
+  meta: LaunchMeta,
+  owner: { threadId: string } | { workflowId: string; workflowNodeId: string },
+): Promise<Generation> {
   const idempotencyKey = randomUUID();
   const [row] = await db
     .insert(generations)
     .values({
-      threadId: thread.id,
+      ...owner,
       userId: user.id,
-      personaId: meta.personaId ?? thread.personaId,
+      personaId: meta.personaId,
       prompt: meta.prompt,
       finalPrompt: p.finalPrompt,
       family: meta.family,
@@ -320,6 +386,7 @@ async function launch(
       contexts: p.contexts,
       loras: p.loras,
       lorasApplied: p.lorasApplied,
+      voiceId: p.voiceId,
       idempotencyKey,
       estimatedCost: quote.estimatedCost,
     })
@@ -342,11 +409,10 @@ async function launch(
       .where(eq(generations.id, row.id));
   }
 
-  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, thread.id));
   void watchGeneration(row.id);
 
   const [generation] = await loadGenerations(user.id, { ids: [row.id] });
-  return { generation, thread: toThread(thread) };
+  return generation;
 }
 
 // ── Upscale ───────────────────────────────────────────────────
@@ -374,6 +440,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
     .where(eq(generations.id, asset.generationId))
     .limit(1);
   if (!source) throw new HTTPException(404, { message: 'Génération d’origine introuvable.' });
+  if (!source.threadId) throw new HTTPException(400, { message: 'L’upscale d’un résultat de workflow arrive bientôt.' });
 
   const tool = UPSCALERS[asset.mediaType];
   const model = (await getModels(user.id)).find(m => m.model === tool.modelId);
@@ -404,6 +471,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
       references: [asset],
       dropped: 0,
       lorasApplied: 0,
+      voiceId: null,
     },
     threadId: source.threadId,
     personaId: source.personaId,
@@ -424,7 +492,7 @@ export async function createUpscale(user: SessionUser, req: UpscaleRequest): Pro
   if (req.expectedCost !== undefined && Number(quote.estimatedCost) > Number(req.expectedCost) + 1e-9) {
     throw new PriceChangedError(toQuoteResponse(u.p, quote));
   }
-  return launch(user, u.p, quote, {
+  return launchInThread(user, u.p, quote, {
     threadId: u.threadId,
     personaId: u.personaId,
     family: u.family,
@@ -599,7 +667,7 @@ async function handleSuccess(row: typeof generations.$inferSelect, record: TaskR
       completedAt: record.completedAt ? new Date(record.completedAt) : new Date(),
     })
     .where(eq(generations.id, row.id));
-  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
+  if (row.threadId) await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
 }
 
 /** Le coût final peut arriver après la fin de la tâche : on le relit quelques fois. */

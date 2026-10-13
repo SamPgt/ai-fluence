@@ -1,12 +1,10 @@
 /**
- * Relancer (même modèle ou un autre) et Upscale depuis le pied d'un résultat du fil.
+ * Relancer (même modèle) et Upscale depuis le pied d'un résultat du fil.
  * Les boutons de confirmation restent sombres (variante outline), jamais colorés.
  */
 import type { Page } from '@playwright/test'
 import { expect, test } from './helpers'
 import {
-  QWEN,
-  SEEDANCE_25,
   SEEDREAM,
   generateDone,
   getThread,
@@ -22,8 +20,6 @@ async function expectNeutral(button: ReturnType<Page['getByRole']>) {
 }
 
 const relaunchButton = (page: Page) => page.getByRole('button', { name: 'Relancer', exact: true })
-const relaunchWith = (page: Page) => page.getByRole('button', { name: /^Relancer avec/ })
-const menu = (page: Page) => page.locator('[data-slot=popover-content]')
 
 test.describe('Relancer', () => {
   test('ouvre la confirmation avec le prix, le bouton est sombre', async ({ app, page }) => {
@@ -33,13 +29,13 @@ test.describe('Relancer', () => {
     const dialog = page.getByRole('dialog', { name: 'Relancer avec Seedream 5.0 Flash ?' })
     await expect(dialog).toBeVisible()
     await expect(dialog).toContainText('Même prompt, mêmes références, nouveau seed.')
-    await expect(dialog).toContainText('≈ 0,010 $ · 1 image')
+    await expect(dialog).toContainText('≈ 0,01 $ · 1 image')
     const confirm = dialog.getByRole('button', { name: 'Relancer', exact: true })
     await expect(confirm).toBeEnabled()
     await expectNeutral(confirm)
   })
 
-  test('confirmer crée une génération identique dans le même fil @core', async ({ app, page }) => {
+  test('confirmer crée une génération identique dans le même fil @core @smoke', async ({ app, page }) => {
     const ref = await uploadImage(page)
     const { thread, generation } = await generateDone(page, {
       prompt: 'meme demande',
@@ -82,7 +78,7 @@ test.describe('Relancer', () => {
     await app.gotoThread(thread.id)
     await relaunchButton(page).click()
     const dialog = page.getByRole('dialog', { name: /^Relancer avec/ })
-    await expect(dialog).toContainText('≈ 0,040 $')
+    await expect(dialog).toContainText('≈ 0,04 $')
     await dialog.getByRole('button', { name: 'Relancer', exact: true }).click()
     await expect(dialog).toHaveCount(0)
     const { generations } = await waitThreadDone(page, thread.id, 8)
@@ -106,58 +102,11 @@ test.describe('Relancer', () => {
   })
 })
 
-test.describe('Relancer avec…', () => {
-  test('ouvre le même menu que le composer : sections et recherche', async ({ app, page }) => {
-    const { thread } = await generateDone(page, { prompt: 'menu relance' })
-    await app.gotoThread(thread.id)
-    await relaunchWith(page).click()
-    await expect(menu(page)).toBeVisible()
-    const search = menu(page).getByPlaceholder('Rechercher un modèle')
-    await expect(search).toBeFocused()
-    await expect(menu(page).getByText('Modèles épinglés')).toBeVisible()
-    await expect(menu(page).getByText('Fournisseurs')).toBeVisible()
-    await expect(menu(page).getByText('Groupes')).toBeVisible()
-    await search.fill('modele inexistant')
-    await expect(menu(page).getByText('Aucun modèle trouvé.')).toBeVisible()
-    await search.fill('Qwen Image 3.0')
-    await expect(menu(page).getByText('Qwen Image 3.0 Pro', { exact: true })).toBeVisible()
-  })
-
-  test('choisir un autre modèle crée la génération avec ce modèle @core', async ({ app, page }) => {
-    const { thread } = await generateDone(page, { prompt: 'autre modele', params: { aspect_ratio: '1:1' } })
-    await app.gotoThread(thread.id)
-    await relaunchWith(page).click()
-    await app.pickInModelMenu('Qwen Image 3.0 Pro')
-    const dialog = page.getByRole('dialog', { name: 'Relancer avec Qwen Image 3.0 Pro ?' })
-    await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText('≈ 0,010 $')
-    const confirm = dialog.getByRole('button', { name: 'Relancer', exact: true })
-    await expectNeutral(confirm)
-    await confirm.click()
-    await expect(dialog).toHaveCount(0)
-
-    const { generations } = await waitThreadDone(page, thread.id, 2)
-    expect(generations[1].family).toBe(QWEN)
-    expect(generations[1].prompt).toBe('autre modele')
-    expect(generations[1].threadId).toBe(thread.id)
-    await expect(page.getByTestId('request-history').nth(1)).toContainText('Qwen Image 3.0 Pro')
-  })
-
-  test('dans un fil vidéo, le menu ne propose que des modèles vidéo', async ({ app, page }) => {
-    const { thread } = await generateDone(page, { family: SEEDANCE_25, prompt: 'fil video' })
-    await app.gotoThread(thread.id)
-    await relaunchWith(page).click()
-    const search = menu(page).getByPlaceholder('Rechercher un modèle')
-    await search.fill('Seedream')
-    await expect(menu(page).getByText('Aucun modèle trouvé.')).toBeVisible()
-    await search.fill('Wan 3.0 Prime')
-    await expect(menu(page).getByText('Wan 3.0 Prime', { exact: true })).toBeVisible()
-    await menu(page).getByText('Wan 3.0 Prime', { exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Relancer avec Wan 3.0 Prime ?' })
-    await dialog.getByRole('button', { name: 'Relancer', exact: true }).click()
-    const { generations } = await waitThreadDone(page, thread.id, 2)
-    expect(generations[1].family).toBe('alibaba/wan-3.0-prime')
-  })
+test('plus de « Relancer avec… » : un autre modèle passe par « Modifier la demande »', async ({ app, page }) => {
+  const { thread } = await generateDone(page, { prompt: 'sans relancer avec' })
+  await app.gotoThread(thread.id)
+  await expect(relaunchButton(page)).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Relancer avec/ })).toHaveCount(0)
 })
 
 test.describe('Upscale', () => {
@@ -178,7 +127,7 @@ test.describe('Upscale', () => {
       await expect(dialog.getByRole('button', { name: `${tier} ${hint}` })).toBeVisible()
     }
     await expect(dialog.getByRole('button', { name: /^4k/ })).toHaveClass(/border-brand/)
-    await expect(dialog).toContainText('≈ 0,010 $')
+    await expect(dialog).toContainText('≈ 0,01 $')
     const confirm = dialog.getByRole('button', { name: 'Upscaler' })
     await expect(confirm).toBeEnabled()
     await expectNeutral(confirm)
@@ -189,7 +138,7 @@ test.describe('Upscale', () => {
     await app.gotoThread(thread.id)
     await page.getByRole('button', { name: 'Upscale', exact: true }).click()
     const dialog = dialogOf(page)
-    await expect(dialog).toContainText('≈ 0,010 $')
+    await expect(dialog).toContainText('≈ 0,01 $')
     const quote = page.waitForRequest(
       (r) => new URL(r.url()).pathname === '/api/generations/upscale/quote' && r.postDataJSON()?.resolution === '8k',
     )

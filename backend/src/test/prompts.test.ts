@@ -15,7 +15,7 @@ describe('POST /prompts/enhance', () => {
     expect(res.status).toBe(401);
   });
 
-  it('renvoie le texte reformulé, sans appel réseau', async () => {
+  it('renvoie le texte reformulé, sans appel réseau @smoke', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const me = await signup();
     const res = await me.post('/prompts/enhance', { prompt: 'une fille sur la plage', media: 'image' });

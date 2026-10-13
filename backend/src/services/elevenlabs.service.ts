@@ -57,6 +57,75 @@ export async function requireElevenLabsKey(userId: string): Promise<string> {
   return decryptSecret(row.elevenLabsApiKeyEnc);
 }
 
+// ── Synthèse vocale ───────────────────────────────────────────
+
+/** Modèle multilingue : la même voix parle français comme anglais. */
+const TTS_MODEL = 'eleven_multilingual_v2';
+
+/** WAV silencieux (tests : aucun appel réseau). */
+function silentWav(seconds: number): Uint8Array {
+  const rate = 8000;
+  const samples = rate * seconds;
+  const buf = new ArrayBuffer(44 + samples * 2);
+  const v = new DataView(buf);
+  const str = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF');
+  v.setUint32(4, 36 + samples * 2, true);
+  str(8, 'WAVE');
+  str(12, 'fmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  str(36, 'data');
+  v.setUint32(40, samples * 2, true);
+  return new Uint8Array(buf);
+}
+
+/**
+ * Fait dire `text` par une voix ElevenLabs (coût : crédits ElevenLabs, au caractère).
+ * Demande la permission « Text to Speech » sur la clé.
+ */
+export async function synthesizeSpeech(
+  apiKey: string,
+  voiceId: string,
+  text: string,
+): Promise<{ data: Uint8Array; mime: string; ext: string }> {
+  if (env.SPICY_FAKE) return { data: silentWav(10), mime: 'audio/wav', ext: 'wav' };
+  const res = await fetch(
+    `${ELEVENLABS_API}/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`,
+    {
+      method: 'POST',
+      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+      body: JSON.stringify({ text, model_id: TTS_MODEL }),
+      signal: AbortSignal.timeout(60_000),
+    },
+  ).catch(() => null);
+  if (!res) throw new HTTPException(502, { message: 'ElevenLabs ne répond pas.' });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { detail?: { status?: string; message?: string } | string } | null;
+    const detail = typeof body?.detail === 'string' ? body.detail : body?.detail?.message;
+    const status = typeof body?.detail === 'object' ? body?.detail?.status : undefined;
+    if (res.status === 401 && status === 'missing_permissions') {
+      throw new HTTPException(400, {
+        message: 'Clé ElevenLabs sans la permission « Text to Speech » : active-la sur la clé pour envoyer les voix aux modèles.',
+      });
+    }
+    // Voix de la bibliothèque communautaire : réservées aux abonnements payants.
+    if (/creator tier/i.test(detail ?? '')) {
+      throw new HTTPException(400, {
+        message:
+          'Cette voix de la bibliothèque ElevenLabs demande l’abonnement Creator (ou supérieur) pour être utilisée par l’app. Choisis une voix par défaut d’ElevenLabs, ou passe au plan Creator.',
+      });
+    }
+    throw new HTTPException(502, { message: `ElevenLabs a répondu ${res.status}${detail ? ` : ${detail}` : '.'}` });
+  }
+  return { data: new Uint8Array(await res.arrayBuffer()), mime: 'audio/mpeg', ext: 'mp3' };
+}
+
 // ── Catalogue de voix ─────────────────────────────────────────
 
 export interface VoiceLibraryQuery {

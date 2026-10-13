@@ -15,5 +15,5 @@ export function sql(query: string): string {
 
 /** Données de l'utilisateur effacées (le compte et sa clé restent). */
 export function resetData() {
-  sql('TRUNCATE generations, assets, threads, personas, prompt_presets RESTART IDENTITY CASCADE')
+  sql('TRUNCATE generations, assets, threads, personas, prompt_presets, workflows RESTART IDENTITY CASCADE')
 }

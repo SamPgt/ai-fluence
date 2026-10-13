@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
 import {
   ArrowUp,
+  Check,
   Film,
   FolderOpen,
   Info,
@@ -64,6 +65,7 @@ import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 import { LibraryBrowser } from './LibraryBrowser'
 import { VoicePicker } from './VoicePicker'
+import { VOICE_ENABLED } from '@/lib/features'
 import { MediaViewer } from '@/components/thread/MediaViewer'
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -231,6 +233,28 @@ export function Composer({
     if (pick) composer.setFamily(pick)
   }
   const params = (state.family && state.paramsByFamily[state.family]) || {}
+
+  // Réinitialiser : visible dès qu'il y a du contenu (texte ou image), pas pour un simple réglage.
+  const defaultFamily = pickFamily(media, { memory: false })
+  const canReset = !isEmptyDraft(state)
+  const [undoReset, setUndoReset] = useState<ReturnType<
+    typeof composer.reset
+  > | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const hideUndoLater = () => {
+    clearTimeout(undoTimer.current)
+    undoTimer.current = setTimeout(() => setUndoReset(null), 2500)
+  }
+  const resetComposer = () => {
+    setUndoReset(composer.reset(defaultFamily))
+    hideUndoLater()
+  }
+  // Changement de fil : l'annulation ne vaut que pour le brouillon réinitialisé.
+  useEffect(() => {
+    clearTimeout(undoTimer.current)
+    setUndoReset(null)
+  }, [threadId])
+  useEffect(() => () => clearTimeout(undoTimer.current), [])
   const counts = {
     images: state.attachments.filter((a) => a.mediaType === 'image').length,
     videos: state.attachments.filter((a) => a.mediaType === 'video').length,
@@ -269,8 +293,13 @@ export function Composer({
     family?.media === 'video'
       ? audioInputInfo(family.tasks)
       : { max: 0, mode: 'none' as const }
-  const selectedVoice =
-    persona?.voices.find((v) => v.id === state.voiceId) ?? null
+  // PROCHAINEMENT : ajout de la voix (VOICE_ENABLED) ; en pause, aucune voix n'est choisie ni envoyée.
+  const selectedVoice = VOICE_ENABLED
+    ? (persona?.voices.find((v) => v.id === state.voiceId) ?? null)
+    : null
+  // La voix part comme référence audio : modèles qui en acceptent une, en mode références.
+  const voiceSent =
+    Boolean(selectedVoice) && voiceInfo.mode === 'reference' && task === 'reference-to-video'
   // Plus d'images que le modèle n'en accepte : envoi bloqué (jamais d'image
   // ignorée sans que la personne le décide).
   const extraImages =
@@ -319,6 +348,7 @@ export function Composer({
         loraWords: Object.fromEntries(
           activeLoras.map((l) => [l.id, state.loras[l.id] ?? []]),
         ),
+        voiceId: voiceSent ? selectedVoice!.id : undefined,
       }
     : null
 
@@ -374,6 +404,9 @@ export function Composer({
     const items: Generation[] = Array.from({ length: n }, (_, i) => ({
       id: `optimistic-${stamp}-${i}`,
       threadId: id,
+      workflowId: null,
+      workflowNodeId: null,
+      voiceId: body.voiceId ?? null,
       personaId: body.personaId ?? null,
       prompt: body.prompt,
       finalPrompt: body.prompt,
@@ -528,10 +561,13 @@ export function Composer({
     })
   }
   if (quoteError) notices.push({ text: quoteError, tone: 'error' })
-  // Maquette : la voix se choisit, mais n'est pas encore envoyée au modèle.
-  if (selectedVoice && voiceInfo.max > 0) {
+  // Voix choisie mais pas envoyée : on dit pourquoi.
+  if (selectedVoice && voiceInfo.max > 0 && !voiceSent) {
     notices.push({
-      text: `Voix « ${selectedVoice.name} » choisie : son envoi au modèle arrive dans une prochaine étape.`,
+      text:
+        voiceInfo.mode === 'lipsync'
+          ? `Voix « ${selectedVoice.name} » : la synchronisation des lèvres sur une voix arrive bientôt, elle n’est pas envoyée à ce modèle.`
+          : `Voix « ${selectedVoice.name} » : elle part en mode Références (ajoute une image de référence et choisis ce mode).`,
       tone: 'warn',
     })
   }
@@ -539,7 +575,7 @@ export function Composer({
   return (
     <div className="shrink-0 px-4 pt-2 pb-5">
       <div
-        className="mx-auto max-w-[810px]"
+        className="mx-auto max-w-[855px]"
         onDragOver={(e) => {
           e.preventDefault()
           setDragging(true)
@@ -568,9 +604,49 @@ export function Composer({
             dragging ? 'border-brand/70 bg-brand/5' : 'border-border/60',
           )}
         >
+          {/* Annulation de la réinitialisation : centrée juste au-dessus du composer. */}
+          {undoReset && (
+            <div
+              role="status"
+              // Souris dessus : la personne hésite peut-être à annuler, on garde l'annulation.
+              onMouseEnter={() => clearTimeout(undoTimer.current)}
+              onMouseLeave={hideUndoLater}
+              className="absolute bottom-full left-1/2 z-10 mb-2 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border/60 bg-popover py-1 pr-1 pl-3.5 text-[13px] shadow-lg"
+            >
+              <Check className="h-4 w-4 text-emerald-400" />
+              <span className="whitespace-nowrap">Réinitialisé</span>
+              <button
+                type="button"
+                onClick={() => {
+                  composer.restore(undoReset)
+                  clearTimeout(undoTimer.current)
+                  setUndoReset(null)
+                }}
+                className="rounded-full bg-accent px-3 py-1 text-[12px] font-medium hover:bg-accent/70"
+              >
+                Annuler
+              </button>
+            </div>
+          )}
+          {canReset && (
+            <button
+              type="button"
+              onClick={resetComposer}
+              aria-label="Réinitialiser le composer"
+              title="Réinitialiser le composer"
+              className="absolute top-3 right-3 z-[1] grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:bg-white/[0.12] hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
           {/* Pièces jointes */}
           {(state.attachments.length > 0 || uploading > 0) && (
-            <div className="flex flex-wrap gap-2 px-3 pt-3">
+            <div
+              className={cn(
+                'flex flex-wrap gap-2 px-3 pt-3',
+                canReset && 'pr-14',
+              )}
+            >
               <MediaViewer
                 asset={state.attachments.find((x) => x.id === viewing) ?? null}
                 onClose={() => setViewing(null)}
@@ -671,7 +747,14 @@ export function Composer({
                 ? 'Décris la scène ou ajoute des références'
                 : 'Décris l’image ou ajoute des références'
             }
-            className="field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none"
+            className={cn(
+              'field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none',
+              // Place du bouton Réinitialiser quand il est sur la ligne du texte.
+              canReset &&
+                state.attachments.length === 0 &&
+                uploading === 0 &&
+                'pr-14',
+            )}
             rows={1}
           />
 
@@ -783,7 +866,7 @@ export function Composer({
                 }
               />
               {/* Voix du persona, juste à droite du modèle : seulement pour un modèle vidéo qui accepte une voix. */}
-              {persona && persona.kind !== 'artistic' && voiceInfo.max > 0 && (
+              {VOICE_ENABLED && persona && persona.kind !== 'artistic' && voiceInfo.max > 0 && (
                 <VoicePicker
                   persona={persona}
                   value={selectedVoice?.id ?? null}

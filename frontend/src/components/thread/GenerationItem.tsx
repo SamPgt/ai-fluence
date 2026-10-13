@@ -8,7 +8,6 @@ import {
   Loader2,
   Pencil,
   RefreshCw,
-  Shuffle,
   ImageUpscale,
   RotateCcw,
   Ellipsis,
@@ -42,7 +41,7 @@ import {
 } from '@/components/ui/popover'
 import { AssetThumb } from '@/components/composer/ReferencePicker'
 import { formatOption } from '@/components/composer/ParamFields'
-import { ModelPicker, ProviderLogo } from '@/components/composer/ModelPicker'
+import { ProviderLogo } from '@/components/composer/ModelPicker'
 import { MediaViewer } from './MediaViewer'
 import { outputKey, refKey, useThreadMedia } from './ThreadMedia'
 import { UpscaleDialog } from './UpscaleDialog'
@@ -103,10 +102,13 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
   const view = (key: string, asset: Asset) =>
     threadMedia ? threadMedia(key) : setViewing(asset)
   const [upscaling, setUpscaling] = useState<Asset | null>(null)
+  // Composant des fils : une génération affichée ici a toujours son fil.
+  const threadId = g.threadId!
   const isUpscale = g.task === 'upscale'
   const [relaunch, setRelaunch] = useState<GenerationRequest | null>(null)
-  /** Même demande (nouveau seed), sur ce modèle ou un autre. */
-  const relaunchRequest = (family: string): GenerationRequest => {
+  /** Même demande, même modèle, nouveau seed. */
+  const relaunchRequest = (): GenerationRequest => {
+    const family = g.family
     const params = { ...g.params }
     delete params.seed
     return {
@@ -121,6 +123,8 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       loraIds: Object.keys(lorasOf(family)),
       loraWords: lorasOf(family),
       count: generations.length,
+      // Même voix de référence que la demande d'origine.
+      voiceId: g.voiceId ?? undefined,
     }
   }
   const { data: catalog } = useQuery(catalogQuery())
@@ -134,8 +138,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     (sum, m) => sum + Number(m.estimatedCost ?? 0),
     0,
   )
-  const costText =
-    generations.some((m) => m.cost) && !pending
+  // Contenu supprimé : plus de coût affiché.
+  const costText = removed
+    ? null
+    : generations.some((m) => m.cost) && !pending
       ? formatUsd(realCost)
       : estimate > 0
         ? `≈ ${formatUsd(estimate)}`
@@ -264,7 +270,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     mutationFn: () => generationsApi.remove(g.id, series),
     onSuccess: () => {
       const refresh = () => {
-        queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) })
+        queryClient.invalidateQueries({ queryKey: qk.thread(threadId) })
         queryClient.invalidateQueries({ queryKey: ['gallery'] })
         queryClient.invalidateQueries({ queryKey: qk.threadsAll })
       }
@@ -369,19 +375,19 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       <div className="flex justify-start">
         <div className="w-full max-w-[85%] space-y-2">
           {/* Au-dessus du résultat : coût, puis « Série · N images » pour une série, puis le menu. */}
-          {(costText || series || (hasResult && !removed)) && (
+          {(costText || (series && !removed) || (hasResult && !removed)) && (
             <div
               data-testid="result-cost"
               className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums"
             >
               {costText && <span>{costText}</span>}
-              {costText && series && (
+              {costText && series && !removed && (
                 <span
                   aria-hidden
                   className="h-3.5 w-px bg-muted-foreground/40"
                 />
               )}
-              {series && <span>Série · {generations.length} images</span>}
+              {series && !removed && <span>Série · {generations.length} images</span>}
               {hasResult && !removed && (
                 <ResultMenu series={series} onRemove={() => remove.mutate()} />
               )}
@@ -390,7 +396,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
           {removed && (
             <div
               data-testid="removed-result"
-              className="flex h-20 max-w-md items-center justify-center rounded-2xl border border-border/60 bg-white/[0.03] text-xs text-muted-foreground"
+              className="flex h-[38px] w-[190px] items-center justify-center rounded-md border border-border/60 bg-white/[0.03] text-xs text-muted-foreground"
             >
               Contenu supprimé
             </div>
@@ -474,7 +480,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
           )}
 
           {/* Pied : actions à gauche, coût à droite (comme le prix du composer et le total du fil) */}
-          {!pending && (
+          {!pending && !removed && (
             <div
               className={cn(
                 'flex items-center gap-1 text-[11px] text-muted-foreground',
@@ -482,30 +488,13 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
               )}
             >
               {!isUpscale && (
-                <>
-                  <button
-                    onClick={() => setRelaunch(relaunchRequest(g.family))}
-                    className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-                    title="Relancer la même demande"
-                  >
-                    <RefreshCw className="h-3 w-3" /> Relancer
-                  </button>
-                  {/* Même menu que le composer, limité au type de média de cette génération. */}
-                  <ModelPicker
-                    families={families}
-                    media={def?.media ?? 'image'}
-                    value={g.family}
-                    onChange={(id) => setRelaunch(relaunchRequest(id))}
-                    trigger={
-                      <button
-                        className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-                        title="Relancer la même demande avec un autre modèle"
-                      >
-                        <Shuffle className="h-3 w-3" /> Relancer avec…
-                      </button>
-                    }
-                  />
-                </>
+                <button
+                  onClick={() => setRelaunch(relaunchRequest())}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+                  title="Relancer la même demande"
+                >
+                  <RefreshCw className="h-3 w-3" /> Relancer
+                </button>
               )}
               {!isUpscale &&
                 !series &&
@@ -527,7 +516,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       <MediaViewer asset={viewing} onClose={() => setViewing(null)} />
       <UpscaleDialog
         asset={upscaling}
-        threadId={g.threadId}
+        threadId={threadId}
         onClose={() => setUpscaling(null)}
       />
       <RelaunchDialog request={relaunch} onClose={() => setRelaunch(null)} />

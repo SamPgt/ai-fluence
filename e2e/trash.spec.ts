@@ -53,7 +53,7 @@ test('un fil et un persona (avec ses fils) à la corbeille sont listés', async 
   await expect(page.getByLabel('Bérénice', { exact: true })).toHaveCount(0)
 })
 
-test('restaurer un fil le remet dans la liste des fils @core', async ({ app, page }) => {
+test('restaurer un fil le remet dans la liste des fils @core @smoke', async ({ app, page }) => {
   const { loose } = await seedTrash(app)
   await gotoTrash(app)
   await row(app, 'fil perdu').getByRole('button', { name: 'Restaurer' }).click()
@@ -75,8 +75,9 @@ test('restaurer un persona fait revenir ses fils @core', async ({ app, page }) =
   await expect(row(app, 'Bérénice')).toHaveCount(0)
 
   // Le persona revient dans la barre, avec son fil.
+  // Clic sur le persona : il ouvre son fil le plus récent, celui restauré.
   await app.selectPersona('Bérénice')
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(new RegExp(`/t/${owned.id}$`))
   await expect(page.getByTestId('thread-panel').getByRole('link', { name: /fil de berenice/ })).toBeVisible()
   expect(sql(`SELECT deleted_at IS NULL FROM personas WHERE id = '${persona.id}'`)).toBe('t')
   expect(sql(`SELECT deleted_at IS NULL FROM threads WHERE id = '${owned.id}'`)).toBe('t')

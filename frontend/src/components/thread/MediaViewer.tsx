@@ -30,8 +30,8 @@ export function MediaViewer({
   onClose: () => void
   onPrev?: () => void
   onNext?: () => void
-  /** Demande qui a produit ce média : lien vers elle, à sa hauteur dans le fil. */
-  source?: { threadId: string; generationId: string } | null
+  /** Demande qui a produit ce média : lien vers elle (à sa hauteur dans le fil), ou vers son workflow. */
+  source?: { threadId: string | null; workflowId?: string | null; generationId: string } | null
 }) {
   // Flèches du clavier pour passer d'un média à l'autre.
   useEffect(() => {
@@ -62,7 +62,19 @@ export function MediaViewer({
                 className="absolute top-4 right-4 flex gap-2"
                 onClick={(e) => e.stopPropagation()}
               >
-                {source && (
+                {source?.workflowId && !source.threadId && (
+                  <Link
+                    to="/workflows/$workflowId"
+                    params={{ workflowId: source.workflowId }}
+                    onClick={onClose}
+                    className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"
+                    aria-label="Voir dans le workflow"
+                    title="Voir le workflow qui a produit ce média"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                )}
+                {source?.threadId && (
                   <Link
                     to="/t/$threadId"
                     params={{ threadId: source.threadId }}

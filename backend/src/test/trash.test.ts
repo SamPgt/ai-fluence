@@ -68,7 +68,7 @@ describe('corbeille : accès sans session', () => {
 describe('GET /trash', () => {
   it('renvoie une corbeille vide avec la durée de conservation', async () => {
     const me = await signup();
-    expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [] });
+    expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [], workflows: [] });
   });
 
   it('range un fil supprimé avec son persona sous ce persona, pas à part', async () => {
@@ -87,7 +87,7 @@ describe('GET /trash', () => {
     expect(new Date(p.purgeAt).getTime() - new Date(p.deletedAt).getTime()).toBe(TRASH_DAYS * DAY_MS);
   });
 
-  it('liste un fil supprimé seul avec le nom de son persona et sa vignette', async () => {
+  it('liste un fil supprimé seul avec le nom de son persona et sa vignette @smoke', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
     const { thread, output } = await generateOne(me, { personaId: lea.id, prompt: 'un chat' });
@@ -147,7 +147,7 @@ describe('GET /trash', () => {
     const { thread } = await generateOne(other);
     await other.del(`/personas/${p.id}`);
     await other.del(`/threads/${thread.id}`);
-    expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [] });
+    expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [], workflows: [] });
   });
 });
 
@@ -282,7 +282,7 @@ describe('DELETE /trash/personas/:id', () => {
 
     const res = await me.del(`/trash/personas/${lea.id}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 1, threads: 1, files: 3 });
+    expect(res.body).toEqual({ personas: 1, threads: 1, workflows: 0, files: 3 });
 
     expect(await personaExists(lea.id)).toBe(false);
     expect(await threadExists(thread.id)).toBe(false);
@@ -291,7 +291,7 @@ describe('DELETE /trash/personas/:id', () => {
     for (const p of [path, refPath, avatarPath]) expect(existsSync(p)).toBe(false);
     // Les raccourcis du persona partent avec lui.
     expect(await db.$count(promptPresets, eq(promptPresets.id, preset.id))).toBe(0);
-    expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [] });
+    expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [], workflows: [] });
   });
 
   it('supprime aussi un fil du persona mis à la corbeille avant lui', async () => {
@@ -301,7 +301,7 @@ describe('DELETE /trash/personas/:id', () => {
     await me.del(`/threads/${early.id}`);
     await me.del(`/personas/${lea.id}`);
     const res = await me.del(`/trash/personas/${lea.id}`);
-    expect(res.body).toEqual({ personas: 1, threads: 1, files: 1 });
+    expect(res.body).toEqual({ personas: 1, threads: 1, workflows: 0, files: 1 });
     expect(await threadExists(early.id)).toBe(false);
     expect(existsSync(path)).toBe(false);
   });
@@ -391,7 +391,7 @@ describe('DELETE /trash/personas/:id', () => {
     const ref = await me.uploadAsset({ personaId: p.id, isReference: true });
     const res = await me.del(`/trash/personas/${p.id}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 0, threads: 0, files: 0 });
+    expect(res.body).toEqual({ personas: 0, threads: 0, workflows: 0, files: 0 });
     expect(await personaExists(p.id)).toBe(true);
     expect(existsSync(await filePath(ref.id))).toBe(true);
   });
@@ -403,7 +403,7 @@ describe('DELETE /trash/personas/:id', () => {
     const { path } = await generateOne(other, { personaId: p.id });
     await other.del(`/personas/${p.id}`);
     const res = await me.del(`/trash/personas/${p.id}`);
-    expect(res.body).toEqual({ personas: 0, threads: 0, files: 0 });
+    expect(res.body).toEqual({ personas: 0, threads: 0, workflows: 0, files: 0 });
     expect(await personaExists(p.id)).toBe(true);
     expect(existsSync(path)).toBe(true);
     expect((await getTrash(other)).personas).toHaveLength(1);
@@ -418,7 +418,7 @@ describe('DELETE /trash/personas/:id', () => {
     const me = await signup();
     const res = await me.del(`/trash/personas/${randomUUID()}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 0, threads: 0, files: 0 });
+    expect(res.body).toEqual({ personas: 0, threads: 0, workflows: 0, files: 0 });
   });
 });
 
@@ -430,7 +430,7 @@ describe('DELETE /trash/threads/:id', () => {
 
     const res = await me.del(`/trash/threads/${thread.id}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 0, threads: 1, files: 1 });
+    expect(res.body).toEqual({ personas: 0, threads: 1, workflows: 0, files: 1 });
     expect(await threadExists(thread.id)).toBe(false);
     expect(await db.$count(generations, eq(generations.id, generation.id))).toBe(0);
     expect(await assetExists(output.id)).toBe(false);
@@ -460,7 +460,7 @@ describe('DELETE /trash/threads/:id', () => {
     await me.del(`/threads/${thread.id}`);
 
     const res = await me.del(`/trash/threads/${thread.id}`);
-    expect(res.body).toEqual({ personas: 0, threads: 1, files: 0 });
+    expect(res.body).toEqual({ personas: 0, threads: 1, workflows: 0, files: 0 });
     expect(await threadExists(thread.id)).toBe(false);
     expect(await assetExists(output.id)).toBe(true);
     expect(existsSync(path)).toBe(true);
@@ -488,7 +488,7 @@ describe('DELETE /trash/threads/:id', () => {
     await me.del(`/threads/${thread.id}`);
 
     const res = await me.del(`/trash/threads/${thread.id}`);
-    expect(res.body).toEqual({ personas: 0, threads: 1, files: 2 });
+    expect(res.body).toEqual({ personas: 0, threads: 1, workflows: 0, files: 2 });
     expect(await assetExists(output.id)).toBe(false);
     expect(await assetExists(second.id)).toBe(false);
     expect(existsSync(path)).toBe(false);
@@ -525,7 +525,7 @@ describe('DELETE /trash/threads/:id', () => {
     await me.del(`/personas/${lea.id}`);
 
     const res = await me.del(`/trash/threads/${thread.id}`);
-    expect(res.body).toEqual({ personas: 0, threads: 1, files: 1 });
+    expect(res.body).toEqual({ personas: 0, threads: 1, workflows: 0, files: 1 });
     expect(existsSync(path)).toBe(false);
     const trash = await getTrash(me);
     expect(trash.personas.map(p => p.id)).toEqual([lea.id]);
@@ -537,7 +537,7 @@ describe('DELETE /trash/threads/:id', () => {
     const { thread, path } = await generateOne(me);
     const res = await me.del(`/trash/threads/${thread.id}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 0, threads: 0, files: 0 });
+    expect(res.body).toEqual({ personas: 0, threads: 0, workflows: 0, files: 0 });
     expect((await me.get(`/threads/${thread.id}`)).status).toBe(200);
     expect(existsSync(path)).toBe(true);
   });
@@ -548,7 +548,7 @@ describe('DELETE /trash/threads/:id', () => {
     const { thread, path } = await generateOne(other);
     await other.del(`/threads/${thread.id}`);
     const res = await me.del(`/trash/threads/${thread.id}`);
-    expect(res.body).toEqual({ personas: 0, threads: 0, files: 0 });
+    expect(res.body).toEqual({ personas: 0, threads: 0, workflows: 0, files: 0 });
     expect(await threadExists(thread.id)).toBe(true);
     expect(existsSync(path)).toBe(true);
   });
@@ -577,8 +577,8 @@ describe('DELETE /trash', () => {
 
     const res = await me.del('/trash');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 1, threads: 2, files: 2 });
-    expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [] });
+    expect(res.body).toEqual({ personas: 1, threads: 2, workflows: 0, files: 2 });
+    expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [], workflows: [] });
     expect(existsSync(leaPath)).toBe(false);
     expect(existsSync(lonePath)).toBe(false);
 
@@ -597,7 +597,7 @@ describe('DELETE /trash', () => {
     const me = await signup();
     const res = await me.del('/trash');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 0, threads: 0, files: 0 });
+    expect(res.body).toEqual({ personas: 0, threads: 0, workflows: 0, files: 0 });
   });
 });
 
@@ -621,7 +621,7 @@ describe('purge automatique des éléments expirés', () => {
     await db.update(threads).set({ deletedAt: longAgo }).where(inArray(threads.id, [oldPersonaThread.id, oldThread.id]));
 
     const res = await purge({ expired: true });
-    expect(res).toEqual({ personas: 1, threads: 2, files: 2 });
+    expect(res).toEqual({ personas: 1, threads: 2, workflows: 0, files: 2 });
     expect(await personaExists(old.id)).toBe(false);
     expect(await threadExists(oldPersonaThread.id)).toBe(false);
     expect(await threadExists(oldThread.id)).toBe(false);

@@ -17,7 +17,7 @@ test('la liste de gauche montre les fils, le plus récent en haut @core', async 
   await expect(panel.getByText('Tous les fils')).toBeVisible()
   await expect(panel.getByText('Récents')).toBeVisible()
   await expect.poll(() => threadTitles(page)).toEqual(['second fil', 'premier fil'])
-  await expect(panel.getByRole('link', { name: /premier fil/ })).toContainText('1 génération · 0,010 $')
+  await expect(panel.getByRole('link', { name: /premier fil/ })).toContainText('1 génération · 0,01 $')
   await expect(panel).toContainText('Crédit : 10,00 $')
 })
 
@@ -86,7 +86,7 @@ test('le bouton « Nouveau fil » ramène au composer vide', async ({ app, page 
   await expect(page.getByRole('heading', { name: 'Que veux-tu créer ?' })).toBeVisible()
 })
 
-test('la recherche (⌘K) trouve un fil par son titre et l’ouvre @core', async ({ app, page }) => {
+test('la recherche (⌘K) trouve un fil par son titre et l’ouvre @core @smoke', async ({ app, page }) => {
   const target = (await app.generate({ prompt: 'un chat orange sur un toit' })).thread
   await app.generate({ prompt: 'une voiture bleue' })
   await app.gotoNew()

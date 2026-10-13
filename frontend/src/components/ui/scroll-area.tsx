@@ -6,11 +6,14 @@ import { cn } from "@/lib/utils"
 function ScrollArea({
   className,
   children,
+  // Barre visible seulement pendant le défilement (pas au simple survol).
+  type = "scroll",
   ...props
 }: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
+      type={type}
       className={cn("relative", className)}
       {...props}
     >
@@ -36,18 +39,19 @@ function ScrollBar({
       data-slot="scroll-area-scrollbar"
       orientation={orientation}
       className={cn(
+        // Fine (5 px), comme les barres du reste de l'app.
         "flex touch-none p-px transition-colors select-none",
         orientation === "vertical" &&
-          "h-full w-2.5 border-l border-l-transparent",
+          "h-full w-[5px] border-l border-l-transparent",
         orientation === "horizontal" &&
-          "h-2.5 flex-col border-t border-t-transparent",
+          "h-[5px] flex-col border-t border-t-transparent",
         className
       )}
       {...props}
     >
       <ScrollAreaPrimitive.ScrollAreaThumb
         data-slot="scroll-area-thumb"
-        className="bg-border relative flex-1 rounded-full"
+        className="relative flex-1 rounded-full bg-white/[0.14]"
       />
     </ScrollAreaPrimitive.ScrollAreaScrollbar>
   )

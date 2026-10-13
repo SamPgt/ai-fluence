@@ -128,7 +128,7 @@ describe('accès sans session', () => {
     expect(holes).toEqual([]);
   });
 
-  it('une session valide ouvre chaque endpoint protégé (aucun 401)', async () => {
+  it('une session valide ouvre chaque endpoint protégé (aucun 401) @smoke', async () => {
     const me = await signup();
     const holes: string[] = [];
     // Les suppressions de clé et la déconnexion sont faites en dernier pour ne pas gêner les autres.

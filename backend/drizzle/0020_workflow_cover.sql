@@ -1,0 +1,2 @@
+ALTER TABLE "workflows" ADD COLUMN "cover_asset_id" uuid;--> statement-breakpoint
+ALTER TABLE "workflows" ADD CONSTRAINT "workflows_cover_asset_id_assets_id_fk" FOREIGN KEY ("cover_asset_id") REFERENCES "public"."assets"("id") ON DELETE set null ON UPDATE no action;

@@ -216,7 +216,7 @@ describe('GET /civitai/search', () => {
     expect(civitaiCalls(spy)).toHaveLength(0);
   });
 
-  it('transforme la réponse Civitai en LoRA prêtes à importer', async () => {
+  it('transforme la réponse Civitai en LoRA prêtes à importer @smoke', async () => {
     const spy = stubCivitai(() => json(PAYLOAD));
     const me = await signup();
     const res = await me.get(`/civitai/search?query=${uniqueQuery()}`);

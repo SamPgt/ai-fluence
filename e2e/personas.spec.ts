@@ -23,7 +23,7 @@ import {
 const VERT = '#22c55e'
 
 test.describe('Création', () => {
-  test('le bouton + de la barre crée le persona avec sa couleur et ouvre sa fiche @core', async ({
+  test('le bouton + de la barre crée le persona avec sa couleur et ouvre sa fiche @core @smoke', async ({
     app,
     page,
   }) => {
@@ -58,7 +58,7 @@ test.describe('Création', () => {
     await expect(page.getByText('Paramétrage de Bob')).toBeVisible()
     await app.gotoNew()
     // Le menu des références du persona est proposé dans le composer.
-    await expect(page.getByTitle('Références de Bob')).toBeVisible()
+    await expect(page.getByTitle('Références de Bob', { exact: true })).toBeVisible()
   })
 })
 
@@ -78,12 +78,12 @@ test.describe('Sélection dans la barre', () => {
     await expect(page.getByRole('link', { name: 'fil alice' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'fil bob' })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'fil sans persona' })).toHaveCount(0)
-    await expect(page.getByTitle('Références de Alice')).toBeVisible()
+    await expect(page.getByTitle('Références de Alice', { exact: true })).toBeVisible()
 
     await app.selectPersona('Bob')
     await expect(page.getByRole('link', { name: 'fil bob' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'fil alice' })).toHaveCount(0)
-    await expect(page.getByTitle('Références de Bob')).toBeVisible()
+    await expect(page.getByTitle('Références de Bob', { exact: true })).toBeVisible()
 
     // « Tous les fils » : plus de persona, tout revient.
     await page.getByRole('button', { name: 'Tous les fils' }).click()
@@ -110,7 +110,7 @@ test.describe('Sélection dans la barre', () => {
     await app.selectPersona('Alice')
     await expect(page.getByRole('link', { name: 'fil libre' })).toHaveCount(0)
     await app.reload()
-    await expect(page.getByTitle('Références de Alice')).toBeVisible()
+    await expect(page.getByTitle('Références de Alice', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'fil libre' })).toHaveCount(0)
   })
 })
@@ -444,11 +444,39 @@ test.describe('Mise à la corbeille', () => {
     await expect(bubble(page, 'Alice')).toHaveCount(0)
     await page.locator('[data-sonner-toast]').getByRole('button', { name: 'Annuler' }).click()
     await expect(bubble(page, 'Alice')).toBeVisible()
-    await expect(page.getByTitle('Références de Alice')).toBeVisible()
+    await expect(page.getByTitle('Références de Alice', { exact: true })).toBeVisible()
   })
 
   test('une fiche inconnue affiche « Persona introuvable »', async ({ page }) => {
     await page.goto('/personas/00000000-0000-4000-8000-000000000000')
     await expect(page.getByText('Persona introuvable.')).toBeVisible()
+  })
+})
+
+test.describe('Clic sur un persona', () => {
+  test('ouvre son fil le plus récent @core', async ({ app, page }) => {
+    const alice = await app.createPersona({ name: 'Alice' })
+    const old = (await app.generate({ prompt: 'fil ancien', personaId: alice.id })).thread
+    const recent = (await app.generate({ prompt: 'fil récent', personaId: alice.id })).thread
+    await app.generate({ prompt: 'autre fil sans persona' })
+    expect(old.id).not.toBe(recent.id)
+    await app.gotoNew()
+    await app.selectPersona('Alice')
+    await expect(page).toHaveURL(new RegExp(`/t/${recent.id}$`))
+    // Une activité plus récente sur l'ancien fil le fait passer devant.
+    await app.generate({ prompt: 'relance', personaId: alice.id, threadId: old.id })
+    await app.gotoNew()
+    await app.selectPersona('Alice')
+    await expect(page).toHaveURL(new RegExp(`/t/${old.id}$`))
+  })
+
+  test('sans fil, ouvre un nouveau fil avec ce persona', async ({ app, page }) => {
+    await app.createPersona({ name: 'Bea' })
+    await app.generate({ prompt: 'fil sans persona' })
+    await app.gotoNew()
+    await app.selectPersona('Bea')
+    await expect(page).toHaveURL(/\/$/)
+    // Accueil du nouveau fil, au nom du persona.
+    await expect(page.getByRole('heading', { name: 'Bea' })).toBeVisible()
   })
 })

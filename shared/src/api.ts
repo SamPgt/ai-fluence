@@ -4,6 +4,7 @@
  */
 import type { InputSchema, VideoRefMode } from './input';
 import type { MediaKind, ModelBadge, ProviderId, TaskKind } from './models';
+import type { WorkflowGraph } from './workflow';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -340,7 +341,12 @@ export type GenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 export interface Generation {
   id: string;
-  threadId: string;
+  /** Fil de la génération ; null pour un résultat de workflow. */
+  threadId: string | null;
+  workflowId: string | null;
+  workflowNodeId: string | null;
+  /** Voix du persona envoyée comme référence (id dans le persona). */
+  voiceId: string | null;
   personaId: string | null;
   prompt: string;
   /** Prompt réellement envoyé (avec mot déclencheur et suffixe persona). */
@@ -394,6 +400,8 @@ export interface GenerationRequest {
   count?: number;
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
   expectedCost?: string;
+  /** Voix du persona (id dans le persona) envoyée comme référence aux modèles vidéo qui l'acceptent. */
+  voiceId?: string;
 }
 
 export interface UpscaleRequest {
@@ -494,9 +502,95 @@ export interface TrashedThread {
   purgeAt: string;
 }
 
+export interface TrashedWorkflow {
+  id: string;
+  name: string;
+  nodeCount: number;
+  deletedAt: string;
+  purgeAt: string;
+}
+
 export interface TrashResponse {
   /** Durée de conservation, en jours. */
   days: number;
   personas: TrashedPersona[];
   threads: TrashedThread[];
+  workflows: TrashedWorkflow[];
+}
+
+// ── Workflows ─────────────────────────────────────────────────
+
+export interface WorkflowSummary {
+  id: string;
+  name: string;
+  nodeCount: number;
+  /** Couverture choisie (null : aucune, la liste montre alors la dernière image produite). */
+  coverAssetId: string | null;
+  /** Image affichée en couverture : celle choisie, sinon la dernière produite par le workflow. */
+  coverUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Workflow extends WorkflowSummary {
+  graph: WorkflowGraph;
+}
+
+export interface UpdateWorkflowRequest {
+  name?: string;
+  graph?: WorkflowGraph;
+  /** Couverture : un média du compte, ou null pour revenir à la dernière image produite. */
+  coverAssetId?: string | null;
+}
+
+/** `stopped` : arrêtée par l'utilisateur (les étapes en attente ne sont pas parties). */
+export type WorkflowRunStatus = 'running' | 'succeeded' | 'failed' | 'stopped';
+export type WorkflowNodeStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+
+export interface WorkflowRun {
+  id: string;
+  status: WorkflowRunStatus;
+  nodeIds: string[];
+  estimatedCost: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/** Résultat d'un nœud lors d'une exécution. */
+export interface WorkflowNodeResult {
+  id: string;
+  runId: string;
+  nodeId: string;
+  status: WorkflowNodeStatus;
+  /** Génération (nœuds image et vidéo), avec ses médias. */
+  generation: Generation | null;
+  /** Texte produit (nœuds de texte). */
+  text: string | null;
+  cost: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/** État d'exécution d'un workflow : la dernière exécution et l'historique des résultats par nœud. */
+export interface WorkflowStateResponse {
+  run: WorkflowRun | null;
+  /** Du plus récent au plus ancien. */
+  results: WorkflowNodeResult[];
+}
+
+export interface WorkflowRunRequest {
+  /** Graphe tel qu'affiché : enregistré avant le lancement. */
+  graph: WorkflowGraph;
+  /** Nœuds à lancer (absent : tous les nœuds payants). */
+  nodeIds?: string[];
+  /** Devis confirmé par l'utilisateur. */
+  expectedCost?: string;
+}
+
+export interface WorkflowQuoteResponse {
+  estimatedCost: string;
+  /** Tâche de chaque étape : génération (`text-to-image`…) ou modèle de texte (`text`). */
+  nodes: { nodeId: string; task: TaskKind | 'text'; estimatedCost: string }[];
 }

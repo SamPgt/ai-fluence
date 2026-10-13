@@ -33,6 +33,13 @@ import type {
   LibraryStatus,
   User,
   VoiceLibraryResponse,
+  Workflow,
+  WorkflowGraph,
+  WorkflowQuoteResponse,
+  WorkflowRunRequest,
+  WorkflowStateResponse,
+  WorkflowSummary,
+  UpdateWorkflowRequest,
 } from '@ai-fluence/shared'
 
 export class ApiError extends Error {
@@ -125,7 +132,11 @@ export const assetsApi = {
     apiFetch<{ asset: Asset }>(`/assets/${assetId}/reference`, { method: 'PATCH', body: { personaId, isReference } }),
   gallery: (query: { personaId?: string; media?: 'image' | 'video'; before?: string }) =>
     apiFetch<{
-      items: { asset: Asset; generation: { id: string; threadId: string; prompt: string; family: string } | null }[]
+      items: {
+        asset: Asset
+        /** Demande d'origine : dans un fil, ou résultat d'un workflow. */
+        generation: { id: string; threadId: string | null; workflowId: string | null; prompt: string; family: string } | null
+      }[]
       nextBefore: string | null
     }>('/assets/gallery', { query }),
 }
@@ -182,6 +193,8 @@ export const trashApi = {
   restoreThread: (id: string) => apiFetch<{ ok: true }>(`/trash/threads/${id}/restore`, { method: 'POST' }),
   purgePersona: (id: string) => apiFetch<unknown>(`/trash/personas/${id}`, { method: 'DELETE' }),
   purgeThread: (id: string) => apiFetch<unknown>(`/trash/threads/${id}`, { method: 'DELETE' }),
+  restoreWorkflow: (id: string) => apiFetch<{ ok: true }>(`/trash/workflows/${id}/restore`, { method: 'POST' }),
+  purgeWorkflow: (id: string) => apiFetch<unknown>(`/trash/workflows/${id}`, { method: 'DELETE' }),
   empty: () => apiFetch<unknown>('/trash', { method: 'DELETE' }),
 }
 
@@ -223,4 +236,19 @@ export const presetsApi = {
 export const promptsApi = {
   enhance: (body: EnhancePromptRequest) =>
     apiFetch<EnhancePromptResponse>('/prompts/enhance', { method: 'POST', body }),
+}
+
+export const workflowsApi = {
+  list: () => apiFetch<{ workflows: WorkflowSummary[] }>('/workflows'),
+  create: (body: { name?: string } = {}) => apiFetch<{ workflow: Workflow }>('/workflows', { method: 'POST', body }),
+  get: (id: string) => apiFetch<{ workflow: Workflow }>(`/workflows/${id}`),
+  update: (id: string, body: UpdateWorkflowRequest) =>
+    apiFetch<{ workflow: Workflow }>(`/workflows/${id}`, { method: 'PATCH', body }),
+  remove: (id: string) => apiFetch<{ ok: true }>(`/workflows/${id}`, { method: 'DELETE' }),
+  quote: (id: string, body: { graph: WorkflowGraph; nodeIds?: string[] }) =>
+    apiFetch<WorkflowQuoteResponse>(`/workflows/${id}/quote`, { method: 'POST', body }),
+  run: (id: string, body: WorkflowRunRequest) =>
+    apiFetch<WorkflowStateResponse>(`/workflows/${id}/runs`, { method: 'POST', body }),
+  state: (id: string) => apiFetch<WorkflowStateResponse>(`/workflows/${id}/state`),
+  stop: (id: string) => apiFetch<WorkflowStateResponse>(`/workflows/${id}/stop`, { method: 'POST' }),
 }

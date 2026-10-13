@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-/** Relance directe d'une demande (même modèle ou un autre), après confirmation du prix. */
+/** Relance directe d'une demande, sur le même modèle, après confirmation du prix. */
 export function RelaunchDialog({
   request,
   onClose,

@@ -1,7 +1,7 @@
 /**
  * Menu des modèles : recherche, épinglés, recommandés, puis fournisseurs et groupes
  * (Low cost, LoRA) en sous-menus. Pas de tags : seuls la durée habituelle et le nombre
- * d'images de référence sont affichés. Même menu dans le composer et dans « Relancer avec… ».
+ * d'images de référence sont affichés.
  */
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -329,7 +329,7 @@ export function ModelPicker({
   onChange: (id: string) => void
   /** Le persona a des LoRA pour ce modèle : pastille violette. `active` = mots des LoRA cochées. */
   lora?: { active: string[] } | null
-  /** Bouton d'ouverture personnalisé (ex. « Relancer avec… »). */
+  /** Bouton d'ouverture personnalisé (ex. champ de modèle par défaut). */
   trigger?: React.ReactNode
   align?: 'start' | 'end'
 }) {

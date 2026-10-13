@@ -7,7 +7,7 @@ const TASKS = ['text-to-image', 'image-to-image', 'text-to-video', 'image-to-vid
 const byId = (families: CatalogFamily[], id: string) => families.find(f => f.id === id)!;
 
 describe('GET /catalog', () => {
-  it('liste toutes les familles de modèles, dans l’ordre de l’app', async () => {
+  it('liste toutes les familles de modèles, dans l’ordre de l’app @smoke', async () => {
     const me = await signup();
     const res = await me.get('/catalog');
     expect(res.status).toBe(200);

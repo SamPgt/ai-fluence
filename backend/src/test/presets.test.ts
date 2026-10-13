@@ -16,7 +16,7 @@ describe('raccourcis : accès sans session', () => {
 });
 
 describe('GET /presets', () => {
-  it('renvoie les 8 raccourcis par défaut après l’inscription, dans l’ordre', async () => {
+  it('renvoie les 8 raccourcis par défaut après l’inscription, dans l’ordre @smoke', async () => {
     const me = await signup();
     const res = await me.get('/presets');
     expect(res.status).toBe(200);

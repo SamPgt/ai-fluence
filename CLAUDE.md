@@ -15,12 +15,15 @@
 
 ## Tests
 
-- `npm run test` (racine, mode rapide, ~3 min) : `test:db` (crée et migre la base `ai-fluence-test`), puis `test:unit` (tous les tests unitaires et API), puis `test:e2e` (seulement les tests E2E marqués `@core` : un par page et par comportement principal).
-- `npm run test:full` : la même chose avec tous les tests E2E (`test:e2e:full`), cas particuliers compris.
-- Un nouveau test E2E essentiel (nouvelle page, nouveau parcours principal) prend ` @core` à la fin de son titre ; les cas particuliers n'en prennent pas.
+- Trois niveaux (racine), chacun commence par `test:db` (crée et migre la base `ai-fluence-test`) :
+  - `npm run test` (minimal, pendant le développement) : tous les tests `unit`, puis seulement les tests marqués `@smoke` (un test API par fichier d'endpoints, un test E2E par page ou fonctionnalité principale) ;
+  - `npm run test:full` : tous les tests unitaires et API, puis les tests E2E marqués `@core` (un par page et par comportement principal) ;
+  - `npm run test:big` : tout, cas particuliers E2E compris (`test:e2e:big`).
+- Tags dans le titre du test : ` @smoke` pour LE test essentiel d'une nouvelle fonctionnalité ou d'un nouveau fichier d'endpoints (un seul par fonctionnalité), ` @core` pour un test E2E essentiel (nouvelle page, nouveau parcours principal) ; les cas particuliers n'en prennent pas. Un test `@smoke` E2E est aussi `@core`.
 - `npm run test:unit` (Vitest, `vitest.config.mts`) :
   - projet `unit` : logique pure (`shared`, `frontend/src/lib`, `backend/src/services`), sans base ni serveur ;
   - projet `api` : chaque endpoint Hono appelé par `app.fetch` (sans serveur), sur `ai-fluence-test`, avec un faux SpicyAPI (`SPICY_FAKE`, cf. `backend/src/services/spicy.fake.ts` ; un prompt contenant `FAIL_TEST` simule un échec). Fichiers dans `backend/src/test/`.
 - Playwright lance `npm run dev:test` (back avec `cross-env` en `NODE_ENV=test` sur `ai-fluence-test`, port 3471 ; front sur le port 3071 après `wait-on` de l'API), puis les specs `e2e/*.spec.ts`. Chrome installé sur la machine est utilisé.
 - En mode test, rien ne sort de la machine : pas de SpicyAPI ni de Civitai réels, pas d'ouverture du Finder, les fichiers purgés sont supprimés directement (pas de corbeille macOS).
 - Toute évolution doit garder ces tests verts et en ajouter pour les nouveaux cas.
+- Pendant le développement d'une fonctionnalité : lancer seulement les fichiers de test concernés (`npx vitest run <fichier>`, `npx playwright test <spec>`), puis `npm run test` (~30 s). Jamais `test:full` ni `test:big` après une fonctionnalité : ils sont réservés à une demande explicite (avant un commit important, par exemple). Les régressions plus lointaines se repèrent plus tard.

@@ -5,6 +5,7 @@
  */
 import type { Page } from '@playwright/test'
 import { expect, test } from './helpers'
+import { VOICE_ENABLED } from '../frontend/src/lib/features'
 
 const WAN = 'alibaba/wan-3.0'
 
@@ -22,11 +23,14 @@ test.afterEach(async ({ page }) => {
   await page.request.delete('/api/settings/elevenlabs-key')
 })
 
-test('fiche persona : contexte, photos, voix puis modèles par défaut @core', async ({ app, page }) => {
+test('fiche persona : contexte, photos (voix), puis modèles par défaut @core @smoke', async ({ app, page }) => {
   const p = await app.createPersona({ name: 'Alice' })
   await page.goto(`/personas/${p.id}`)
   await waitHydrated(page)
-  const wanted = ['Contexte du persona', 'Photos de références', 'Voix de référence', 'Modèles par défaut']
+  // PROCHAINEMENT : ajout de la voix. En pause, pas de section « Voix de référence ».
+  const wanted = VOICE_ENABLED
+    ? ['Contexte du persona', 'Photos de références', 'Voix de référence', 'Modèles par défaut']
+    : ['Contexte du persona', 'Photos de références', 'Modèles par défaut']
   await expect
     .poll(async () => {
       const titles = await page.locator('section h2').allTextContents()
@@ -36,6 +40,7 @@ test('fiche persona : contexte, photos, voix puis modèles par défaut @core', a
 })
 
 test('sans clé ElevenLabs, la fenêtre des voix invite à l’ajouter', async ({ app, page }) => {
+  test.skip(!VOICE_ENABLED, 'PROCHAINEMENT : ajout de la voix')
   const p = await app.createPersona({ name: 'Alice' })
   await page.goto(`/personas/${p.id}`)
   await waitHydrated(page)
@@ -45,6 +50,7 @@ test('sans clé ElevenLabs, la fenêtre des voix invite à l’ajouter', async (
 })
 
 test('ajouter une voix du catalogue : elle apparaît sur la fiche et reste après rechargement @core', async ({ app, page }) => {
+  test.skip(!VOICE_ENABLED, 'PROCHAINEMENT : ajout de la voix')
   await setElevenLabsKey(page)
   const p = await app.createPersona({ name: 'Alice' })
   await page.goto(`/personas/${p.id}`)
@@ -75,6 +81,7 @@ test('menu des modèles : icône de voix sur les modèles vidéo qui acceptent u
 })
 
 test('composer : bouton « Voix » pour un modèle vidéo à voix, absent en photo @core', async ({ app, page }) => {
+  test.skip(!VOICE_ENABLED, 'PROCHAINEMENT : ajout de la voix')
   await app.createPersona({
     name: 'Alice',
     defaultVideoFamily: WAN,
@@ -94,32 +101,4 @@ test('composer : bouton « Voix » pour un modèle vidéo à voix, absent en pho
   await page.locator('[data-slot=popover-content]').getByText('Sarah', { exact: true }).click()
   await expect(picker).toHaveText(/Sarah/)
   await expect(page.getByText(/Voix « Sarah » choisie/)).toBeVisible()
-})
-
-test('persona artistique : pas de section Voix sur la fiche ni de bouton « Voix » dans le composer @core', async ({ app, page }) => {
-  const p = await app.createPersona({
-    name: 'Royaume',
-    defaultVideoFamily: WAN,
-    voices: [{ id: 'v1', voiceId: 'fake-sarah', name: 'Sarah', previewUrl: null, labels: {} }],
-  })
-  await page.goto(`/personas/${p.id}`)
-  await waitHydrated(page)
-  const kinds = page.getByRole('radiogroup', { name: 'Type de persona' })
-  await expect(kinds.getByRole('radio', { name: 'Influenceur' })).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByRole('heading', { name: 'Voix de référence' })).toBeVisible()
-  await kinds.getByRole('radio', { name: 'Artistique' }).click()
-  await expect(page.getByRole('heading', { name: 'Voix de référence' })).toHaveCount(0)
-  await expect
-    .poll(async () => (await (await page.request.get('/api/personas')).json()).personas[0].kind)
-    .toBe('artistic')
-  // Gardé après rechargement.
-  await page.reload()
-  await waitHydrated(page)
-  await expect(page.getByRole('radiogroup', { name: 'Type de persona' }).getByRole('radio', { name: 'Artistique' })).toHaveAttribute('aria-checked', 'true')
-  // Composer : modèle vidéo à voix, mais pas de bouton « Voix ».
-  await app.gotoNew()
-  await app.selectPersona('Royaume')
-  await app.chooseMedia('Vidéo')
-  await expect(app.modelPicker).toContainText('Wan 3.0')
-  await expect(page.getByTestId('voice-picker')).toHaveCount(0)
 })

@@ -1,3 +1,4 @@
+import { VOICE_ENABLED } from '@/lib/features'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   DndContext,
@@ -42,7 +43,6 @@ import {
   type MediaKind,
   type Persona,
   type PersonaContextBlock,
-  type PersonaKind,
   type PersonaLora,
   type PersonaVoice,
 } from '@ai-fluence/shared'
@@ -137,18 +137,6 @@ function Card({
   )
 }
 
-const PERSONA_KINDS: { value: PersonaKind; label: string; hint: string }[] = [
-  {
-    value: 'influencer',
-    label: 'Influenceur',
-    hint: 'Une personne : photos, voix de référence et contexte.',
-  },
-  {
-    value: 'artistic',
-    label: 'Artistique',
-    hint: 'Un univers visuel : photos de référence et contexte, sans voix.',
-  },
-]
 
 /** Corps envoyé au serveur (les blocs et LoRA vides ne sont pas conservés). */
 function toPayload(p: Persona) {
@@ -333,7 +321,7 @@ function PersonaEditor({ persona }: { persona: Persona }) {
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[810px] space-y-5 px-6 py-6">
+        <div className="mx-auto max-w-[830px] space-y-5 px-6 py-6">
           <Card title="Identité">
             <div className="flex items-start gap-5">
               {/* Avatar : clic pour changer ; au survol, une croix en haut à droite retire la photo. */}
@@ -383,31 +371,6 @@ function PersonaEditor({ persona }: { persona: Persona }) {
                     maxLength={40}
                     aria-label="Nom du persona"
                   />
-                </div>
-                {/* Type : adapte la fiche (pas de voix pour un univers artistique). */}
-                <div
-                  role="radiogroup"
-                  aria-label="Type de persona"
-                  className="inline-flex rounded-lg bg-muted/60 p-0.5"
-                >
-                  {PERSONA_KINDS.map((k) => (
-                    <button
-                      key={k.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={draft.kind === k.value}
-                      onClick={() => set('kind', k.value)}
-                      title={k.hint}
-                      className={cn(
-                        'h-7 rounded-md px-3 text-[13px] transition-colors',
-                        draft.kind === k.value
-                          ? 'bg-background text-foreground shadow-xs'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {k.label}
-                    </button>
-                  ))}
                 </div>
                 {/* Couleur de fond des initiales : seulement sans photo. */}
                 {!draft.avatarUrl && (
@@ -497,8 +460,8 @@ function PersonaEditor({ persona }: { persona: Persona }) {
               {/* Puis les médias du persona : une image vaut mille mots. */}
               <References persona={persona} />
 
-              {/* Voix : seulement pour un persona influenceur. */}
-              {draft.kind !== 'artistic' && (
+              {/* Voix : seulement pour un persona influenceur. PROCHAINEMENT : ajout de la voix (VOICE_ENABLED). */}
+              {VOICE_ENABLED && draft.kind !== 'artistic' && (
                 <PersonaVoices
                   voices={draft.voices}
                   onChange={(voices) => set('voices', voices)}

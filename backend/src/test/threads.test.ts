@@ -44,7 +44,7 @@ describe('GET /threads', () => {
     expect(res.body).toEqual({ threads: [] });
   });
 
-  it('crée un fil à la première génération avec le prompt comme titre, le coût et la couverture', async () => {
+  it('crée un fil à la première génération avec le prompt comme titre, le coût et la couverture @smoke', async () => {
     const me = await signup();
     const { generation, thread } = await me.generate({ prompt: 'un chat sur un toit' });
     const res = await me.get('/threads');

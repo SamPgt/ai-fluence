@@ -5,7 +5,7 @@ test('l’app démarre avec le modèle économique par défaut @core', async ({ 
   await expect(app.modelPicker).toContainText('Seedream 5.0 Flash')
 })
 
-test('une génération (faux SpicyAPI) apparaît dans son fil @core', async ({ app, page }) => {
+test('une génération (faux SpicyAPI) apparaît dans son fil @core @smoke', async ({ app, page }) => {
   const { thread, generation } = await app.generate({ prompt: 'une pomme' })
   expect(generation.outputs).toHaveLength(1)
   await app.gotoThread(thread.id)

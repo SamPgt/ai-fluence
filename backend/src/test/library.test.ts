@@ -89,7 +89,7 @@ describe('GET /library/unsplash/search', () => {
     expect(calls(spy)).toHaveLength(0);
   });
 
-  it('sans recherche : photos populaires, avec la clé et l’attribution', async () => {
+  it('sans recherche : photos populaires, avec la clé et l’attribution @smoke', async () => {
     const spy = stubUnsplash(() => json(Array.from({ length: 30 }, (_, i) => photo(`p${i}`))));
     const res = await (await signup()).get('/library/unsplash/search');
     expect(res.status).toBe(200);

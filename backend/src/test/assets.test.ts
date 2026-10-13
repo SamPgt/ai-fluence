@@ -62,7 +62,7 @@ describe('authentification', () => {
 });
 
 describe('POST /assets', () => {
-  it('enregistre une image PNG sur le disque et renvoie le média', async () => {
+  it('enregistre une image PNG sur le disque et renvoie le média @smoke', async () => {
     const me = await signup();
     const res = await me.upload();
     expect(res.status).toBe(201);
@@ -398,6 +398,7 @@ describe('GET /assets/gallery', () => {
     expect(item.generation).toEqual({
       id: generation.id,
       threadId: thread.id,
+      workflowId: null,
       prompt: 'un phare',
       family: 'bytedance/seedream-5.0-flash',
     });

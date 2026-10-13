@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { call, signup } from './helpers.js';
 
 describe('supprimer un résultat du fil', () => {
-  it('masque les images, garde la demande, et se restaure', async () => {
+  it('masque les images, garde la demande, et se restaure @smoke', async () => {
     const me = await signup();
     const { generation, thread } = await me.generate({ prompt: 'une pomme' });
     const removed = await me.del(`/generations/${generation.id}`);

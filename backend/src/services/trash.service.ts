@@ -1,5 +1,5 @@
 /**
- * Corbeille : un persona ou un fil supprimé est d'abord masqué (`deleted_at`).
+ * Corbeille : un persona, un fil ou un workflow supprimé est d'abord masqué (`deleted_at`).
  * Supprimer un persona met aussi ses fils à la corbeille, avec la même date :
  * c'est ce qui permet de les restaurer ensemble.
  * Après 7 jours (ou en vidant la corbeille), les lignes sont supprimées et les
@@ -11,7 +11,7 @@ import trash from 'trash';
 import { env } from '../env.js';
 import type { TrashResponse } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { assets, personas, threads } from '../db/schema.js';
+import { assets, personas, threads, workflows } from '../db/schema.js';
 import { toAsset } from './serialize.js';
 
 export const TRASH_DAYS = 7;
@@ -82,6 +82,24 @@ export async function restoreThread(userId: string, threadId: string): Promise<b
   return true;
 }
 
+export async function trashWorkflow(userId: string, workflowId: string): Promise<boolean> {
+  const [row] = await db
+    .update(workflows)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(workflows.id, workflowId), eq(workflows.userId, userId), isNull(workflows.deletedAt)))
+    .returning({ id: workflows.id });
+  return Boolean(row);
+}
+
+export async function restoreWorkflow(userId: string, workflowId: string): Promise<boolean> {
+  const [row] = await db
+    .update(workflows)
+    .set({ deletedAt: null })
+    .where(and(eq(workflows.id, workflowId), eq(workflows.userId, userId), isNotNull(workflows.deletedAt)))
+    .returning({ id: workflows.id });
+  return Boolean(row);
+}
+
 // ── Contenu de la corbeille ───────────────────────────────────
 
 export async function listTrash(userId: string): Promise<TrashResponse> {
@@ -116,6 +134,12 @@ export async function listTrash(userId: string): Promise<TrashResponse> {
     )
     .orderBy(sql`${threads.deletedAt} desc`);
 
+  const ws = await db
+    .select()
+    .from(workflows)
+    .where(and(eq(workflows.userId, userId), isNotNull(workflows.deletedAt)))
+    .orderBy(sql`${workflows.deletedAt} desc`);
+
   return {
     days: TRASH_DAYS,
     personas: ps.map(({ p, threadCount }) => ({
@@ -135,6 +159,13 @@ export async function listTrash(userId: string): Promise<TrashResponse> {
       deletedAt: t.deletedAt!.toISOString(),
       purgeAt: purgeAt(t.deletedAt!),
     })),
+    workflows: ws.map(w => ({
+      id: w.id,
+      name: w.name,
+      nodeCount: w.graph.nodes.length,
+      deletedAt: w.deletedAt!.toISOString(),
+      purgeAt: purgeAt(w.deletedAt!),
+    })),
   };
 }
 
@@ -144,13 +175,29 @@ export interface PurgeTarget {
   userId?: string;
   personaIds?: string[];
   threadIds?: string[];
+  workflowIds?: string[];
   /** Tout ce qui est à la corbeille depuis plus de 7 jours. */
   expired?: boolean;
 }
 
 /** Supprime pour de bon ; les fichiers locaux partent dans la Corbeille du système. */
-export async function purge(target: PurgeTarget): Promise<{ personas: number; threads: number; files: number }> {
+export async function purge(
+  target: PurgeTarget,
+): Promise<{ personas: number; threads: number; workflows: number; files: number }> {
   const cutoff = new Date(Date.now() - TRASH_DAYS * DAY_MS);
+  const workflowFilter = target.expired
+    ? lt(workflows.deletedAt, cutoff)
+    : target.workflowIds?.length
+      ? inArray(workflows.id, target.workflowIds)
+      : null;
+  const workflowIds = workflowFilter
+    ? (
+        await db
+          .select({ id: workflows.id })
+          .from(workflows)
+          .where(and(isNotNull(workflows.deletedAt), target.userId ? eq(workflows.userId, target.userId) : undefined, workflowFilter))
+      ).map(r => r.id)
+    : [];
   const scope = (col: typeof personas.userId | typeof threads.userId) => (target.userId ? eq(col, target.userId) : undefined);
 
   const personaFilter = target.expired
@@ -183,7 +230,9 @@ export async function purge(target: PurgeTarget): Promise<{ personas: number; th
       ),
     );
   const threadIds = threadRows.map(r => r.id);
-  if (!personaIds.length && !threadIds.length) return { personas: 0, threads: 0, files: 0 };
+  if (!personaIds.length && !threadIds.length && !workflowIds.length) {
+    return { personas: 0, threads: 0, workflows: 0, files: 0 };
+  }
 
   // `x in ()` est invalide et `x not in (null)` vaut NULL : on traite les listes vides à part.
   const list = (ids: string[]) => sql.join(ids.map(id => sql`${id}::uuid`), sql`, `);
@@ -199,16 +248,23 @@ export async function purge(target: PurgeTarget): Promise<{ personas: number; th
     .where(
       and(
         or(
-          sql`${assets.generationId} in (select g.id from generations g where ${isIn(sql`g.thread_id`, threadIds)})`,
+          sql`${assets.generationId} in (select g.id from generations g where ${isIn(sql`g.thread_id`, threadIds)} or ${isIn(sql`g.workflow_id`, workflowIds)})`,
+          // Couverture importée d'un workflow supprimé (un résultat choisi comme couverture suit sa génération).
+          and(
+            sql`${assets.id} in (select w.cover_asset_id from workflows w where ${isIn(sql`w.id`, workflowIds)})`,
+            eq(assets.kind, 'upload'),
+          ),
           // Médias propres au persona (imports, références, avatar) : pas les résultats
           // de génération, qui suivent leur fil (un fil déplacé vers un autre persona
           // garde ses images).
           and(isIn(sql`${assets.personaId}`, personaIds), isNull(assets.generationId)),
         ),
         sql`not (${assets.isReference} and ${assets.personaId} is not null and ${notIn(sql`${assets.personaId}`, personaIds)})`,
-        sql`not exists (select 1 from generations g where g.reference_asset_ids ? ${assets.id}::text and ${notIn(sql`g.thread_id`, threadIds)})`,
+        // Encore utilisé comme référence par une génération conservée (d'un fil ou d'un workflow).
+        sql`not exists (select 1 from generations g where g.reference_asset_ids ? ${assets.id}::text and (g.thread_id is null or ${notIn(sql`g.thread_id`, threadIds)}) and (g.workflow_id is null or ${notIn(sql`g.workflow_id`, workflowIds)}))`,
         sql`not exists (select 1 from personas p where p.avatar_asset_id = ${assets.id} and ${notIn(sql`p.id`, personaIds)})`,
         sql`not exists (select 1 from users u where u.avatar_asset_id = ${assets.id})`,
+        sql`not exists (select 1 from workflows w where w.cover_asset_id = ${assets.id} and ${notIn(sql`w.id`, workflowIds)})`,
       ),
     );
 
@@ -229,10 +285,11 @@ export async function purge(target: PurgeTarget): Promise<{ personas: number; th
   await db.transaction(async tx => {
     if (doomed.length) await tx.delete(assets).where(inArray(assets.id, doomed.map(a => a.id)));
     if (threadIds.length) await tx.delete(threads).where(inArray(threads.id, threadIds)); // générations en cascade
+    if (workflowIds.length) await tx.delete(workflows).where(inArray(workflows.id, workflowIds)); // idem
     if (personaIds.length) await tx.delete(personas).where(inArray(personas.id, personaIds));
   });
 
-  return { personas: personaIds.length, threads: threadIds.length, files };
+  return { personas: personaIds.length, threads: threadIds.length, workflows: workflowIds.length, files };
 }
 
 /** Nettoyage automatique : au démarrage puis toutes les heures. */
@@ -240,8 +297,10 @@ export function schedulePurge(): void {
   const run = () =>
     purge({ expired: true })
       .then(r => {
-        if (r.personas || r.threads) {
-          console.log(`🗑️  Corbeille : ${r.personas} persona(s), ${r.threads} fil(s), ${r.files} fichier(s) déplacé(s).`);
+        if (r.personas || r.threads || r.workflows) {
+          console.log(
+            `🗑️  Corbeille : ${r.personas} persona(s), ${r.threads} fil(s), ${r.workflows} workflow(s), ${r.files} fichier(s) déplacé(s).`,
+          );
         }
       })
       .catch(err => console.error('[corbeille]', err));

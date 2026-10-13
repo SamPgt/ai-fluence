@@ -27,11 +27,12 @@ import {
   Settings,
   Settings2,
   Trash2,
+  Workflow,
 } from 'lucide-react'
-import type { Persona, User } from '@ai-fluence/shared'
+import type { Persona, Thread, User } from '@ai-fluence/shared'
 
 import { authApi, personasApi } from '@/lib/api'
-import { personasQuery, qk } from '@/lib/queries'
+import { personasQuery, qk, threadsQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { SESSION_QUERY_KEY } from '@/server/auth'
 import { useUiPref } from '@/components/providers/ui-prefs'
@@ -179,10 +180,19 @@ export function PersonaRail({ user }: { user: User }) {
     })
   }
 
-  const select = (id: string) => {
+  // Clic sur un persona : on ouvre son fil le plus récent (sinon un nouveau fil).
+  const select = async (id: string) => {
     if (Date.now() - droppedAt.current < 150) return
     setPersonaId(id)
-    navigate({ to: '/' })
+    const threads = await queryClient
+      .fetchQuery(threadsQuery(id))
+      .catch(() => [] as Thread[])
+    const latest = [...threads].sort(
+      (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+    )[0]
+    if (latest)
+      navigate({ to: '/t/$threadId', params: { threadId: latest.id } })
+    else navigate({ to: '/' })
   }
 
   const logout = async () => {
@@ -253,6 +263,20 @@ export function PersonaRail({ user }: { user: User }) {
           </span>
         </Bubble>
       </div>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/workflows"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            activeProps={{ className: 'bg-accent text-foreground' }}
+            aria-label="Workflows"
+          >
+            <Workflow className="h-5 w-5" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">Workflows</TooltipContent>
+      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>

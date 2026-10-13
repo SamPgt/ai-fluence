@@ -68,7 +68,8 @@ function AppShell({ user: initialUser }: { user: User }) {
   return (
     <div className="flex h-full w-full overflow-hidden">
       <PersonaRail user={user} />
-      <ThreadPanel collapsed={collapsed} />
+      {/* Workflows : jamais le volet des fils (le canvas a sa palette de nœuds). */}
+      {!pathname.startsWith('/workflows') && <ThreadPanel collapsed={collapsed} />}
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {settings && !settings.hasApiKey && !pathname.startsWith('/parametres') && (
           <Link
