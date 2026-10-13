@@ -158,10 +158,17 @@ const personasRoutes = new Hono<AppEnv>()
   )
   .post(
     '/:id/voice/create',
-    zValidator('json', z.object({ description: z.string().trim().max(300).default(''), resolution: z.enum(['512p', '720p']).default('512p') })),
+    zValidator(
+      'json',
+      z.object({
+        description: z.string().trim().max(300).default(''),
+        resolution: z.enum(['512p', '720p']).default('512p'),
+        language: z.enum(['fr', 'en']).default('fr'),
+      }),
+    ),
     async c => {
-      const { description, resolution } = c.req.valid('json');
-      return c.json({ voice: await createVoice(c.get('user'), c.req.param('id'), description, resolution) });
+      const { description, resolution, language } = c.req.valid('json');
+      return c.json({ voice: await createVoice(c.get('user'), c.req.param('id'), description, resolution, language) });
     },
   )
   .post('/:id/voice/cancel', async c => c.json({ voice: await cancelCreation(c.get('user'), c.req.param('id')) }))

@@ -273,6 +273,7 @@ export async function createVoice(
   personaId: string,
   description: string,
   resolution: '512p' | '720p' = '512p',
+  language: 'fr' | 'en' = 'fr',
 ): Promise<PersonaVoice> {
   if (!isVoiceEnabled()) throw new HTTPException(400, { message: 'Voix non configurée (VOICE_URL, COMFYUI_URL).' });
   const persona = await ownedPersona(user.id, personaId);
@@ -289,10 +290,16 @@ export async function createVoice(
   const image = await uploadImage(await readFile(avatar.filePath), `ai-fluence-${avatar.id}.${extFor(avatar.mime)}`, avatar.mime);
   const subject = SUBJECT[persona.gender ?? ''] ?? 'A person';
   const voiceLine = description.trim() ? ` Voice: ${description.trim()}.` : ' Natural, warm, friendly voice.';
-  const prompt =
-    `${subject} looks at the camera and talks casually in French, relaxed and smiling, like a vlogger telling about the day: ` +
-    `"Coucou ! Alors aujourd'hui, je vais vous raconter ma journée, et franchement, c'était vraiment une super journée."` +
-    `${voiceLine} Clear speech, close microphone, quiet room, no music. Natural smartphone video.`;
+  // Phrase dite par LTX : seul le timbre est gardé. LTX parle mieux anglais (diction plus fluide) ; une référence
+  // anglaise pourrait toutefois laisser un léger accent quand Chatterbox fait parler le personnage en français.
+  // Phrase anglaise riche en sons variés (voyelles, consonnes), pour donner plus d'information au clonage.
+  const line =
+    language === 'en'
+      ? `talks casually in English, relaxed and smiling, like a vlogger telling about the day: ` +
+        `"Hey guys! So today I want to tell you about my day, and honestly, it was such a lovely, peaceful, really amazing day."`
+      : `talks casually in French, relaxed and smiling, like a vlogger telling about the day: ` +
+        `"Coucou ! Alors aujourd'hui, je vais vous raconter ma journée, et franchement, c'était vraiment une super journée."`;
+  const prompt = `${subject} looks at the camera and ${line}${voiceLine} Clear speech, close microphone, quiet room, no music. Natural smartphone video.`;
   // La VRAM du serveur de voix est rendue avant le gros modèle vidéo.
   await unloadVoice();
   const graph = buildLtx(

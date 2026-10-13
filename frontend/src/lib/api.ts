@@ -214,8 +214,8 @@ export const personasApi = {
   remove: (id: string) => apiFetch<{ ok: true }>(`/personas/${id}`, { method: 'DELETE' }),
   reorder: (ids: string[]) => apiFetch<{ ok: true }>('/personas/order', { method: 'PUT', body: { ids } }),
   voice: (id: string) => apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice`),
-  createVoice: (id: string, description: string, resolution: '512p' | '720p') =>
-    apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/create`, { method: 'POST', body: { description, resolution } }),
+  createVoice: (id: string, description: string, resolution: '512p' | '720p', language: 'fr' | 'en') =>
+    apiFetch<{ voice: PersonaVoice }>(`/personas/${id}/voice/create`, { method: 'POST', body: { description, resolution, language } }),
   voices: () => apiFetch<{ voices: { personaId: string; name: string; url: string }[] }>('/personas/voices'),
   importVoice: (id: string, file: File) => {
     const form = new FormData()

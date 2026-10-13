@@ -40,6 +40,7 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
   })
   const [description, setDescription] = useState('')
   const [hd, setHd] = useState(false)
+  const [english, setEnglish] = useState(false)
   const [text, setText] = useState(SAMPLE)
   const [exaggeration, setExaggeration] = useState<number | null>(null)
   const [playing, setPlaying] = useState<'current' | 'candidate' | null>(null)
@@ -50,7 +51,7 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
   const onError = (e: Error) => toast.error(e.message)
 
   const create = useMutation({
-    mutationFn: () => personasApi.createVoice(persona.id, description, hd ? '720p' : '512p'),
+    mutationFn: () => personasApi.createVoice(persona.id, description, hd ? '720p' : '512p', english ? 'en' : 'fr'),
     onSuccess: (r) => setVoice(r.voice),
     onError,
   })
@@ -195,6 +196,11 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Switch checked={hd} onCheckedChange={setHd} />
             Vidéo en 720p : voix peut-être plus fidèle, création environ 2 fois plus longue (~10 min)
+          </label>
+          {/* LTX parle mieux anglais : timbre plus net, mais un léger accent possible en français (à comparer). */}
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Switch checked={english} onCheckedChange={setEnglish} />
+            Phrase de création en anglais : diction plus fluide pour LTX, léger accent possible en français (à comparer)
           </label>
           {!persona.avatarAssetId && (
             <p className="text-xs text-muted-foreground">Il faut d’abord une image de référence (avatar) au personnage.</p>
