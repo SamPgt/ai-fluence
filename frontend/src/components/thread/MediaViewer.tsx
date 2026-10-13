@@ -1,9 +1,15 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { useEffect } from 'react'
-import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Brush, ChevronLeft, ChevronRight, Download, X } from 'lucide-react'
 import type { Asset } from '@ai-fluence/shared'
 
+import { catalogQuery } from '@/lib/queries'
 import { Dialog, DialogOverlay, DialogPortal } from '@/components/ui/dialog'
+import { RetouchEditor } from './RetouchEditor'
+
+/** Modèles qui savent retoucher au pinceau (cf. `retouch.service.ts` côté backend). */
+const RETOUCH_FAMILIES = ['local/flux2-klein-9b', 'local/flux2-klein-4b']
 
 const NAV =
   'fixed top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20 disabled:pointer-events-none disabled:opacity-0'
@@ -23,16 +29,22 @@ export function MediaViewer({
   onPrev?: () => void
   onNext?: () => void
 }) {
-  // Flèches du clavier pour passer d'un média à l'autre.
+  // Retouche au pinceau : possible si klein tourne en local.
+  const { data: catalog } = useQuery(catalogQuery())
+  const canRetouch = RETOUCH_FAMILIES.some((id) => catalog?.families.find((f) => f.id === id)?.available)
+  const [retouching, setRetouching] = useState(false)
+  useEffect(() => setRetouching(false), [asset?.id])
+
+  // Flèches du clavier pour passer d'un média à l'autre (pas pendant la retouche).
   useEffect(() => {
-    if (!asset || (!onPrev && !onNext)) return
+    if (!asset || retouching || (!onPrev && !onNext)) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') onPrev?.()
       if (e.key === 'ArrowRight') onNext?.()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [asset, onPrev, onNext])
+  }, [asset, retouching, onPrev, onNext])
 
   return (
     <Dialog open={Boolean(asset)} onOpenChange={(v) => !v && onClose()}>
@@ -46,12 +58,25 @@ export function MediaViewer({
           <DialogPrimitive.Title className="sr-only">
             Aperçu
           </DialogPrimitive.Title>
-          {asset && (
+          {asset && retouching && (
+            <RetouchEditor asset={asset} onDone={onClose} onCancel={() => setRetouching(false)} />
+          )}
+          {asset && !retouching && (
             <>
               <div
                 className="absolute top-4 right-4 flex gap-2"
                 onClick={(e) => e.stopPropagation()}
               >
+                {canRetouch && asset.mediaType === 'image' && (
+                  <button
+                    type="button"
+                    onClick={() => setRetouching(true)}
+                    className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/20"
+                    title="Peindre une zone ratée (une main…) et la faire refaire"
+                  >
+                    <Brush className="h-4 w-4" /> Retoucher
+                  </button>
+                )}
                 <a
                   href={`${asset.url}?download=1`}
                   className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"

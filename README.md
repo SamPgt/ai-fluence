@@ -124,6 +124,8 @@ Les fichiers installés dans ComfyUI sont lus en direct :
 
 **klein en « filtre »** : en image → image, la **force** de klein (4B ou 9B) vaut 1 par défaut (nouvelle image d'après les références). Entre 0,2 et 0,4, klein retravaille l'image 1 sans toucher à la composition ni à l'anatomie et n'apporte que sa peau et ses couleurs (~15 s avec le 4B), par exemple après Qwen Edit.
 
+**Retoucher au pinceau** (local, FLUX.2 klein) : dans la visionneuse plein écran, **Retoucher** permet de peindre une zone ratée (une main à trois doigts…) et de dire en quelques mots, en anglais de préférence, ce qu'il faut à la place (facultatif). Seule cette zone est refaite, le reste de l'image ne change pas d'un pixel ; le résultat arrive dans le fil de l'image comme une nouvelle génération (~1 min avec klein 9B, « Relancer » refait la même zone avec une autre graine). La zone et du contexte autour sont découpés et agrandis à ~1 Mpx, klein la repeint sans voir l'ancien contenu (une main ratée est refaite de zéro, pas recopiée), puis elle est recollée avec un bord adouci. Testé sur des mains refaites de zéro (posée sur un paréo, tenant un verre) : naturelles et sans raccord visible. Pour ajouter un objet, peindre toute la place qu'il doit occuper : il est coupé au bord du masque. Z-Image, essayé de la même façon, donnait une main vieillie à la peau fausse ; Qwen Edit, une bonne main mais presque 2 fois plus lentement.
+
 **Décrire une image (prompt inversé)** : sur une image jointe au composer, **Décrire** en fait un prompt anglais (lieu, tenue, pose, lumière, cadrage), ajouté au prompt en cours, pour faire vivre une vraie scène (un resto à Paris…) à un personnage. L'identité de la personne photographiée n'est pas décrite (« a person »), c'est le personnage qui la remplace. Nœud [ComfyUI-JoyCaption](https://github.com/1038lab/ComfyUI-JoyCaption) et modèle JoyCaption Beta One (`models/LLM/llama-joycaption-beta-one`, ~16 Go, chargé en 4 bits) : ~35 s par image sur RTX 3060, la VRAM est libérée après chaque description. Avec `transformers` 5, le nœud plante (« 'SizeDict' object cannot be interpreted as an integer ») : il faut une petite correction dans `JC.py` (taille d'image lue en attributs), à refaire après une mise à jour du nœud.
 
 Un fichier ajouté dans ComfyUI apparaît dans l'app au rafraîchissement du catalogue. Le temps de calcul de chaque génération locale est affiché sous le résultat.
@@ -238,12 +240,18 @@ Le **+** de la barre de gauche ouvre le créateur (la création rapide d'un pers
 - **Départ** : « Vierge » ou « Aléatoire complet » démarrent une nouvelle création ; la création en cours est reprise à chaque ouverture.
 - **Genre** (Femme / Homme), **modèle** et **taille du lot** (4, 8, 12), puis « Générer N variantes ». Chaque variante fait son propre tirage ; en local, elles arrivent une par une, avec la progression et « Annuler le lot ».
 - **Variantes** : historique des lots (rien n'est supprimé), vue **Grille** (traits tirés sous chaque image) ou **Comparer** (une colonne par image, une ligne par trait, en couleur ce qui varie ; clic sur une case pour reprendre ce trait seul).
-- Sur une variante : **Reprendre ces traits** (recopiés dans la fiche, sauf les verrouillés) ou **Garder ce personnage** : le persona est créé avec son genre, l'image comme avatar, première référence et première image master, et ses traits comme fiche d'identité. Quand on le sélectionne, le composer ajoute ces traits en bulles. On arrive ensuite sur ses images master.
-- L'**aperçu neutre** (cadrage, fond, lumière) prolonge la phrase des traits ; modifiable. Les variantes restent hors de la liste des fils et de la galerie.
+- Sur une variante : **Reprendre ces traits** (recopiés dans la fiche, sauf les verrouillés) ou **Garder ce personnage** : le persona est créé avec son genre, l'image comme avatar, première référence et première image master, et ses traits comme fiche d'identité. Quand on le sélectionne avec un modèle sans références (Z-Image, Krea…), le composer ajoute ces traits en bulles ; avec un modèle à références (klein, Qwen Edit), ce sont ses images qui portent l'identité (cf. [Planche de références](#planche-de-références)). On arrive ensuite sur ses images master, où sa planche de références part toute seule.
+- L'**aperçu neutre** (cadrage, fond, lumière du jour indirecte) prolonge la phrase des traits ; modifiable. Les variantes restent hors de la liste des fils et de la galerie.
 
 ## Images master
 
 Page d'un personnage → **Images master** (ou directement après « Garder ce personnage »).
+
+### Planche de références
+
+En haut de la page : une image de **face**, de **trois-quarts** et de **profil**, générées à partir de l'avatar par un modèle à références (FLUX.2 klein 9B par défaut, ~50 s par image en local), puis choisies une par une (clic sur l'image à garder, re-clic pour la retirer). Juste après « Garder ce personnage », la planche complète (2 propositions par pose) part toute seule. **Relancer** une pose ajoute 2 propositions sans toucher à l'image retenue ; les variations « Angles » de la page s'y ajoutent aussi.
+
+Les 3 images retenues deviennent des références du personnage et sont **jointes d'office** aux nouvelles demandes faites avec un modèle à références (klein, Qwen Edit) : il suit son visage sous tous les angles. Les bulles de traits d'identité, qui tiraient alors le visage vers un visage « type », ne sont plus ajoutées pour ces modèles (toujours ajoutables à la main, pour changer sa coupe par exemple).
 
 - Avec un modèle à **références** (FLUX.2 klein, Qwen Edit), **Partir de la référence (image 1)** donne l'image de référence au modèle : la cohérence vient du modèle lui-même, sans ReActor.
 - Choisir un **axe** : Angles, Expressions, Lumières, Tenues, Cadrages, ou **Mélange** (une variante tirée dans tous les axes pour chaque image). Chaque image du lot prend une variante différente de l'axe.

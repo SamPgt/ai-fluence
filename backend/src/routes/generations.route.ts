@@ -12,6 +12,7 @@ import {
   quoteGeneration,
   quoteUpscale,
 } from '../services/generation.service.js';
+import { retouchImage } from '../services/retouch.service.js';
 import type { AppEnv } from '../types.js';
 
 const generationSchema = z.object({
@@ -76,6 +77,21 @@ const generationsRoutes = new Hono<AppEnv>()
       }
       throw err;
     }
+  })
+  /**
+   * Retouche au pinceau (local) : multipart `assetId`, `prompt`, `box` (JSON { x, y, width, height } du masque, en
+   * pixels de l'image) et `mask` (PNG à la taille de l'image, blanc = zone à refaire).
+   */
+  .post('/retouch', async c => {
+    const body = await c.req.parseBody();
+    const box = z
+      .object({ x: z.number().min(0), y: z.number().min(0), width: z.number().positive(), height: z.number().positive() })
+      .safeParse(JSON.parse(typeof body.box === 'string' ? body.box : 'null'));
+    const assetId = z.uuid().safeParse(body.assetId);
+    if (!(body.mask instanceof File) || !box.success || !assetId.success) return c.json({ error: 'Retouche : demande incomplète.' }, 400);
+    if (body.mask.size > 5 * 1024 * 1024) return c.json({ error: 'Masque trop lourd.' }, 400);
+    const prompt = typeof body.prompt === 'string' ? body.prompt.slice(0, 1000) : '';
+    return c.json(await retouchImage(c.get('user'), { assetId: assetId.data, prompt, box: box.data, mask: body.mask }), 201);
   })
   .get('/:id', async c => {
     const [generation] = await loadGenerations(c.get('user').id, { ids: [c.req.param('id')] });

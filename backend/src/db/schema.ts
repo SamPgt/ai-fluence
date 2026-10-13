@@ -210,7 +210,7 @@ export const assets = pgTable(
      * `thumbnail` : miniature d'une option de la bibliothèque (hors galerie).
      * `voice` : voix d'un personnage (extrait audio, vidéo de création), hors galerie.
      */
-    kind: text('kind').$type<'upload' | 'output' | 'thumbnail' | 'voice'>().notNull(),
+    kind: text('kind').$type<'upload' | 'output' | 'thumbnail' | 'voice' | 'mask'>().notNull(),
     mediaType: text('media_type').$type<'image' | 'video' | 'audio'>().notNull(),
     mime: text('mime').notNull(),
     /** Chemin absolu du fichier sur le disque. */

@@ -27,13 +27,23 @@ export interface BuildContext {
   files: Record<string, string>;
   /** Piste audio imposée (dossier `input` de ComfyUI) et sa durée : la vidéo suit cette voix. */
   audio?: { file: string; seconds: number };
+  /** Retouche : masque peint (blanc = à refaire, dossier `input`) et son cadre dans l'image 1, en pixels. */
+  mask?: { file: string; box: RetouchBox };
 }
 
-const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+export interface RetouchBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const num =(v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const seedOf = (v: unknown) => (typeof v === 'number' ? v : randomInt(2 ** 31 - 1));
 
 /** FLUX.2 klein 4B : texte → image, ou avec 1 à 3 images de référence (cohérence personnage / lieu). */
 export function buildKlein(values: Record<string, unknown>, ctx: BuildContext, size: { width: number; height: number }): Graph {
+  if (ctx.mask) return buildKleinRetouch(values, ctx, ctx.mask);
   const g: Graph = {
     // 4B en fp8 (UNETLoader), 9B en GGUF (UnetLoaderGGUF).
     '1': ctx.files.unet.endsWith('.gguf')
@@ -83,6 +93,95 @@ export function buildKlein(values: Record<string, unknown>, ctx: BuildContext, s
   });
   if (filter) g['98'] = { class_type: 'SplitSigmasDenoise', inputs: { sigmas: ['91', 0], denoise: strength } };
   return g;
+}
+
+/**
+ * Retouche locale (inpainting) avec klein, en nœuds de base de ComfyUI : la zone peinte et du contexte autour
+ * (2,5 fois sa taille, 384 px au moins) sont découpés et agrandis à ~1 Mpx ; klein repeint la zone en voyant le
+ * reste de la découpe, la zone grisée (il ne recopie pas le défaut : une main ratée est refaite de zéro) ; le
+ * résultat est recollé dans l'image d'origine avec un bord adouci, le reste de l'image ne bouge pas d'un pixel.
+ *
+ * Testé le 2026-10-13 (RTX 3060, klein 9B Q5) : une main refaite de zéro, posée sur un paréo ou tenant un verre,
+ * naturelle et sans raccord visible, ~1 min. Z-Image (même découpe, masque de bruit) donnait une main vieillie à la
+ * peau fausse ; Qwen Edit, une bonne main, en ~1 min 45.
+ */
+export function buildKleinRetouch(values: Record<string, unknown>, ctx: BuildContext, mask: { file: string; box: RetouchBox }): Graph {
+  const size = ctx.imageSizes[0];
+  if (!size) throw new Error('Retouche : taille de l’image inconnue.');
+  const { width: W, height: H } = size;
+  // Cadre de la découpe : la zone au centre, avec du contexte, dans les limites de l'image.
+  const side = Math.max(384, Math.round(Math.max(mask.box.width, mask.box.height) * 2.5));
+  const bw = Math.floor(Math.min(W, side) / 8) * 8;
+  const bh = Math.floor(Math.min(H, side) / 8) * 8;
+  const cx = mask.box.x + mask.box.width / 2;
+  const cy = mask.box.y + mask.box.height / 2;
+  const bx = Math.round(Math.max(0, Math.min(W - bw, cx - bw / 2)));
+  const by = Math.round(Math.max(0, Math.min(H - bh, cy - bh / 2)));
+  // Travail à ~1 Mpx (klein y est entraîné), multiples de 16.
+  const scale = Math.sqrt((1024 * 1024) / (bw * bh));
+  const tw = Math.max(256, Math.round((bw * scale) / 16) * 16);
+  const th = Math.max(256, Math.round((bh * scale) / 16) * 16);
+  const denoise = num(values.strength, 1);
+
+  return {
+    '1': { class_type: 'LoadImage', inputs: { image: ctx.images[0] } },
+    '2': { class_type: 'LoadImageMask', inputs: { image: mask.file, channel: 'red' } },
+    '3': { class_type: 'ImageCrop', inputs: { image: ['1', 0], width: bw, height: bh, x: bx, y: by } },
+    '4': { class_type: 'CropMask', inputs: { mask: ['2', 0], x: bx, y: by, width: bw, height: bh } },
+    '5': { class_type: 'ImageScale', inputs: { image: ['3', 0], upscale_method: 'lanczos', width: tw, height: th, crop: 'disabled' } },
+    '6': { class_type: 'MaskToImage', inputs: { mask: ['4', 0] } },
+    '7': { class_type: 'ImageScale', inputs: { image: ['6', 0], upscale_method: 'bilinear', width: tw, height: th, crop: 'disabled' } },
+    '8': { class_type: 'ImageToMask', inputs: { image: ['7', 0], channel: 'red' } },
+    // Zone repeinte un peu plus large que le masque : le modèle raccorde lui-même les bords.
+    '12': { class_type: 'GrowMask', inputs: { mask: ['8', 0], expand: 16, tapered_corners: true } },
+    // Référence vue par klein : la découpe, zone grisée.
+    '10': { class_type: 'EmptyImage', inputs: { width: tw, height: th, batch_size: 1, color: 0x808080 } },
+    '11': {
+      class_type: 'ImageCompositeMasked',
+      inputs: { destination: ['5', 0], source: ['10', 0], x: 0, y: 0, resize_source: false, mask: ['12', 0] },
+    },
+    '20': ctx.files.unet.endsWith('.gguf')
+      ? { class_type: 'UnetLoaderGGUF', inputs: { unet_name: ctx.files.unet } }
+      : { class_type: 'UNETLoader', inputs: { unet_name: ctx.files.unet, weight_dtype: 'default' } },
+    '21': { class_type: 'CLIPLoader', inputs: { clip_name: ctx.files.encoder, type: 'flux2', device: 'default' } },
+    '22': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
+    '24': { class_type: 'DifferentialDiffusion', inputs: { model: ['20', 0] } },
+    '25': { class_type: 'CLIPTextEncode', inputs: { clip: ['21', 0], text: String(values.prompt ?? '') } },
+    '26': { class_type: 'ConditioningZeroOut', inputs: { conditioning: ['25', 0] } },
+    '27': { class_type: 'VAEEncode', inputs: { pixels: ['5', 0], vae: ['22', 0] } },
+    '28': { class_type: 'SetLatentNoiseMask', inputs: { samples: ['27', 0], mask: ['12', 0] } },
+    '44': { class_type: 'VAEEncode', inputs: { pixels: ['11', 0], vae: ['22', 0] } },
+    '31': { class_type: 'ReferenceLatent', inputs: { conditioning: ['25', 0], latent: ['44', 0] } },
+    '32': { class_type: 'ReferenceLatent', inputs: { conditioning: ['26', 0], latent: ['44', 0] } },
+    '33': { class_type: 'Flux2Scheduler', inputs: { steps: num(values.steps, 4), width: tw, height: th } },
+    '34': { class_type: 'SplitSigmasDenoise', inputs: { sigmas: ['33', 0], denoise } },
+    '35': { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } },
+    '36': { class_type: 'RandomNoise', inputs: { noise_seed: seedOf(values.seed) } },
+    '37': { class_type: 'CFGGuider', inputs: { model: ['24', 0], positive: ['31', 0], negative: ['32', 0], cfg: 1 } },
+    '38': {
+      class_type: 'SamplerCustomAdvanced',
+      inputs: {
+        noise: ['36', 0],
+        guider: ['37', 0],
+        sampler: ['35', 0],
+        sigmas: denoise < 1 ? ['34', 1] : ['33', 0],
+        latent_image: ['28', 0],
+      },
+    },
+    '39': {
+      class_type: 'VAEDecodeTiled',
+      inputs: { samples: ['38', 0], vae: ['22', 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 },
+    },
+    // Recollage : à la taille de la découpe, masque élargi puis adouci.
+    '80': { class_type: 'GrowMask', inputs: { mask: ['4', 0], expand: 6, tapered_corners: true } },
+    '81': { class_type: 'FeatherMask', inputs: { mask: ['80', 0], left: 12, top: 12, right: 12, bottom: 12 } },
+    '82': { class_type: 'ImageScale', inputs: { image: ['39', 0], upscale_method: 'lanczos', width: bw, height: bh, crop: 'disabled' } },
+    '83': {
+      class_type: 'ImageCompositeMasked',
+      inputs: { destination: ['1', 0], source: ['82', 0], x: bx, y: by, resize_source: false, mask: ['81', 0] },
+    },
+    '9': { class_type: 'SaveImage', inputs: { images: ['83', 0], filename_prefix: 'ai-fluence/retouche' } },
+  };
 }
 
 /** Qwen-Image-Edit-2511 : retouche guidée par 1 à 3 images ; l'image produite reprend le cadre de la première. */

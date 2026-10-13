@@ -40,7 +40,7 @@ import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
 import { assertCanSpeak, padWav, speechEdges, speechFor, unloadVoice } from './voice.service.js';
-import { LTX_FPS, ltxPlan } from './comfy-builders.js';
+import { LTX_FPS, ltxPlan, type RetouchBox } from './comfy-builders.js';
 import { resolveTraits } from './traits.service.js';
 import { drawSlots, resolveWildcards } from './draw.service.js';
 import { resolveLoraUrl } from './civitai.service.js';
@@ -208,8 +208,21 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     contexts = req.contextIds.map(id => byId.get(id)).filter((c): c is GenerationContext => Boolean(c));
   }
 
-  // Contexte du persona : toujours envoyé, en lignes étiquetées.
-  const blocks = (persona?.contextBlocks ?? []).filter(b => b.text.trim());
+  // Retouche (pinceau) : le masque doit être à l'utilisateur ; le prompt décrit seulement la zone à refaire,
+  // sans le contexte du persona ni les raccourcis.
+  const retouch = retouchOf(req.params);
+  if (retouch) {
+    const [mask] = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(and(eq(assets.id, retouch.maskId), eq(assets.userId, user.id), eq(assets.kind, 'mask')))
+      .limit(1);
+    if (!mask) throw new HTTPException(400, { message: 'Masque de retouche introuvable.' });
+    contexts = [];
+  }
+
+  // Contexte du persona : toujours envoyé, en lignes étiquetées (sauf retouche).
+  const blocks = retouch ? [] : (persona?.contextBlocks ?? []).filter(b => b.text.trim());
 
   // Prompt structuré par ordre d'importance : la LoRA d'abord (le mot déclencheur
   // agit mieux en tête), puis la demande, les raccourcis et le contexte général.
@@ -283,6 +296,15 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     dropped: built.dropped,
     lorasApplied: built.lorasApplied,
   };
+}
+
+/** Retouche demandée dans les réglages (`retouch: { mask: 'asset:<id>', box }`), validée. */
+function retouchOf(params: Record<string, unknown> | undefined): { maskId: string; box: RetouchBox } | null {
+  const r = params?.retouch as { mask?: unknown; box?: Record<string, unknown> } | undefined;
+  if (!r || typeof r.mask !== 'string' || !r.mask.startsWith('asset:') || !r.box) return null;
+  const box = Object.fromEntries(['x', 'y', 'width', 'height'].map(k => [k, Number(r.box![k])])) as unknown as RetouchBox;
+  if (!Object.values(box).every(v => Number.isFinite(v) && v >= 0) || !box.width || !box.height) return null;
+  return { maskId: r.mask.slice('asset:'.length), box };
 }
 
 /** Référence à un asset local dans l'`input` d'une génération ComfyUI (résolue au lancement). */
@@ -556,9 +578,17 @@ async function submitToComfy(p: Prepared): Promise<string> {
     const padded = padWav(data, lead, Math.max(0, total - lead - seconds));
     audio = { file: await uploadImage(padded, `ai-fluence-voix-${Date.now()}.wav`, 'audio/wav'), seconds: total };
   }
+  // Retouche : le masque peint part avec l'image.
+  let mask: { file: string; box: RetouchBox } | undefined;
+  const retouch = retouchOf(p.input);
+  if (retouch) {
+    const [row] = await db.select().from(assets).where(eq(assets.id, retouch.maskId)).limit(1);
+    if (!row) throw new Error('Masque de retouche introuvable.');
+    mask = { file: await upload(row), box: retouch.box };
+  }
   // Le serveur de voix rend sa VRAM avant le modèle vidéo.
   if (endpoint.task.endsWith('video')) await unloadVoice();
-  return queuePrompt(await buildGraph(endpoint, p.input, { image, face, images, imageSizes, audio }));
+  return queuePrompt(await buildGraph(endpoint, p.input, { image, face, images, imageSizes, audio, mask }));
 }
 
 /** Largeur et hauteur lues dans l'en-tête PNG (ComfyUI enregistre en PNG). */

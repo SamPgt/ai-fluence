@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { LOCAL_FAMILIES, type CatalogFamily, type InputSchema, type TaskKind } from '@ai-fluence/shared';
 import { env } from '../env.js';
 import { getNodeOptions, hasNodes, isComfyRunning } from './comfy.service.js';
-import { buildKlein, buildKrea, buildLtx, buildQwenEdit, buildWanI2V, type BuildContext, type Graph } from './comfy-builders.js';
+import { buildKlein, buildKrea, buildLtx, buildQwenEdit, buildWanI2V, type BuildContext, type Graph, type RetouchBox } from './comfy-builders.js';
 
 /** Entrée d'un nœud du workflow : [id du nœud, nom de l'entrée]. */
 type Slot = [node: string, input: string];
@@ -188,6 +188,9 @@ function kleinEndpoints(family: string, requires: LocalEndpoint['requires']): Pa
             description:
               '1 : nouvelle image d’après les références. 0,2–0,4 : « filtre », retravaille l’image 1 (composition et anatomie gardées).',
           },
+          // Retouche locale (pinceau de la visionneuse) : { mask: 'asset:<id>', box: { x, y, width, height } }.
+          // Objet : jamais affiché dans les réglages du composer.
+          retouch: { type: 'object', description: 'Zone peinte à refaire dans l’image 1.' },
         },
       },
     },
@@ -445,6 +448,8 @@ export async function buildGraph(
     imageSizes?: ({ width: number; height: number } | null)[];
     /** Voix imposée (vidéo parlée) : fichier dans `input` de ComfyUI et durée. */
     audio?: { file: string; seconds: number };
+    /** Retouche : masque peint (fichier dans `input`) et son cadre. */
+    mask?: { file: string; box: RetouchBox };
   } = {},
 ): Promise<Graph> {
   const values: Record<string, unknown> = { ...input, image: files.image };
@@ -461,7 +466,13 @@ export async function buildGraph(
     const { files: models, missing } = await resolveRequirements(endpoint);
     if (missing.length) throw new Error(`Fichiers manquants dans ComfyUI : ${missing.join(', ')}.`);
     const images = files.images ?? (files.image ? [files.image] : []);
-    return endpoint.build(values, { images, imageSizes: files.imageSizes ?? images.map(() => null), files: models, audio: files.audio });
+    return endpoint.build(values, {
+      images,
+      imageSizes: files.imageSizes ?? images.map(() => null),
+      files: models,
+      audio: files.audio,
+      mask: files.mask,
+    });
   }
 
   const graph = JSON.parse(readFileSync(WORKFLOWS_DIR + endpoint.file!, 'utf8')) as Graph;

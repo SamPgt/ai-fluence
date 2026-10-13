@@ -304,6 +304,15 @@ export const generationsApi = {
     apiFetch<{ quote: QuoteResponse }>('/generations/upscale/quote', { method: 'POST', body }),
   upscale: (body: UpscaleRequest) =>
     apiFetch<CreateGenerationResponse>('/generations/upscale', { method: 'POST', body }),
+  /** Retouche au pinceau (local) : masque PNG à la taille de l'image, blanc = zone à refaire. */
+  retouch: (assetId: string, prompt: string, mask: Blob, box: { x: number; y: number; width: number; height: number }) => {
+    const form = new FormData()
+    form.append('assetId', assetId)
+    form.append('prompt', prompt)
+    form.append('box', JSON.stringify(box))
+    form.append('mask', mask, 'masque.png')
+    return apiFetch<CreateGenerationResponse>('/generations/retouch', { method: 'POST', body: form })
+  },
 }
 
 export const presetsApi = {
