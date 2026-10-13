@@ -38,6 +38,7 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 
 - **Upscale local** (pour les images générées en local uniquement ; SpicyAPI garde son upscaler) : 4xUltrasharp et le upscaler Z-Image sont installés. Ces modèles font toujours ×4 : appliquer le modèle sur l'image **d'origine**, puis réduire le résultat à la taille visée (×2 max, ≈ 1728×3072), plutôt que réduire l'image avant (on ne perd pas de détail en entrée ; ComfyUI traite l'upscale par tuiles, la VRAM suit). Pas de 4K/8K en local.
 - **Vidéo locale** : Wan 2.2 (5B ou GGUF) possible mais lent sur 12 Go ; à évaluer.
+- **LTX-2.5** (sorti le 2026-08-11, 22B comme la 2.3 : pas plus lourd) : multi-plans dans une même génération (personnage, décor, lumière et son cohérents d'un plan à l'autre, intéressant pour les vidéos longues), durée déduite de l'action, 4K HDR (hors de portée en 12 Go). Demande un nouvel encodeur Gemma 4 12B et ses VAE (~20–25 Go en GGUF), et de revérifier notre chaîne (voix imposée, clips enchaînés, image de fin) avec les nœuds mis à jour. Attendre que les versions retravaillées (Civitai) et les GGUF mûrissent, puis comparer à la 2.3 sur la même image, le même prompt et le même « Texte dit ».
 - **Commande `comfy` hors PATH** : le `.env` local préfixe la commande de démarrage ; ajouter `%APPDATA%\Python\Python314\Scripts` au PATH utilisateur simplifierait.
 
 ## Windows
