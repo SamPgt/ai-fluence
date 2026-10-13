@@ -268,7 +268,12 @@ const SUBJECT: Record<string, string> = { female: 'A young woman', male: 'A youn
  * Lance la création d'une voix : LTX anime l'image du personnage qui raconte sa journée face caméra,
  * d'une voix décrite par `description` (facultatif, en français ou en anglais).
  */
-export async function createVoice(user: SessionUser, personaId: string, description: string): Promise<PersonaVoice> {
+export async function createVoice(
+  user: SessionUser,
+  personaId: string,
+  description: string,
+  resolution: '512p' | '720p' = '512p',
+): Promise<PersonaVoice> {
   if (!isVoiceEnabled()) throw new HTTPException(400, { message: 'Voix non configurée (VOICE_URL, COMFYUI_URL).' });
   const persona = await ownedPersona(user.id, personaId);
   const voice = voiceOf(persona);
@@ -291,9 +296,10 @@ export async function createVoice(user: SessionUser, personaId: string, descript
   // La VRAM du serveur de voix est rendue avant le gros modèle vidéo.
   await unloadVoice();
   const graph = buildLtx(
-    // 512p : testé en 256p (2026-10-11), la vidéo se calcule ~2 fois plus vite, mais la voix sort nettement
-    // moins bonne (plus robotique) : le son de LTX dépend de la qualité de l'image générée avec lui.
-    { prompt, resolution: '512p', duration_seconds: 7 },
+    // 512p par défaut : testé en 256p (2026-10-11), la vidéo se calcule ~2 fois plus vite, mais la voix sort nettement
+    // moins bonne (plus robotique) : le son de LTX dépend de la qualité de l'image générée avec lui. 720p au choix,
+    // pour une voix peut-être encore meilleure, environ 2 fois plus long.
+    { prompt, resolution, duration_seconds: 7 },
     { images: [image], imageSizes: [avatar.width && avatar.height ? { width: avatar.width, height: avatar.height } : null], files },
     { saveAudio: true },
   );

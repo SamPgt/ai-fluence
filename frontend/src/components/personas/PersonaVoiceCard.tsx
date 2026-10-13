@@ -8,6 +8,7 @@ import { qk } from '@/lib/queries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
 const SAMPLE = 'Salut les petits chats ! Aujourd’hui, je vous montre ma recette de pâtes préférée. Vous allez adorer !'
@@ -38,6 +39,7 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
     refetchInterval: (q) => (q.state.data?.job?.state === 'running' ? 4000 : false),
   })
   const [description, setDescription] = useState('')
+  const [hd, setHd] = useState(false)
   const [text, setText] = useState(SAMPLE)
   const [exaggeration, setExaggeration] = useState<number | null>(null)
   const [playing, setPlaying] = useState<'current' | 'candidate' | null>(null)
@@ -48,7 +50,7 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
   const onError = (e: Error) => toast.error(e.message)
 
   const create = useMutation({
-    mutationFn: () => personasApi.createVoice(persona.id, description),
+    mutationFn: () => personasApi.createVoice(persona.id, description, hd ? '720p' : '512p'),
     onSuccess: (r) => setVoice(r.voice),
     onError,
   })
@@ -189,6 +191,11 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
               {voice.url ? 'Créer une autre voix' : 'Créer une voix'}
             </Button>
           </div>
+          {/* La voix de LTX suit la qualité de la vidéo générée avec elle : 720p, peut-être meilleure, ~2 fois plus long. */}
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Switch checked={hd} onCheckedChange={setHd} />
+            Vidéo en 720p : voix peut-être plus fidèle, création environ 2 fois plus longue (~10 min)
+          </label>
           {!persona.avatarAssetId && (
             <p className="text-xs text-muted-foreground">Il faut d’abord une image de référence (avatar) au personnage.</p>
           )}

@@ -156,8 +156,13 @@ const personasRoutes = new Hono<AppEnv>()
   .post('/:id/voice/copy', zValidator('json', z.object({ fromPersonaId: z.uuid() })), async c =>
     c.json({ voice: await copyVoice(c.get('user'), c.req.param('id'), c.req.valid('json').fromPersonaId) }),
   )
-  .post('/:id/voice/create', zValidator('json', z.object({ description: z.string().trim().max(300).default('') })), async c =>
-    c.json({ voice: await createVoice(c.get('user'), c.req.param('id'), c.req.valid('json').description) }),
+  .post(
+    '/:id/voice/create',
+    zValidator('json', z.object({ description: z.string().trim().max(300).default(''), resolution: z.enum(['512p', '720p']).default('512p') })),
+    async c => {
+      const { description, resolution } = c.req.valid('json');
+      return c.json({ voice: await createVoice(c.get('user'), c.req.param('id'), description, resolution) });
+    },
   )
   .post('/:id/voice/cancel', async c => c.json({ voice: await cancelCreation(c.get('user'), c.req.param('id')) }))
   .post('/:id/voice/candidate', zValidator('json', z.object({ keep: z.boolean() })), async c =>
