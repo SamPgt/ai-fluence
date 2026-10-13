@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { unlink } from 'node:fs/promises';
+import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { ComfyStatus } from '@ai-fluence/shared';
 import { env } from '../env.js';
@@ -199,8 +199,72 @@ interface NodeErrors {
   [node: string]: { class_type?: string; errors?: { message?: string; details?: string }[] };
 }
 
+// ── Mémoire vive ──────────────────────────────────────────────
+//
+// ComfyUI garde en RAM les modèles qu'il sort de la VRAM, pour les recharger vite. Quand la RAM déborde, Windows
+// en envoie une partie dans la mémoire virtuelle (disque) : une vidéo LTX passe alors de 10 à 20 min, car les poids
+// qui ne tiennent pas en VRAM sont relus depuis le disque à chaque étape. Avant chaque workflow, on estime la RAM
+// qu'il lui faut (taille des fichiers de modèles qu'il charge et que le workflow précédent n'avait pas) : si
+// ComfyUI n'en a pas assez de libre, on lui fait tout décharger avant (`/free`, appliqué entre deux workflows).
+// Une série ou un enchaînement qui tient en RAM n'est jamais ralenti. Sans `COMFYUI_DIR` (ComfyUI distant), rien.
+
+const GB = 1024 ** 3;
+/** RAM laissée au système et aux autres applications. */
+const RAM_MARGIN = 3 * GB;
+const MODEL_EXT = /\.(safetensors|gguf|ckpt|pt|pth|bin|onnx|sft)$/i;
+const MODEL_INDEX_TTL_MS = 5 * 60_000;
+let modelIndex: { at: number; sizes: Map<string, number> } | null = null;
+/** Fichiers de modèles du dernier workflow envoyé : déjà en mémoire quand le suivant démarre. */
+let lastModels = new Set<string>();
+
+/** Taille de chaque fichier de `models/` (par nom de fichier), relue toutes les 5 min. */
+async function modelSizes(): Promise<Map<string, number>> {
+  if (modelIndex && Date.now() - modelIndex.at < MODEL_INDEX_TTL_MS) return modelIndex.sizes;
+  const sizes = new Map<string, number>();
+  const entries = await readdir(path.join(env.COMFYUI_DIR!, 'models'), { recursive: true, withFileTypes: true }).catch(() => []);
+  for (const e of entries) {
+    if (!e.isFile() || !MODEL_EXT.test(e.name)) continue;
+    const s = await stat(path.join(e.parentPath, e.name)).catch(() => null);
+    if (s) sizes.set(e.name.toLowerCase(), s.size);
+  }
+  modelIndex = { at: Date.now(), sizes };
+  return sizes;
+}
+
+/** Noms des fichiers de modèles cités par un workflow (`unet_name`, `clip_name`, `lora_name`…). */
+function graphModels(graph: unknown): Set<string> {
+  const files = new Set<string>();
+  for (const node of Object.values((graph ?? {}) as Record<string, { inputs?: Record<string, unknown> }>)) {
+    for (const value of Object.values(node.inputs ?? {})) {
+      if (typeof value === 'string' && MODEL_EXT.test(value)) files.add(path.basename(value.replace(/\\/g, '/')).toLowerCase());
+    }
+  }
+  return files;
+}
+
+async function freeRamIfNeeded(graph: unknown): Promise<void> {
+  if (!env.COMFYUI_DIR) return;
+  const models = graphModels(graph);
+  const previous = lastModels;
+  lastModels = models;
+  const sizes = await modelSizes();
+  const needed = [...models].filter(f => !previous.has(f)).reduce((sum, f) => sum + (sizes.get(f) ?? 0), 0);
+  if (!needed) return;
+  const stats = (await probe()) as { system?: { ram_free?: number } } | null;
+  const free = stats?.system?.ram_free;
+  if (free == null || free >= needed + RAM_MARGIN) return;
+  console.info(`[comfy] RAM libre ${(free / GB).toFixed(1)} Go < ${((needed + RAM_MARGIN) / GB).toFixed(1)} Go nécessaires : déchargement des modèles.`);
+  await comfyFetch('/free', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unload_models: true, free_memory: true }),
+  });
+}
+
 /** Met un workflow (format API) dans la file de ComfyUI et renvoie son `prompt_id`. */
 export async function queuePrompt(graph: unknown): Promise<string> {
+  // Ne bloque jamais une génération : au pire, elle sera lente.
+  await freeRamIfNeeded(graph).catch(() => undefined);
   const res = await comfyFetch('/prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
