@@ -14,6 +14,7 @@ import {
   type Asset,
   type CreatorKind,
   type MasterAxis,
+  type Persona,
   type PersonaMaster,
 } from '@ai-fluence/shared'
 
@@ -23,6 +24,7 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { groupLots, isPending, LotProgress, LotTabs, VariantCard } from '@/components/characters/Lots'
 import { MediaViewer } from '@/components/thread/MediaViewer'
+import { ReferenceSheet } from '@/components/characters/ReferenceSheet'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -39,7 +41,23 @@ export interface MastersOwner {
 const LOT_SIZES = [4, 8, 12]
 const axisLabel = (axis: MasterAxis | null) => (axis ? masterAxis(axis).label : 'Autres')
 
-export function MastersScreen({ owner, header, headerRight }: { owner: MastersOwner; header: ReactNode; headerRight?: ReactNode }) {
+export function MastersScreen({
+  owner,
+  persona,
+  autoSheet = false,
+  onAutoSheetStarted,
+  header,
+  headerRight,
+}: {
+  owner: MastersOwner
+  /** Personnage : sa planche de références s'affiche au-dessus des variations. */
+  persona?: Persona
+  /** Lancer la planche complète à l'arrivée (juste après la création du personnage). */
+  autoSheet?: boolean
+  onAutoSheetStarted?: () => void
+  header: ReactNode
+  headerRight?: ReactNode
+}) {
   const queryClient = useQueryClient()
   const { kind } = owner
   const axes = axesFor(kind)
@@ -228,6 +246,22 @@ export function MastersScreen({ owner, header, headerRight }: { owner: MastersOw
           </Button>
         </div>
 
+        {persona && (
+          <div className="px-4 pt-4">
+            <ReferenceSheet
+              persona={persona}
+              generations={thread?.generations ?? []}
+              families={(catalog?.families ?? []).filter((f) => f.media === 'image' && f.available)}
+              autoStart={autoSheet}
+              onAutoStarted={() => onAutoSheetStarted?.()}
+              onLaunched={(id) => {
+                queryClient.invalidateQueries({ queryKey: qk.masters(owner.id) })
+                queryClient.invalidateQueries({ queryKey: qk.thread(id) })
+              }}
+              onView={setViewing}
+            />
+          </div>
+        )}
         <div className="flex min-h-0 flex-1 gap-4 p-4">
           <MastersPanel owner={owner} masters={masters} onView={setViewing} onRemove={(assetId) => toggle.mutate({ assetId, isMaster: false })} />
 

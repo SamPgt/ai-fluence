@@ -29,6 +29,7 @@ import type {
   LoginRequest,
   MastersResponse,
   Persona,
+  ReferencePose,
   PersonaInput,
   Place,
   PromptPreset,
@@ -265,6 +266,9 @@ export const mastersApi = {
     apiFetch<{ asset: Asset }>(`${mastersBase(kind, id)}/masters/${assetId}`, { method: 'PATCH', body: { isMaster } }),
   generate: (kind: CreatorKind, id: string, body: VariationRequest) =>
     apiFetch<{ threadId: string }>(`${mastersBase(kind, id)}/variations`, { method: 'POST', body }),
+  /** Planche de références : retient une image pour une pose (null : la retire). */
+  setPose: (personaId: string, pose: ReferencePose, assetId: string | null) =>
+    apiFetch<{ persona: Persona }>(`/personas/${personaId}/reference-poses`, { method: 'PUT', body: { pose, assetId } }),
 }
 
 export const scenesApi = {

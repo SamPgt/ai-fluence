@@ -124,7 +124,8 @@ export function CreatorScreen({ kind }: { kind: CreatorKind }) {
             queryClient.invalidateQueries({ queryKey: qk.personas })
             setPersonaId(personaId)
             // Suite logique : les images master du nouveau personnage.
-            navigate({ to: '/personnages/$personaId/masters', params: { personaId } })
+            // Suite logique : sa planche de références (face, trois-quarts, profil), lancée d'office.
+            navigate({ to: '/personnages/$personaId/masters', params: { personaId }, search: { planche: true } })
           }}
         />
       ) : (

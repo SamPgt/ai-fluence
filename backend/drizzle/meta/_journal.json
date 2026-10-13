@@ -106,6 +106,13 @@
       "when": 1791673278623,
       "tag": "0014_persona_voice",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791908974187,
+      "tag": "0015_persona_reference_poses",
+      "breakpoints": true
     }
   ]
 }

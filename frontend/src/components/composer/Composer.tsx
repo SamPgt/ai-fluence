@@ -292,10 +292,28 @@ ${prompt}` : prompt)
     const key = `${persona.id}:${state.threadKey}`
     if (identitySeeded.current === key) return
     identitySeeded.current = key
-    const followsReferences = current.media === 'video' || imageInputInfo(current.media, current.tasks).mode === 'reference'
+    const info = imageInputInfo(current.media, current.tasks)
+    const followsReferences = current.media === 'video' || info.mode === 'reference'
     if (!followsReferences && persona.identity.length && composerStore.state.traits.length === 0) {
       composer.load({ traits: persona.identity })
     }
+    // Modèle à références : la planche du persona (face, trois-quarts, profil ; à défaut son avatar) est jointe
+    // d'office, sauf si des images sont déjà jointes. Celles d'un autre persona (changement de persona dans un
+    // nouveau fil) sont remplacées.
+    const attached = composerStore.state.attachments
+    const othersOnly = attached.length > 0 && attached.every((a) => a.personaId && a.personaId !== persona.id)
+    if (current.media !== 'image' || info.mode !== 'reference' || (attached.length && !othersOnly)) return
+    const poses = persona.referencePoses
+    const ids = [poses.front, poses.threeQuarter, poses.profile].filter((id): id is string => Boolean(id))
+    if (!ids.length && persona.avatarAssetId) ids.push(persona.avatarAssetId)
+    if (!ids.length) return
+    void queryClient
+      .fetchQuery({ queryKey: qk.references(persona.id), queryFn: () => assetsApi.references(persona.id).then((r) => r.assets) })
+      .then((refs) => {
+        const picked = ids.flatMap((id) => refs.filter((a) => a.id === id)).slice(0, info.max || ids.length)
+        if (picked.length) composer.load({ attachments: picked })
+      })
+      .catch(() => undefined)
   }, [persona?.id, state.threadKey, state.family, catalog, personasLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
   // Vidéo : le modèle sait animer une image de départ ET partir de références.
   const canChooseRefMode = Boolean(

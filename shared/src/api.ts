@@ -5,7 +5,7 @@
 import type { InputSchema, VideoRefMode } from './input';
 import type { MediaKind, ModelBadge, ModelProvider, ProviderId, TaskKind } from './models';
 import type { LibraryZone } from './library';
-import type { CreatorKind, GenerationVariation, MasterAxis } from './masters';
+import type { CreatorKind, GenerationVariation, MasterAxis, ReferencePoses } from './masters';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -258,6 +258,8 @@ export interface Persona {
   loras: PersonaLora[];
   defaultImageFamily: string | null;
   defaultVideoFamily: string | null;
+  /** Planche de références : l'image retenue pour chaque pose (face, trois-quarts, profil). */
+  referencePoses: ReferencePoses;
   referenceCount: number;
   createdAt: string;
   updatedAt: string;
@@ -283,7 +285,7 @@ export interface PersonaVoice {
 
 export type PersonaInput = Omit<
   Persona,
-  'id' | 'avatarUrl' | 'referenceCount' | 'createdAt' | 'updatedAt'
+  'id' | 'avatarUrl' | 'referencePoses' | 'referenceCount' | 'createdAt' | 'updatedAt'
 >;
 
 // ── Fils et générations ───────────────────────────────────────
@@ -641,6 +643,8 @@ export interface VariationRequest {
   strength?: number;
   /** Modèle à références (klein, Qwen Edit…) : l'image de référence est donnée au modèle comme « image 1 ». */
   reference?: boolean;
+  /** Variantes imposées de l'axe, une par image (planche de références) ; `count` est alors ignoré. */
+  variants?: string[];
   /** Réglages du modèle (proportions…). */
   params?: Record<string, unknown>;
 }

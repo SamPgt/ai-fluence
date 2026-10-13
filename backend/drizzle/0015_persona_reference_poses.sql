@@ -1,0 +1,1 @@
+ALTER TABLE "personas" ADD COLUMN "reference_poses" jsonb DEFAULT '{}'::jsonb NOT NULL;

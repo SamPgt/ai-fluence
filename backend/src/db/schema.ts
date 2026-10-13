@@ -23,6 +23,7 @@ import type {
   ModelProvider,
   PersonaContextBlock,
   PersonaLora,
+  ReferencePoses,
   TraitSlot,
   TaskKind,
   ThumbnailGender,
@@ -106,6 +107,8 @@ export const personas = pgTable(
     defaultVideoFamily: text('default_video_family'),
     /** Voix (vidéos parlées, local) : extrait de référence, expressivité, création en cours. */
     voice: jsonb('voice').$type<PersonaVoiceRow>(),
+    /** Planche de références : l'image retenue pour chaque pose (face, profil, trois-quarts), id d'asset. */
+    referencePoses: jsonb('reference_poses').$type<ReferencePoses>().notNull().default({}),
     position: integer('position').notNull().default(0),
     /** Corbeille : le persona, ses fils et ses médias sont masqués, puis supprimés après 7 jours. */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),

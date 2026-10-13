@@ -12,12 +12,14 @@ import {
   type MasterAxis,
   type MastersResponse,
   type MasterVariant,
+  REFERENCE_POSES,
+  type ReferencePoses,
 } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { assets, generations, libraryOptions, personas, places, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { createGeneration, PriceChangedError } from '../services/generation.service.js';
-import { toAsset } from '../services/serialize.js';
+import { toAsset, toPersona } from '../services/serialize.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -160,6 +162,8 @@ export function mastersRoutes(kind: CreatorKind) {
           strength: z.number().min(0.3).max(0.95).optional(),
           /** Modèle à références (klein, Qwen Edit…) : l'image de référence est donnée au modèle comme « image 1 ». */
           reference: z.boolean().default(false),
+          /** Variantes imposées de l'axe, une par image (planche de références) ; sinon tirées au hasard. */
+          variants: z.array(z.string()).min(1).max(12).optional(),
           params: z.record(z.string(), z.unknown()).default({}),
         }),
       ),
@@ -167,7 +171,8 @@ export function mastersRoutes(kind: CreatorKind) {
         const user = c.get('user');
         const owner = await loadOwner(kind, user.id, c.req.param('id'));
         if (!owner) return c.json({ error: 'Introuvable.' }, 404);
-        const { axis, count, family, face, strength, params, reference } = c.req.valid('json');
+        const { axis, family, face, strength, params, reference, variants } = c.req.valid('json');
+        let { count } = c.req.valid('json');
         const fromReference = kind === 'place' && strength !== undefined;
         if ((face || fromReference || reference) && !owner.avatarAssetId) {
           return c.json({ error: 'Pas d’image de référence.' }, 400);
@@ -183,7 +188,15 @@ export function mastersRoutes(kind: CreatorKind) {
         // Avec une référence, le prompt la désigne : c'est ce qui garde le visage ou la pièce d'une image à l'autre.
         const lead = reference ? (kind === 'place' ? 'the same place as in image 1, ' : 'the same person as in image 1, same face and hair, ') : '';
 
-        const draws = drawVariants(kind, axis, count);
+        let draws = drawVariants(kind, axis, count);
+        if (variants) {
+          if (axis === 'mix') return c.json({ error: 'Variantes imposées : un seul axe.' }, 400);
+          const defs = axesFor(kind).find(a => a.id === axis)!.variants;
+          const picked = variants.map(id => defs.find(v => v.id === id));
+          if (picked.some(v => !v)) return c.json({ error: 'Variante inconnue.' }, 400);
+          draws = picked.map(variant => ({ axis, variant: variant! }));
+          count = draws.length;
+        }
         const threadId = await masterThread(owner);
         try {
           await createGeneration(
@@ -214,6 +227,46 @@ export function mastersRoutes(kind: CreatorKind) {
           throw err;
         }
         return c.json({ threadId }, 201);
+      },
+    )
+    /**
+     * Planche de références (personnage) : retient une image pour une pose, ou la retire (`assetId: null`).
+     * L'image retenue devient une référence et une image master du persona.
+     */
+    .put(
+      '/:id/reference-poses',
+      zValidator('param', z.object({ id: z.uuid() })),
+      zValidator(
+        'json',
+        z.object({
+          pose: z.enum(REFERENCE_POSES.map(p => p.id) as [string, ...string[]]),
+          assetId: z.uuid().nullable(),
+        }),
+      ),
+      async c => {
+        if (kind !== 'character') return c.json({ error: 'Planche réservée aux personnages.' }, 400);
+        const user = c.get('user');
+        const { id } = c.req.valid('param');
+        const { pose, assetId } = c.req.valid('json');
+        const [persona] = await db
+          .select()
+          .from(personas)
+          .where(and(eq(personas.id, id), eq(personas.userId, user.id)))
+          .limit(1);
+        if (!persona) return c.json({ error: 'Introuvable.' }, 404);
+        if (assetId) {
+          const [row] = await db
+            .update(assets)
+            .set({ personaId: persona.id, isReference: true, isMaster: true })
+            .where(and(eq(assets.id, assetId), eq(assets.userId, user.id), eq(assets.mediaType, 'image')))
+            .returning({ id: assets.id });
+          if (!row) return c.json({ error: 'Image introuvable.' }, 404);
+        }
+        const poses: ReferencePoses = { ...persona.referencePoses };
+        if (assetId) poses[pose as keyof ReferencePoses] = assetId;
+        else delete poses[pose as keyof ReferencePoses];
+        const [updated] = await db.update(personas).set({ referencePoses: poses }).where(eq(personas.id, persona.id)).returning();
+        return c.json({ persona: toPersona(updated) });
       },
     );
 }

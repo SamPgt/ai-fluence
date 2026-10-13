@@ -179,6 +179,25 @@ export const PLACE_AXES: MasterAxisDef[] = [
   },
 ];
 
+/**
+ * Planche de références d'un personnage : une image retenue par pose, données ensemble aux modèles à références
+ * (klein, Qwen Edit) pour qu'ils suivent son visage sous tous les angles. Chaque pose est générée à partir des
+ * variantes « Angles » listées (profil : gauche et droit, au choix).
+ */
+export type ReferencePose = 'front' | 'threeQuarter' | 'profile';
+export type ReferencePoses = Partial<Record<ReferencePose, string>>;
+
+export const REFERENCE_POSES: { id: ReferencePose; label: string; variants: string[] }[] = [
+  { id: 'front', label: 'Face', variants: ['front', 'front'] },
+  { id: 'threeQuarter', label: 'Trois-quarts', variants: ['three-quarter-left', 'three-quarter-right'] },
+  { id: 'profile', label: 'Profil', variants: ['profile-left', 'profile-right'] },
+];
+
+/** Pose d'une variante « Angles » (null : hors planche). */
+export function poseOfVariant(variantId: string): ReferencePose | null {
+  return REFERENCE_POSES.find(p => p.variants.includes(variantId))?.id ?? null;
+}
+
 export function axesFor(kind: CreatorKind): MasterAxisDef[] {
   return kind === 'place' ? PLACE_AXES : MASTER_AXES;
 }

@@ -43,6 +43,7 @@ export function toPersona(row: PersonaRow, referenceCount = 0): Persona {
     loras: row.loras.map(l => ({ ...l, triggerWords: l.triggerWords ?? [] })),
     defaultImageFamily: row.defaultImageFamily,
     defaultVideoFamily: row.defaultVideoFamily,
+    referencePoses: row.referencePoses ?? {},
     referenceCount,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
