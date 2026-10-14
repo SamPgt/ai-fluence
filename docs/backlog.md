@@ -25,21 +25,37 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 ## Cohérence du personnage
 
 - **Face model ReActor** : construire un modèle de visage à partir de plusieurs photos du persona (nœuds `ReActorBuildFaceModel` / `ReActorSaveFaceModel`), plus fiable qu'une seule image.
-- **Brancher le persona** : visage de référence et description d'identité injectés automatiquement, sans pièce jointe manuelle (cf. spec wildcards § 10).
 - **LoRA locales du persona** : associer une LoRA du dossier `models/loras` de ComfyUI à un persona (aujourd'hui, les LoRA du persona ne visent que les modèles SpicyAPI).
-- **Retoucheur de visage haute résolution** (« FaceDetailer », pack Impact) : recadre le visage, le refait en grand avec Z-Image puis le recolle. Corrige le visage un peu flou de ReActor (échange en 128 × 128) et ajoute du détail de peau. Pack de nœuds à installer.
 - **Workflow conseillé pour le réalisme** (à outiller un jour en un clic) : Qwen Edit avec la référence (scène + personnage) → Z-Image image → image à 0,2–0,3 avec la LoRA Realistic Snapshot (peau, lumière naturelle), ReActor en option si le visage a dérivé.
-- **Dataset de LoRA** : exporter la planche de références d'un persona avec des légendes (JoyCaption est installé dans ComfyUI) pour entraîner une LoRA (ai-toolkit en local, fal…).
+- **LoRA du personnage** (le plus gros gain attendu pour le réalisme et l'identité) : exporter ses images master et sa planche de références avec des légendes (JoyCaption est installé) et entraîner une LoRA (ai-toolkit en local, quelques heures sur la RTX 3060), puis la brancher sur klein / Z-Image.
 - **Plans larges** : `inswapper_128` est faible sur les petits visages ; tester un détail / upscale du visage avant le swap, ou un autre modèle de swap.
 
 - **Angles d'un lieu** : l'image → image garde le cadrage de la référence ; même à 0,85, les « angles » changent peu (test : cuisine de Nadia). Pour de vrais changements d'angle : texte seul (fiche du lieu), ou un modèle d'édition à références (Qwen-Image-Edit, Flux Kontext en local ; Seedream, Nano Banana côté SpicyAPI).
 
+## Retouche et correction automatique
+
+- **Teinte de peau des petites zones** (mains) : le raccord des couleurs (nœud `AIFluenceColorMatch`) mesure la couleur sur toute la zone ; autour d'une petite main, la robe blanche domine et la main refaite peut rester trop claire (test du 2026-10-14). Pistes : mesurer la référence sur la peau voisine seulement (avant-bras), ou refaire la main avec une partie du bras pour que le raccord tombe sur de la peau. La consigne « exactly the same skin tone as the arm » vient d'être ajoutée : à vérifier.
+- **Correction après chaque génération** (option) : détection puis correction sans passer par la visionneuse, en gardant la confirmation des zones pour les fausses détections.
+- **Faux positifs du détecteur de mains** (un sac en cuir à 0,70, plus haut qu'une vraie main à 0,40) : la confirmation suffit pour l'instant ; un détecteur plus gros (`hand_yolov9c`, 52 Mo) serait à comparer.
+
+## Réalisme façon Instagram (pistes du 2026-10-13)
+
+- **Rendu « photo de téléphone »** en dernière étape : léger grain, compression, petites imperfections d'exposition. Simple, quelques secondes.
+- **Scène à partir d'une vraie photo** : « Placer » est fait (klein 9B garde la photo) ; à tester en vrai, puis voir une bibliothèque de photos de lieux libres de droits.
+- **Qwen-Image 2512 en image → image** (« filtre », force 0,2–0,4) : branché mais pas encore comparé à Z-Image « Réalisme » et à Krea.
+
 ## Local (ComfyUI)
 
 - **Upscale local** (pour les images générées en local uniquement ; SpicyAPI garde son upscaler) : 4xUltrasharp et le upscaler Z-Image sont installés. Ces modèles font toujours ×4 : appliquer le modèle sur l'image **d'origine**, puis réduire le résultat à la taille visée (×2 max, ≈ 1728×3072), plutôt que réduire l'image avant (on ne perd pas de détail en entrée ; ComfyUI traite l'upscale par tuiles, la VRAM suit). Pas de 4K/8K en local.
-- **Vidéo locale** : Wan 2.2 (5B ou GGUF) possible mais lent sur 12 Go ; à évaluer.
+- **LTX : comparer Q4_K_M et Q5_K_M** à l'œil et à l'oreille (vidéos du 2026-10-14 dans `rapport-2026-10-14`), et la version Civitai `ltx23DISTILLEDGGUF_q4km`. Garder une seule version par défaut.
+- **Vidéos longues** : vérifier le temps gagné par l'encodage des passages au début (2026-10-14) sur une vidéo qui ne suit pas directement des images.
 - **LTX-2.5** (sorti le 2026-08-11, 22B comme la 2.3 : pas plus lourd) : multi-plans dans une même génération (personnage, décor, lumière et son cohérents d'un plan à l'autre, intéressant pour les vidéos longues), durée déduite de l'action, 4K HDR (hors de portée en 12 Go). Demande un nouvel encodeur Gemma 4 12B et ses VAE (~20–25 Go en GGUF), et de revérifier notre chaîne (voix imposée, clips enchaînés, image de fin) avec les nœuds mis à jour. Attendre que les versions retravaillées (Civitai) et les GGUF mûrissent, puis comparer à la 2.3 sur la même image, le même prompt et le même « Texte dit ».
 - **Commande `comfy` hors PATH** : le `.env` local préfixe la commande de démarrage ; ajouter `%APPDATA%\Python\Python314\Scripts` au PATH utilisateur simplifierait.
+
+## Voix
+
+- **Accent de la voix créée** : LTX invente une voix assortie à l'image ; créée en anglais, la voix de Nadia a pris un accent des îles, que Chatterbox recopie. Tester « Décris sa voix » avec l'accent voulu (« natural French accent from Paris ») et comparer création en français / en anglais, 512p / 720p.
+- **Émotions** (rire, chuchoter, crier) : Chatterbox ne fait que « calme → expressif ». Piste : un autre modèle de voix plus expressif, si besoin.
 
 ## Windows
 
@@ -49,20 +65,22 @@ Notes de la branche `feat/comfyui`. Une ligne par idée, avec le contexte utile 
 ## Ménage
 
 - **Compte de test** `claude-test@local.test` (créé pour tester l'interface) : à supprimer, avec ses générations.
-- **PR** : ouvrir la PR de `feat/comfyui` quand la branche est prête à être montrée (dépend de la PR Windows `SamPgt/ai-fluence#1`).
+- **Push et PR** : rien n'est poussé depuis le 2026-10-12 (Samuel teste la version en ligne) ; pousser quand Kevin le dit, puis ouvrir la PR de `feat/comfyui` (dépend de la PR Windows `SamPgt/ai-fluence#1`).
+- **Modèles plus utilisés** (~9 Go) : `gemma-3-12b-mmproj-BF16`, `sd-vae-ft-mse` (LatentSync), `zImage4XUPSCALERBy_zit` ; à supprimer si Kevin le souhaite.
+- **Dossier `rapport-2026-10-14`** (vidéos, voix, images de test, hors dépôt) : à garder ou supprimer une fois décortiqué ; l'essentiel est dans la page Aide.
 
 ## Garde-fous (à définir par Kevin)
 
 - **Filtre NSFW de ReActor désactivé** (2026-10-11) : il noircissait des tenues sexy mais habillées (score 0,99 sur résille / body en mesh). Interrupteur `REACTOR_NSFW_FILTER=0` dans `COMFYUI_LAUNCH` (patch local de `comfyui-reactor/scripts/reactor_sfw.py`, original en `.orig`, à refaire après une mise à jour du nœud). Garde-fous à poser dans l'app plutôt que dans l'outil : échange de visage réservé aux visages des personnages (pas de photo d'une personne réelle sans son accord), âge minimal des personnages, règles de contenu selon la plateforme de publication.
-- **Prompt négatif sans effet** sur les modèles locaux (CFG 1 : Z-Image Turbo, klein, Qwen Lightning, Wan lightx2v, LTX distillé). Piste : le nœud natif `NAGuidance` (Normalized Attention Guidance), qui rend le négatif actif à CFG 1, à tester modèle par modèle ; sinon retirer le champ « Prompt négatif » de Z-Image.
+- **Prompt négatif sans effet** sur les modèles locaux (CFG 1 : Z-Image Turbo, klein, Qwen Lightning, Qwen-Image 2512 en vitesse rapide, Wan lightx2v, LTX distillé ; seul Qwen-Image 2512 en vitesse normale l'utilise). Piste : le nœud natif `NAGuidance` (Normalized Attention Guidance), qui rend le négatif actif à CFG 1, à tester modèle par modèle ; sinon retirer le champ « Prompt négatif » de Z-Image.
 
 ## Licences des modèles (si le projet devient commercial)
 
 Tant que le projet reste pour le plaisir (pas de revenus), tous les modèles installés sont utilisables. Le jour où l'influenceuse rapporte de l'argent (partenariats, monétisation, contenus payants, service payant) :
 
-- **Libres, usage commercial autorisé** : Z-Image Turbo, Qwen Edit 2511, FLUX.2 klein **4B**, Wan 2.2 (Apache 2.0) ; LoRA Realistic Snapshot (usage commercial autorisé sur sa page Civitai). Le workflow réalisme conseillé (Qwen Edit → Z-Image + Realistic Snapshot) est entièrement dans ce groupe.
+- **Libres, usage commercial autorisé** : Z-Image Turbo, Qwen Edit 2511, Qwen-Image 2512 (et sa LoRA Lightning, à vérifier), FLUX.2 klein **4B**, Wan 2.2 (Apache 2.0) ; LoRA Realistic Snapshot (usage commercial autorisé sur sa page Civitai). Le workflow réalisme conseillé (Qwen Edit → Z-Image + Realistic Snapshot) est entièrement dans ce groupe.
 - **Non commercial (probable)** : FLUX.2 klein **9B**. Page verrouillée chez Black Forest Labs : lire le texte en acceptant la licence sur Hugging Face. Les licences FLUX « dev » laissent utiliser les images produites, mais réservent le modèle à un usage non commercial (zone grise pour un compte rémunéré). Sinon : licence commerciale à acheter chez Black Forest Labs.
 - **Sous conditions** : Krea 2 (licence communautaire, gratuite sous un seuil de chiffre d'affaires) ; LTX-2.3 (licence communautaire de Lightricks, à vérifier de la même façon).
-- **Outils** : Chatterbox (MIT), JoyCaption (licence Llama 3.1 de Meta, à vérifier), LatentSync (Apache 2.0, n'est plus utilisé dans l'app).
+- **Outils** : Chatterbox (MIT), JoyCaption (licence Llama 3.1 de Meta, à vérifier), LatentSync (Apache 2.0, n'est plus utilisé dans l'app), détecteurs ADetailer et pose Ultralytics (**AGPL-3.0** : à vérifier pour un service en ligne).
 - À faire le moment venu : relire chaque licence, retirer ou remplacer les modèles non conformes, ou acheter les licences nécessaires.
 
