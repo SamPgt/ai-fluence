@@ -795,9 +795,12 @@ ${prompt}` : prompt)
               }
             }}
             placeholder={
-              family?.media === 'video'
-                ? 'Décris la scène ou ajoute des références'
-                : 'Décris l’image ou ajoute des références'
+              // LTX : le prompt décrit un plan de cinéma ; guider sa structure améliore nettement le rendu.
+              schema?.properties?.speech
+                ? 'En anglais, dans l’ordre : le plan (medium shot, close-up…), la lumière, puis l’action pas à pas (« she smiles, waves, then takes a sip »), l’émotion par le corps (sourire, regard, gestes), ce que fait la caméra (fixe, suit, se rapproche) et les sons. Pas besoin de décrire la personne ni le lieu : l’image de départ les donne.'
+                : family?.media === 'video'
+                  ? 'Décris la scène ou ajoute des références'
+                  : 'Décris l’image ou ajoute des références'
             }
             className="field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none"
             rows={1}
