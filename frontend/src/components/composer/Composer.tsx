@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Dice5, Film, Info, Loader2, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Volume2, X } from 'lucide-react'
+import { ArrowUp, Dice5, Film, Info, Loader2, MapPinned, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Volume2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
@@ -15,6 +15,7 @@ import {
   MAX_LORAS_PER_GENERATION,
   appDefault,
   APP_DEFAULT_FAMILY,
+  type Asset,
   type GenerationRequest,
   type JsonSchemaProp,
   type MediaKind,
@@ -147,6 +148,58 @@ ${prompt}` : prompt)
       toast.error((e as Error).message)
     } finally {
       setDescribing(null)
+    }
+  }
+  /**
+   * « Placer le personnage dans cette photo » (testé le 2026-10-14 : klein 9B garde la vraie photo à l'identique et y
+   * place le personnage avec la bonne lumière ; Qwen Edit remplaçait le décor, les modèles sans références le
+   * réinventaient) : la photo en image 1, sa planche de références ensuite, aux proportions de la photo, et un prompt
+   * à compléter (ce qu'il fait, sa tenue).
+   */
+  const placeInPhoto = async (photo: Asset) => {
+    if (!persona) return
+    const klein = ['local/flux2-klein-9b', 'local/flux2-klein-4b'].find((id) => families.find((f) => f.id === id)?.available)
+    if (!klein) {
+      toast.error('Il faut FLUX.2 klein en local (ComfyUI démarré).')
+      return
+    }
+    try {
+      const refs = await queryClient.fetchQuery({
+        queryKey: qk.references(persona.id),
+        queryFn: () => assetsApi.references(persona.id).then((r) => r.assets),
+      })
+      const poses = persona.referencePoses
+      const ids = [poses.front, poses.threeQuarter].filter((id): id is string => Boolean(id))
+      if (!ids.length && persona.avatarAssetId) ids.push(persona.avatarAssetId)
+      const personaRefs = ids.flatMap((id) => refs.filter((a) => a.id === id))
+      if (!personaRefs.length) {
+        toast.error(`${persona.name} n’a pas encore d’image de référence.`)
+        return
+      }
+      // Proportions de la photo : la plus proche parmi celles du modèle.
+      const size = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight })
+        img.onerror = () => reject(new Error('Photo illisible.'))
+        img.src = photo.url
+      })
+      const ratios = families.find((f) => f.id === klein)?.tasks['image-to-image']?.schema.properties?.aspect_ratio?.enum ?? []
+      const ratio = (ratios as string[])
+        .map((r) => ({ r, d: Math.abs(Math.log(Number(r.split(':')[0]) / Number(r.split(':')[1]) / (size.w / size.h))) }))
+        .sort((a, b) => a.d - b.d)[0]?.r
+      const who = persona.gender === 'male' ? 'young man' : persona.gender === 'female' ? 'young woman' : 'person'
+      const many = personaRefs.length > 1 ? 'images 2 and 3' : 'image 2'
+      composer.load({
+        family: klein,
+        attachments: [photo, ...personaRefs],
+        prompt:
+          `The ${who} from image 2 (same face and same hair as in ${many}) is [ce qu’elle fait, sa tenue] in the place of image 1. ` +
+          'Keep the place, the objects and the lighting of image 1 exactly as they are. Natural candid smartphone photo, realistic skin texture.',
+      })
+      if (ratio) composer.setParam(klein, 'aspect_ratio', ratio)
+      toast.success(`Remplace « [ce qu’elle fait, sa tenue] » dans le prompt (en anglais de préférence), puis génère.`)
+    } catch (e) {
+      toast.error((e as Error).message)
     }
   }
   // Catalogue chargé même sans clé SpicyAPI : les modèles locaux (ComfyUI) suffisent à générer.
@@ -613,6 +666,18 @@ ${prompt}` : prompt)
                       title={a.id === faceId ? 'Visage appliqué au résultat (ReActor). Clic : image d’entrée' : 'Image d’entrée. Clic : utiliser comme visage'}
                     >
                       {a.id === faceId ? 'Visage' : 'Départ'}
+                    </button>
+                  )}
+                  {/* Une photo d'un lieu (pas une référence du personnage) : y placer le personnage (klein). */}
+                  {persona && a.mediaType === 'image' && a.personaId !== persona.id && (
+                    <button
+                      type="button"
+                      onClick={() => placeInPhoto(a)}
+                      className="absolute bottom-1 left-1 flex items-center gap-0.5 rounded bg-black/70 px-1 py-0.5 text-[10px] font-semibold text-white/90 opacity-0 transition-opacity group-hover:opacity-100 hover:text-white"
+                      title={`Placer ${persona.name} dans cette photo (klein garde la photo telle quelle)`}
+                    >
+                      <MapPinned className="h-2.5 w-2.5" />
+                      Placer
                     </button>
                   )}
                   {/* Prompt inversé (JoyCaption, local) : la photo devient un prompt réutilisable. */}
