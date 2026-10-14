@@ -342,24 +342,44 @@ export function buildKrea(values: Record<string, unknown>, ctx: BuildContext, si
  * Réglages du modèle officiel de ComfyUI (décalage 3,1, euler / simple), étapes réduites de 50 à 25.
  */
 export function buildQwenImage(values: Record<string, unknown>, ctx: BuildContext, size: { width: number; height: number }): Graph {
-  return {
+  // Vitesse : LoRA Lightning (lightx2v) en 8 ou 4 étapes, CFG 1 (le prompt négatif n'est alors plus pris en compte).
+  const speed = String(values.vitesse ?? 'normale');
+  const fast = speed.startsWith('rapide') ? 8 : speed.startsWith('très rapide') ? 4 : 0;
+  const lora = fast === 8 ? ctx.files.lightning8 : fast === 4 ? ctx.files.lightning4 : undefined;
+  if (fast && !lora) throw new Error(`LoRA Lightning ${fast} étapes de Qwen-Image 2512 absente du dossier loras de ComfyUI.`);
+  const g: Graph = {
     '1': unetLoader(ctx.files.unet),
     '2': { class_type: 'CLIPLoader', inputs: { clip_name: ctx.files.encoder, type: 'qwen_image', device: 'default' } },
     '3': { class_type: 'VAELoader', inputs: { vae_name: ctx.files.vae } },
     '4': { class_type: 'ModelSamplingAuraFlow', inputs: { model: ['1', 0], shift: 3.1 } },
     '6': { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: String(values.prompt ?? '') } },
     '7': { class_type: 'CLIPTextEncode', inputs: { clip: ['2', 0], text: String(values.negative_prompt ?? '') } },
-    '5': { class_type: 'EmptySD3LatentImage', inputs: { ...size, batch_size: 1 } },
-    '8': {
-      class_type: 'KSampler',
-      inputs: {
-        model: ['4', 0], positive: ['6', 0], negative: ['7', 0], latent_image: ['5', 0],
-        seed: seedOf(values.seed), steps: num(values.steps, 25), cfg: num(values.cfg, 4), sampler_name: 'euler', scheduler: 'simple', denoise: 1,
-      },
-    },
     '10': { class_type: 'VAEDecodeTiled', inputs: { samples: ['8', 0], vae: ['3', 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 } },
     '9': { class_type: 'SaveImage', inputs: { images: ['10', 0], filename_prefix: 'ai-fluence/qwen-image' } },
   };
+  let model: [string, number] = ['4', 0];
+  if (lora) {
+    g['11'] = { class_type: 'LoraLoaderModelOnly', inputs: { model: ['4', 0], lora_name: lora, strength_model: 1 } };
+    model = ['11', 0];
+  }
+  // Image → image : on part de l'image 1, bruitée selon la force (« filtre » à 0,2–0,4).
+  let denoise = 1;
+  if (ctx.images[0]) {
+    g['20'] = { class_type: 'LoadImage', inputs: { image: ctx.images[0] } };
+    g['21'] = { class_type: 'ImageScaleToTotalPixels', inputs: { image: ['20', 0], upscale_method: 'lanczos', megapixels: 1.6, resolution_steps: 16 } };
+    g['5'] = { class_type: 'VAEEncode', inputs: { pixels: ['21', 0], vae: ['3', 0] } };
+    denoise = num(values.strength, 0.35);
+  } else {
+    g['5'] = { class_type: 'EmptySD3LatentImage', inputs: { ...size, batch_size: 1 } };
+  }
+  g['8'] = {
+    class_type: 'KSampler',
+    inputs: {
+      model, positive: ['6', 0], negative: ['7', 0], latent_image: ['5', 0], seed: seedOf(values.seed),
+      steps: fast || num(values.steps, 25), cfg: fast ? 1 : num(values.cfg, 4), sampler_name: 'euler', scheduler: 'simple', denoise,
+    },
+  };
+  return g;
 }
 
 // ── LTX-2.3 : image → vidéo avec le son ───────────────────────

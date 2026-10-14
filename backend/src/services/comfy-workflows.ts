@@ -39,7 +39,7 @@ export interface LocalEndpoint {
    * Fichiers de modèles nécessaires, par rôle : le premier installé parmi `files` (ordre de préférence),
    * ou parmi ceux qui correspondent à `match`. Sans eux, le modèle est indisponible.
    */
-  requires?: Record<string, { loader: string; input: string; files?: string[]; match?: RegExp }>;
+  requires?: Record<string, { loader: string; input: string; files?: string[]; match?: RegExp; optional?: boolean }>;
   /** Nœud `SaveImage` dont on récupère les images. */
   outputNode: string;
   /** Où écrire chaque valeur de l'`input`. `width`/`height` viennent de `aspect_ratio`. */
@@ -225,6 +225,24 @@ const QWEN_IMAGE_FILES: LocalEndpoint['requires'] = {
   unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /qwen[-_]image[-_]2512.*\.gguf$/i },
   encoder: { loader: 'CLIPLoader', input: 'clip_name', match: /qwen_2\.5_vl_7b/i },
   vae: { loader: 'VAELoader', input: 'vae_name', files: ['qwen_image_vae.safetensors'] },
+  // Vitesse « rapide » : LoRA Lightning de lightx2v (facultatives).
+  lightning8: { loader: 'LoraLoaderModelOnly', input: 'lora_name', match: /qwen-image-2512-lightning-8steps/i, optional: true },
+  lightning4: { loader: 'LoraLoaderModelOnly', input: 'lora_name', match: /qwen-image-2512-lightning-4steps/i, optional: true },
+};
+
+/** Réglages communs de Qwen-Image 2512 (texte → image et image → image). */
+const QWEN_IMAGE_COMMON: InputSchema['properties'] = {
+  prompt: { type: 'string', description: 'Description de l’image, en langage naturel : il la suit à la lettre.' },
+  negative_prompt: { type: 'string', description: 'Ce qu’on ne veut pas voir (vitesse normale seulement : CFG > 1).' },
+  vitesse: {
+    type: 'string',
+    enum: ['normale', 'rapide (8 étapes)', 'très rapide (4 étapes)'],
+    default: 'normale',
+    description: 'Rapide : LoRA Lightning (8 ou 4 étapes, CFG 1), plusieurs fois plus vite, sans prompt négatif.',
+  },
+  steps: { type: 'integer', default: 25, minimum: 10, maximum: 50, description: 'Vitesse normale. 50 : réglage officiel, 2 fois plus long.' },
+  cfg: { type: 'number', default: 4, minimum: 1, maximum: 8, description: 'Vitesse normale seulement.' },
+  seed: SEED,
 };
 
 export const LTX_FILES: LocalEndpoint['requires'] = {
@@ -247,14 +265,7 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
       schema: {
         type: 'object',
         required: ['prompt'],
-        properties: {
-          prompt: { type: 'string', description: 'Description de l’image, en langage naturel : il la suit à la lettre.' },
-          negative_prompt: { type: 'string', description: 'Ce qu’on ne veut pas voir (pris en compte : CFG > 1).' },
-          aspect_ratio: { type: 'string', enum: ASPECT_RATIOS, default: '4:5' },
-          steps: { type: 'integer', default: 25, minimum: 10, maximum: 50, description: '50 : réglage officiel, 2 fois plus long.' },
-          cfg: { type: 'number', default: 4, minimum: 1, maximum: 8 },
-          seed: SEED,
-        },
+        properties: { ...QWEN_IMAGE_COMMON, aspect_ratio: { type: 'string', enum: ASPECT_RATIOS, default: '4:5' } },
       },
       slots: {},
       sized: true,
@@ -262,6 +273,29 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
       pixels: 1328 * 1328,
       requires: QWEN_IMAGE_FILES,
       build: (values, ctx) => buildQwenImage(values, ctx, { width: Number(values.width), height: Number(values.height) }),
+    },
+    'image-to-image': {
+      modelId: 'local/qwen-image-2512/image-to-image',
+      task: 'image-to-image',
+      outputNode: '9',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          ...QWEN_IMAGE_COMMON,
+          image_url: { type: 'string' },
+          strength: {
+            type: 'number',
+            default: 0.35,
+            minimum: 0.05,
+            maximum: 1,
+            description: 'Faible (0,2–0,4) : « filtre », retravaille l’image en gardant la composition. Élevée : plus libre.',
+          },
+        },
+      },
+      slots: {},
+      requires: QWEN_IMAGE_FILES,
+      build: (values, ctx) => buildQwenImage(values, ctx, { width: 1024, height: 1024 }),
     },
   },
   'local/krea-2': {
@@ -460,7 +494,7 @@ export async function resolveRequirements(
     const installed = await getNodeOptions(req.loader, req.input).catch(() => [] as string[]);
     const pick = req.files?.find(f => installed.includes(f)) ?? (req.match ? installed.find(f => req.match!.test(f)) : undefined);
     if (pick) files[role] = pick;
-    else missing.push(req.files?.[0] ?? `${role} (${req.match})`);
+    else if (!req.optional) missing.push(req.files?.[0] ?? `${role} (${req.match})`);
   }
   return { files, missing };
 }
