@@ -4,7 +4,7 @@
  */
 import type { ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
-import type { Generation } from '@ai-fluence/shared'
+import { masterAxis, REFERENCE_POSES, type Generation } from '@ai-fluence/shared'
 
 import { formatDuration } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -22,6 +22,18 @@ export function groupLots(generations: Generation[]): Generation[][] {
   return out
 }
 
+/** Variantes d'une planche de références, dans l'ordre où elle les lance. */
+const SHEET = REFERENCE_POSES.flatMap((p) => p.variants).join(',')
+
+/** Nom d'un lot d'images master : « Planche », l'axe (« Expressions ») ou « Mélange » ; rien dans le créateur. */
+function lotKind(lot: Generation[]): string | null {
+  const variations = lot.map((g) => g.variation)
+  if (variations.some((v) => !v)) return null
+  if (variations.map((v) => v!.variantId).join(',') === SHEET) return 'Planche'
+  const axes = new Set(variations.map((v) => v!.axis))
+  return axes.size === 1 ? masterAxis([...axes][0]).label : 'Mélange'
+}
+
 export function LotTabs({ lots, current, onPick }: { lots: Generation[][]; current: Generation[]; onPick: (index: number) => void }) {
   return (
     <>
@@ -34,7 +46,7 @@ export function LotTabs({ lots, current, onPick }: { lots: Generation[][]; curre
             l === current ? 'border-border bg-accent text-foreground' : 'border-border/40 text-muted-foreground hover:text-foreground',
           )}
         >
-          Lot {i + 1} · {l.length}
+          {lotKind(l) ? `${lotKind(l)} · ` : ''}Lot {i + 1} · {l.length}
         </button>
       ))}
     </>

@@ -246,7 +246,7 @@ export function MastersScreen({
           </div>
           <Button size="sm" className="h-8 gap-1.5 rounded-full" disabled={!family || generate.isPending || pending.length > 0} onClick={() => generate.mutate()}>
             {generate.isPending || pending.length > 0 ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {pending.length > 0 ? `Génération · ${lot.length - pending.length} / ${lot.length}` : `Générer ${lotSize} variations`}
+            {pending.length > 0 ? `Génération · ${lot.length - pending.length} / ${lot.length}` : `Générer ${lotSize} variations · ${axis === 'mix' ? 'Mélange' : masterAxis(axis).label}`}
           </Button>
         </div>
 
