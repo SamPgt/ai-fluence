@@ -22,7 +22,7 @@ import {
 import { env } from '../env.js';
 import { getNodeOptions, hasNodes, isComfyRunning, modelFileSize } from './comfy.service.js';
 import { getSettingsRow } from './settings.service.js';
-import { buildKlein, buildKrea, buildLtx, buildQwenEdit, buildWanI2V, type BuildContext, type Graph, type RetouchBox } from './comfy-builders.js';
+import { buildKlein, buildKrea, buildLtx, buildQwenEdit, buildQwenImage, buildWanI2V, type BuildContext, type Graph, type RetouchBox } from './comfy-builders.js';
 
 /** Entrée d'un nœud du workflow : [id du nœud, nom de l'entrée]. */
 type Slot = [node: string, input: string];
@@ -220,6 +220,13 @@ const KREA_COMMON: InputSchema['properties'] = {
   seed: SEED,
 };
 
+/** Qwen-Image 2512 : même encodeur et même VAE que Qwen Edit 2511. */
+const QWEN_IMAGE_FILES: LocalEndpoint['requires'] = {
+  unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /qwen[-_]image[-_]2512.*\.gguf$/i },
+  encoder: { loader: 'CLIPLoader', input: 'clip_name', match: /qwen_2\.5_vl_7b/i },
+  vae: { loader: 'VAELoader', input: 'vae_name', files: ['qwen_image_vae.safetensors'] },
+};
+
 export const LTX_FILES: LocalEndpoint['requires'] = {
   unet: { loader: 'UnetLoaderGGUF', input: 'unet_name', match: /ltx-2\.3.*distilled.*\.gguf$/i },
   // Gemma 3 12B (GGUF), sans le fichier `mmproj` (vision) qui n'a pas d'utilité ici.
@@ -232,6 +239,31 @@ export const LTX_FILES: LocalEndpoint['requires'] = {
 export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpoint>>> = {
   'local/flux2-klein-4b': kleinEndpoints('local/flux2-klein-4b', KLEIN_FILES),
   'local/flux2-klein-9b': kleinEndpoints('local/flux2-klein-9b', KLEIN_9B_FILES),
+  'local/qwen-image-2512': {
+    'text-to-image': {
+      modelId: 'local/qwen-image-2512/text-to-image',
+      task: 'text-to-image',
+      outputNode: '9',
+      schema: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          prompt: { type: 'string', description: 'Description de l’image, en langage naturel : il la suit à la lettre.' },
+          negative_prompt: { type: 'string', description: 'Ce qu’on ne veut pas voir (pris en compte : CFG > 1).' },
+          aspect_ratio: { type: 'string', enum: ASPECT_RATIOS, default: '4:5' },
+          steps: { type: 'integer', default: 25, minimum: 10, maximum: 50, description: '50 : réglage officiel, 2 fois plus long.' },
+          cfg: { type: 'number', default: 4, minimum: 1, maximum: 8 },
+          seed: SEED,
+        },
+      },
+      slots: {},
+      sized: true,
+      // Taille native du modèle : 1328 × 1328 (~1,76 Mpx).
+      pixels: 1328 * 1328,
+      requires: QWEN_IMAGE_FILES,
+      build: (values, ctx) => buildQwenImage(values, ctx, { width: Number(values.width), height: Number(values.height) }),
+    },
+  },
   'local/krea-2': {
     'text-to-image': {
       modelId: 'local/krea-2/text-to-image',
@@ -559,7 +591,9 @@ const MAIN_MODEL: Record<string, { match: RegExp; preferred?: string }> = {
   'local/flux2-klein-9b': { match: /flux-2-klein-9b/i },
   'local/krea-2': { match: /krea2/i },
   'local/qwen-image-edit-2511': { match: /qwen[-_]image[-_]edit[-_]2511/i },
-  'local/ltx-2.3': { match: /ltx-2\.3.*distilled/i },
+  'local/qwen-image-2512': { match: /qwen[-_]image[-_]2512/i },
+  // « ltx-2.3-22b-distilled… » (Unsloth) comme « ltx23DISTILLED… » (Civitai).
+  'local/ltx-2.3': { match: /ltx[-_ ]?2[._]?3.*distilled/i },
 };
 /** Wan : une paire de fichiers (bruit fort, bruit faible), reconnue par son nom ; on peut seulement la cacher. */
 const FIXED_MODEL: Record<string, RegExp> = { 'local/wan-2.2-i2v': /wan2\.2-i2v/i };

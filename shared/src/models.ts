@@ -355,6 +355,16 @@ export const LOCAL_FAMILIES: ModelFamilyDef[] = [
     score: 930, // guess score (FLUX.2 klein 9B)
   },
   {
+    id: 'local/qwen-image-2512',
+    label: 'Qwen-Image 2512 (local)',
+    media: 'image',
+    badges: ['LOCAL'],
+    hint: 'Texte → image, suit le prompt à la lettre ; vrai prompt négatif (CFG). Lent (~2 à 4 min). Licence Apache',
+    provider: 'alibaba',
+    runtime: 'comfy',
+    score: 1000, // guess score (Qwen-Image 2512 : respect du prompt, réalisme brut)
+  },
+  {
     id: 'local/qwen-image-edit-2511',
     label: 'Qwen Edit 2511 (local)',
     media: 'image',
