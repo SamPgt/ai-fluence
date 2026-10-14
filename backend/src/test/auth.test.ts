@@ -55,7 +55,9 @@ describe('POST /auth/signup', () => {
     expect(res.body.presets).toHaveLength(8);
     expect(res.body.presets.map((p: { label: string }) => p.label)).toContain('Photo iPhone');
     expect(res.body.presets.map((p: { position: number }) => p.position)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(res.body.presets.every((p: { enabled: boolean; personaId: string | null }) => p.enabled && p.personaId === null)).toBe(true);
+    expect(res.body.presets.every((p: { enabled: boolean }) => p.enabled)).toBe(true);
+    // Raccourcis toujours généraux : plus de champ persona.
+    expect(res.body.presets.some((p: object) => 'personaId' in p)).toBe(false);
   });
 
   it('refuse un e-mail déjà utilisé avec 409, sans tenir compte de la casse', async () => {

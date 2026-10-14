@@ -30,9 +30,13 @@ function ThreadPage() {
   const rename = useRenameThread()
   useEffect(() => setEditingTitle(false), [threadId])
   const { data: personas = [] } = useQuery(personasQuery())
-  const persona = personas.find((p) => p.id === data?.thread.personaId) ?? null
+  // Personas dont une référence a servi dans ce fil (bulles à droite du titre).
+  const threadPersonas = personas.filter((p) =>
+    data?.thread.personaIds.includes(p.id),
+  )
   const bottomRef = useRef<HTMLDivElement>(null)
-  const count = (data?.generations.length ?? 0) + (data?.workflowRuns.length ?? 0)
+  const count =
+    (data?.generations.length ?? 0) + (data?.workflowRuns.length ?? 0)
 
   // Une série (demande ×N) s'affiche en un seul bloc : ses générations sont regroupées.
   const groups = useMemo(() => {
@@ -50,8 +54,16 @@ function ThreadPage() {
       | { kind: 'group'; at: string; group: Generation[] }
       | { kind: 'run'; at: string; run: ThreadWorkflowRun }
     )[] = [
-      ...groups.map((group) => ({ kind: 'group' as const, at: group[0].createdAt, group })),
-      ...(data?.workflowRuns ?? []).map((run) => ({ kind: 'run' as const, at: run.createdAt, run })),
+      ...groups.map((group) => ({
+        kind: 'group' as const,
+        at: group[0].createdAt,
+        group,
+      })),
+      ...(data?.workflowRuns ?? []).map((run) => ({
+        kind: 'run' as const,
+        at: run.createdAt,
+        run,
+      })),
     ]
     return list.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
   }, [groups, data?.workflowRuns])
@@ -166,15 +178,6 @@ function ThreadPage() {
           )
         }
       >
-        {persona && (
-          <Link
-            to="/personas/$personaId"
-            params={{ personaId: persona.id }}
-            className="flex items-center gap-2"
-          >
-            <PersonaAvatar persona={persona} size={24} className="rounded-md" />
-          </Link>
-        )}
         {/* Clic sur le titre : renommer le fil. Le conteneur porte padding, police et hauteur de ligne,
             pour que le texte ne bouge pas d'un pixel entre l'affichage et l'édition. */}
         <div
@@ -204,6 +207,25 @@ function ThreadPage() {
             </button>
           )}
         </div>
+        {threadPersonas.length > 0 && !editingTitle && (
+          <div
+            data-testid="thread-personas"
+            className="flex shrink-0 items-center -space-x-1.5"
+          >
+            {threadPersonas.map((p) => (
+              <Link
+                key={p.id}
+                to="/personas/$personaId"
+                params={{ personaId: p.id }}
+                title={p.name}
+                aria-label={p.name}
+                className="rounded-full ring-2 ring-background transition-transform hover:z-10 hover:scale-110"
+              >
+                <PersonaAvatar persona={p} size={22} className="rounded-full" />
+              </Link>
+            ))}
+          </div>
+        )}
       </PageHeader>
 
       <div
@@ -229,9 +251,16 @@ function ThreadPage() {
             {/* Demandes et workflows lancés depuis le fil, dans l'ordre chronologique. */}
             {items.map((item) =>
               item.kind === 'group' ? (
-                <GenerationItem key={item.group[0].id} generations={item.group} />
+                <GenerationItem
+                  key={item.group[0].id}
+                  generations={item.group}
+                />
               ) : (
-                <WorkflowRunItem key={item.run.id} run={item.run} threadId={threadId} />
+                <WorkflowRunItem
+                  key={item.run.id}
+                  run={item.run}
+                  threadId={threadId}
+                />
               ),
             )}
           </ThreadMediaProvider>
@@ -239,11 +268,11 @@ function ThreadPage() {
         </div>
       </div>
 
-      {/* Monté une fois le fil chargé : le persona et le modèle par défaut en dépendent. */}
+      {/* Monté une fois le fil chargé : le modèle par défaut et les LoRA proposées en dépendent. */}
       {data && (
         <Composer
           threadId={threadId}
-          personaId={data.thread.personaId}
+          threadPersonaIds={data.thread.personaIds}
           suggestedFamily={data.generations.at(-1)?.family ?? null}
         />
       )}

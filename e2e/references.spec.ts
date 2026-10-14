@@ -1,7 +1,8 @@
 /**
- * Références d'un persona : bibliothèque sur sa fiche (envoi, ordre, retrait),
- * menu « Réf. » du composer, pièces jointes numérotées, compteur du modèle,
- * envoi dans l'ordre et affichage au-dessus de la demande dans le fil.
+ * Références d'un persona ou de Général : bibliothèque sur la fiche (envoi, ordre,
+ * retrait), menu « Réf. » du composer (une section par persona, puis Général),
+ * pièces jointes numérotées, compteur du modèle, envoi dans l'ordre et affichage
+ * au-dessus de la demande dans le fil.
  */
 import type { Page } from '@playwright/test'
 import { expect, test } from './helpers'
@@ -33,11 +34,15 @@ async function srcIds(loc: import('@playwright/test').Locator): Promise<string[]
 /** Vignettes du menu « Réf. » (hors bouton d'ajout). */
 const pickerThumbs = (page: Page) => popover(page).locator('button:has(img)')
 
+/** Section d'un persona (ou de Général) dans le menu « Réf. ». */
+const pickerSection = (page: Page, name: string) =>
+  popover(page).getByRole('region', { name: `Références : ${name}` })
+
 async function openPicker(page: Page) {
   // Un autre menu (celui des modèles) peut finir de se fermer.
   await expect(popover(page)).toHaveCount(0)
   await page.getByRole('button', { name: /^Réf\./ }).click()
-  await expect(popover(page).getByText(/^Références/)).toBeVisible()
+  await expect(popover(page).getByText(/^Références/).first()).toBeVisible()
 }
 
 test.describe('Bibliothèque sur la fiche persona', () => {
@@ -112,40 +117,46 @@ test.describe('Bibliothèque sur la fiche persona', () => {
 })
 
 test.describe('Menu « Réf. » du composer', () => {
-  test('absent sans persona, présent avec la bibliothèque du persona', async ({ app, page }) => {
-    const p = await app.createPersona({ name: 'Alice' })
-    const refs = [await uploadReference(page, p.id, 'a.png'), await uploadReference(page, p.id, 'b.png')]
+  test('toujours présent : une section par persona, puis Général @core', async ({ app, page }) => {
+    const alice = await app.createPersona({ name: 'Alice' })
+    const bea = await app.createPersona({ name: 'Bea' })
+    const refs = [await uploadReference(page, alice.id, 'a.png'), await uploadReference(page, alice.id, 'b.png')]
+    await uploadReference(page, bea.id, 'c.png')
+    const general = await uploadReference(page, 'general', 'g.png')
     await app.gotoNew()
-    await expect(page.getByRole('button', { name: /^Réf\./ })).toHaveCount(0)
-
-    await app.selectPersona('Alice')
     await openPicker(page)
-    await expect(pickerThumbs(page)).toHaveCount(2)
-    // Même ordre que la bibliothèque (les plus récentes en premier).
-    expect(await srcIds(pickerThumbs(page))).toEqual([refs[1].id, refs[0].id])
+    await expect(popover(page).getByRole('region')).toHaveCount(3)
+    expect(
+      await popover(page)
+        .getByRole('region')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))),
+    ).toEqual(['Références : Alice', 'Références : Bea', 'Références : Général'])
+    await expect(pickerThumbs(page)).toHaveCount(4)
+    // Même ordre que la fiche (les plus récentes en premier).
+    expect(await srcIds(pickerSection(page, 'Alice'))).toEqual([refs[1].id, refs[0].id])
+    expect(await srcIds(pickerSection(page, 'Général'))).toEqual([general.id])
     // Compteur du modèle par défaut (Seedream 5.0 Flash : 10 images).
     await expect(popover(page).getByText('0 / 10')).toBeVisible()
-    await expect(popover(page).getByRole('link', { name: 'Gérer' })).toHaveAttribute(
-      'href',
-      `/personas/${p.id}`,
-    )
+    await expect(popover(page).getByRole('link', { name: 'Gérer' })).toHaveAttribute('href', '/bibliotheque')
   })
 
-  test('sans référence, une aide invite à en ajouter', async ({ app, page }) => {
-    await app.createPersona({ name: 'Alice' })
+  test('sans persona : la section Général seule, avec son « + »', async ({ app, page }) => {
     await app.gotoNew()
-    await app.selectPersona('Alice')
     await openPicker(page)
-    await expect(popover(page).getByText(/Ajoute 3 à 5 photos/)).toBeVisible()
+    await expect(popover(page).getByRole('region')).toHaveCount(1)
+    await expect(
+      pickerSection(page, 'Général').getByRole('button', { name: 'Ajouter aux références : Général' }),
+    ).toBeVisible()
+    await expect(pickerThumbs(page)).toHaveCount(0)
   })
 
   test('cocher ajoute des pièces jointes numérotées, décocher les retire @core', async ({ app, page }) => {
     const p = await app.createPersona({ name: 'Alice' })
     for (const n of ['a', 'b', 'c']) await uploadReference(page, p.id, `${n}.png`)
     await app.gotoNew()
-    await app.selectPersona('Alice')
     await openPicker(page)
     const thumbs = pickerThumbs(page)
+    await expect(thumbs).toHaveCount(3)
     const ids = await srcIds(thumbs)
 
     await thumbs.nth(1).click()
@@ -180,7 +191,6 @@ test.describe('Menu « Réf. » du composer', () => {
     const p = await app.createPersona({ name: 'Alice' })
     for (const n of ['a', 'b', 'c', 'd']) await uploadReference(page, p.id, `${n}.png`)
     await app.gotoNew()
-    await app.selectPersona('Alice')
     // Qwen Image 2512 LoRA : 3 images au maximum.
     await app.chooseModel('Qwen Image 2512 LoRA')
     await openPicker(page)
@@ -197,39 +207,53 @@ test.describe('Menu « Réf. » du composer', () => {
     await expect(thumbs.nth(3)).toBeEnabled()
   })
 
-  test('modèle d’édition à une image : le menu devient « Édition », compteur 1', async ({
-    app,
-    page,
-  }) => {
+  test('modèle d’édition à une image : le menu devient « Édition », compteur 1', async ({ app, page }) => {
     const p = await app.createPersona({ name: 'Alice' })
     await uploadReference(page, p.id)
     await app.gotoNew()
-    await app.selectPersona('Alice')
     await app.chooseModel('Z-Image Turbo LoRA')
     await expect(page.getByRole('button', { name: /^Édition/ })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ajouter un fichier' })).toHaveText('0/1')
   })
 
-  test('le « + » du menu ajoute des images à la bibliothèque', async ({ app, page }) => {
+  test('le « + » d’une section ajoute des images à ses références', async ({ app, page }) => {
     const p = await app.createPersona({ name: 'Alice' })
     await app.gotoNew()
-    await app.selectPersona('Alice')
     await openPicker(page)
-    await popover(page)
+    await pickerSection(page, 'Alice')
       .locator('input[type=file]')
       .setInputFiles([pngFile('x.png'), pngFile('y.png')])
-    await expect(pickerThumbs(page)).toHaveCount(2)
+    await expect(pickerSection(page, 'Alice').locator('button:has(img)')).toHaveCount(2)
     expect(await listReferences(page, p.id)).toHaveLength(2)
-    // Ajoutées à la bibliothèque, pas encore jointes.
+    // Ajoutées aux références, pas encore jointes.
     await expect(app.attachments).toHaveCount(0)
+
+    // Le « + » de Général : rangées dans aucun persona.
+    await pickerSection(page, 'Général').locator('input[type=file]').setInputFiles(pngFile('z.png'))
+    await expect(pickerSection(page, 'Général').locator('button:has(img)')).toHaveCount(1)
+    expect(await listReferences(page, 'general')).toHaveLength(1)
+    expect(await listReferences(page, p.id)).toHaveLength(2)
+  })
+
+  test('vidéo : le choix « Début / Fin » ou « Références » est dans le menu', async ({ app, page }) => {
+    await app.gotoNew()
+    await app.chooseMedia('Vidéo')
+    await openPicker(page)
+    await expect(popover(page).getByText('Utiliser les images comme')).toBeVisible()
+    await expect(popover(page).getByRole('button', { name: 'Début / Fin' })).toBeVisible()
+    const reference = popover(page).getByRole('button', { name: 'Références', exact: true })
+    await expect(reference).toBeVisible()
+    // Plus de bascule dans la barre du composer : le choix se fait ici.
+    await reference.click()
+    await expect(reference).toHaveClass(/bg-accent/)
+    await expect(popover(page).getByRole('button', { name: 'Début / Fin' })).not.toHaveClass(/bg-accent/)
   })
 })
 
 test.describe('Bouton « + » du composer', () => {
-  test('joint des fichiers numérotés, sans les mettre dans la bibliothèque', async ({ app, page }) => {
+  test('joint des fichiers numérotés, sans les mettre dans les références', async ({ app, page }) => {
     const p = await app.createPersona({ name: 'Alice' })
     await app.gotoNew()
-    await app.selectPersona('Alice')
     const plus = page.getByRole('button', { name: 'Ajouter un fichier' })
     await expect(plus).toHaveText('0/10')
     await expect(plus).toHaveAttribute('title', 'Ajouter des images (10 au maximum pour ce modèle)')
@@ -241,6 +265,7 @@ test.describe('Bouton « + » du composer', () => {
     await expect(app.tags).toHaveText(['1', '2'])
     await expect(plus).toHaveText('2/10')
     expect(await listReferences(page, p.id)).toHaveLength(0)
+    expect(await listReferences(page, 'general')).toHaveLength(0)
 
     // La croix d'une pièce jointe la retire.
     await app.attachments.first().hover()
@@ -285,8 +310,8 @@ test.describe('Envoi', () => {
     const p = await app.createPersona({ name: 'Alice' })
     for (const n of ['a', 'b', 'c']) await uploadReference(page, p.id, `${n}.png`)
     await app.gotoNew()
-    await app.selectPersona('Alice')
     await openPicker(page)
+    await expect(pickerThumbs(page)).toHaveCount(3)
     const ids = await srcIds(pickerThumbs(page))
     await pickerThumbs(page).nth(2).click()
     await pickerThumbs(page).nth(0).click()

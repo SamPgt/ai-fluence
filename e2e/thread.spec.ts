@@ -15,6 +15,7 @@ import {
   uploadImage,
   waitThreadDone,
 } from './support-thread'
+import { listReferences } from './support-personas'
 
 /** Visionneuse plein écran (dialogue « Aperçu »). */
 const viewer = (page: import('@playwright/test').Page) => page.getByRole('dialog', { name: 'Aperçu' })
@@ -89,7 +90,7 @@ test.describe('Demande dans le fil', () => {
   }) => {
     const golden = await createPreset(page, 'Lumière dorée', 'golden hour lighting')
     const studio = await createPreset(page, 'Studio', 'studio portrait')
-    const persona = await app.createPersona({
+    await app.createPersona({
       name: 'Lina',
       loras: [
         {
@@ -104,7 +105,6 @@ test.describe('Demande dans le fil', () => {
     })
     const { thread } = await generateDone(page, {
       family: ZIMAGE_LORA,
-      personaId: persona.id,
       prompt: 'avec des tags',
       contextIds: [golden.id, studio.id],
       loraIds: ['lora-lina'],
@@ -166,22 +166,24 @@ test.describe('Modifier la demande (↺)', () => {
   })
 
   test('remet la LoRA et son mot déclencheur choisi', async ({ app, page }) => {
-    const persona = await app.createPersona({
-      name: 'Nora',
-      loras: [
-        {
-          id: 'lora-nora',
-          label: 'LoRA Nora',
-          path: 'https://example.com/nora.safetensors',
-          scale: 1,
-          family: ZIMAGE_LORA,
-          triggerWords: ['nora_face'],
-        },
-      ],
+    // LoRA de Général : proposée dans tous les fils.
+    const settings = await page.request.patch('/api/settings', {
+      data: {
+        loras: [
+          {
+            id: 'lora-nora',
+            label: 'LoRA Nora',
+            path: 'https://example.com/nora.safetensors',
+            scale: 1,
+            family: ZIMAGE_LORA,
+            triggerWords: ['nora_face'],
+          },
+        ],
+      },
     })
+    expect(settings.ok(), await settings.text()).toBeTruthy()
     const { thread } = await generateDone(page, {
       family: ZIMAGE_LORA,
-      personaId: persona.id,
       prompt: 'portrait de nora',
       loraIds: ['lora-nora'],
       loraWords: { 'lora-nora': ['nora_face'] },
@@ -331,6 +333,40 @@ test.describe('Résultat', () => {
     await expect(page.locator('img[alt="depuis le composer"]')).toBeVisible({ timeout: 15_000 })
     const { generations } = await getThread(page, thread.id)
     expect(generations).toHaveLength(2)
+  })
+})
+
+test.describe('Ajouter aux références', () => {
+  test('le menu du résultat liste chaque persona puis Général, et range l’image choisie @core', async ({
+    app,
+    page,
+  }) => {
+    await app.createPersona({ name: 'Alice' })
+    const bob = await app.createPersona({ name: 'Bob' })
+    const { thread, generation } = await generateDone(page, { prompt: 'a garder' })
+    const output = generation.outputs[0]
+    await app.gotoThread(thread.id)
+
+    await page.getByRole('button', { name: 'Ajouter aux références', exact: true }).first().click()
+    const menu = page.getByRole('menu')
+    await expect(menu.getByRole('menuitem')).toHaveText(['Alice', 'Bob', 'Général'])
+    await menu.getByRole('menuitem', { name: 'Bob' }).click()
+    await expect(page.getByText('Ajoutée aux références : Bob')).toBeVisible()
+    await expect.poll(async () => (await listReferences(page, bob.id)).map((a) => a.id)).toEqual([output.id])
+
+    // Puis dans Général : l'image quitte Bob.
+    await page.getByRole('button', { name: 'Ajouter aux références', exact: true }).first().click()
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Général' }).click()
+    await expect(page.getByText('Ajoutée aux références : Général')).toBeVisible()
+    await expect.poll(async () => (await listReferences(page, 'general')).map((a) => a.id)).toEqual([output.id])
+    expect(await listReferences(page, bob.id)).toEqual([])
+  })
+
+  test('sans persona, le menu propose seulement Général', async ({ app, page }) => {
+    const { thread } = await generateDone(page, { prompt: 'seul' })
+    await app.gotoThread(thread.id)
+    await page.getByRole('button', { name: 'Ajouter aux références', exact: true }).first().click()
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['Général'])
   })
 })
 

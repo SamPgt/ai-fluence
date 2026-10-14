@@ -126,15 +126,19 @@ function durationControl(prop: JsonSchemaProp | undefined, raw: unknown) {
 
 interface ComposerProps {
   threadId?: string
-  personaId: string | null
+  /** Personas dont une référence a déjà servi dans le fil (leurs LoRA sont proposées). */
+  threadPersonaIds?: string[]
   /** Modèle proposé par défaut (ex. celui de la dernière génération du fil). */
   suggestedFamily?: string | null
+  /** Workflow dont le formulaire s'ouvre d'emblée (▶ depuis l'Accueil). */
+  initialWorkflowId?: string
 }
 
 export function Composer({
   threadId,
-  personaId,
+  threadPersonaIds = [],
   suggestedFamily,
+  initialWorkflowId,
 }: ComposerProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -152,18 +156,22 @@ export function Composer({
   const { data: catalog, error: catalogError } = useQuery(
     catalogQuery(Boolean(settings?.hasApiKey)),
   )
-  const { data: personas = [], status: personasStatus } =
-    useQuery(personasQuery())
+  const { data: personas = [] } = useQuery(personasQuery())
   const { data: contexts = [] } = useQuery(presetsQuery())
-  const persona = personas.find((p) => p.id === personaId) ?? null
   const families = catalog?.families ?? []
+  // Personas présents : ceux du fil et ceux des images jointes (dans l'ordre de la Bibliothèque).
+  const presentIds = new Set([
+    ...threadPersonaIds,
+    ...state.attachments.map((a) => a.personaId).filter(Boolean),
+  ])
+  const present = personas.filter((p) => presentIds.has(p.id))
 
-  const personasLoaded = personasStatus === 'success'
+  const settingsLoaded = Boolean(settings)
   const usable = (id: string | null | undefined, media: MediaKind) =>
     id && families.some((f) => f.id === id && f.available && f.media === media)
       ? id
       : null
-  // Modèle par défaut, dans l'ordre : dernier modèle du fil > modèle du persona
+  // Modèle par défaut, dans l'ordre : dernier modèle du fil > modèle par défaut (Paramétrage)
   // > dernier choix dans ce fil (type photo / vidéo) > modèle économique de l'app
   // > premier dispo. Le choix fait dans le fil lui-même est repris en premier
   // (cf. enterThread), cette cascade ne sert que s'il n'y en a pas.
@@ -174,8 +182,8 @@ export function Composer({
     (suggested ? usable(suggestedFamily, media) : null) ??
     usable(
       media === 'image'
-        ? persona?.defaultImageFamily
-        : persona?.defaultVideoFamily,
+        ? settings?.defaultImageFamily
+        : settings?.defaultVideoFamily,
       media,
     ) ??
     (memory ? usable(state.familyByMedia[media], media) : null) ??
@@ -190,36 +198,18 @@ export function Composer({
   useEffect(() => {
     if (enteredFor.current === (threadId ?? null)) return
     enteredFor.current = threadId ?? null
-    composer.enterThread(threadId ?? null, personaId)
+    composer.enterThread(threadId ?? null)
   }, [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Jamais sans modèle : si le modèle courant manque ou n'est plus disponible
   // (catalogue pas encore chargé, modèle retiré…), on applique la cascade.
   useEffect(() => {
-    if (!catalog || !personasLoaded) return
+    if (!catalog || !settingsLoaded) return
     const current = families.find((f) => f.id === state.family)
     if (current?.available) return
     const pick = pickFamily(current?.media ?? 'image')
     if (pick) composer.setFamily(pick)
-  }, [catalog, personasLoaded, state.family]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Changer de persona reprend son modèle par défaut (le choix manuel ne vaut
-  // que pour le persona en cours).
-  const lastPersona = useRef(personaId)
-  useEffect(() => {
-    // Dans un fil, le persona est fixe : seul un nouveau fil change de persona.
-    if (threadId) return
-    if (lastPersona.current === personaId || !catalog || !personasLoaded) return
-    lastPersona.current = personaId
-    // Demande commencée : on garde le modèle choisi avec elle.
-    if (!isEmptyDraft(state)) return
-    const current = families.find((f) => f.id === state.family)
-    const pick = pickFamily(current?.media ?? 'image', {
-      memory: false,
-      suggested: false,
-    })
-    if (pick && pick !== state.family) composer.setFamily(pick)
-  }, [personaId, catalog, personasLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [catalog, settingsLoaded, state.family]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (state.focusTick) textareaRef.current?.focus()
@@ -239,8 +229,13 @@ export function Composer({
   const defaultFamily = pickFamily(media, { memory: false })
   const canReset = !isEmptyDraft(state)
   // Workflow lancé depuis le fil : son formulaire s'affiche au-dessus du composer.
-  const [workflowFormId, setWorkflowFormId] = useState<string | null>(null)
-  useEffect(() => setWorkflowFormId(null), [threadId])
+  const [workflowFormId, setWorkflowFormId] = useState<string | null>(
+    initialWorkflowId ?? null,
+  )
+  useEffect(
+    () => setWorkflowFormId(initialWorkflowId ?? null),
+    [threadId, initialWorkflowId],
+  )
   const [undoReset, setUndoReset] = useState<ReturnType<
     typeof composer.reset
   > | null>(null)
@@ -281,9 +276,11 @@ export function Composer({
   const schema = task ? family?.tasks[task]?.schema : undefined
   const requiresPrompt = schema?.required?.includes('prompt') ?? true
   const supportsLoras = schemaSupportsLoras(schema)
-  // LoRA du persona pour ce modèle : rien n'est coché d'office, 3 max.
+  // LoRA pour ce modèle, de Général et des personas présents : rien n'est coché d'office, 3 max.
   const personaLoras = supportsLoras
-    ? (persona?.loras.filter((l) => l.family === state.family && l.path) ?? [])
+    ? [...(settings?.loras ?? []), ...present.flatMap((p) => p.loras)].filter(
+        (l) => l.family === state.family && l.path,
+      )
     : []
   const activeLoras = personaLoras
     .filter((l) => l.id in state.loras)
@@ -298,12 +295,16 @@ export function Composer({
       ? audioInputInfo(family.tasks)
       : { max: 0, mode: 'none' as const }
   // PROCHAINEMENT : ajout de la voix (VOICE_ENABLED) ; en pause, aucune voix n'est choisie ni envoyée.
+  // Voix proposées : celles du premier persona présent (la voix reviendra avec sa propre logique).
+  const voicePersona = present.find((p) => p.kind !== 'artistic') ?? null
   const selectedVoice = VOICE_ENABLED
-    ? (persona?.voices.find((v) => v.id === state.voiceId) ?? null)
+    ? (voicePersona?.voices.find((v) => v.id === state.voiceId) ?? null)
     : null
   // La voix part comme référence audio : modèles qui en acceptent une, en mode références.
   const voiceSent =
-    Boolean(selectedVoice) && voiceInfo.mode === 'reference' && task === 'reference-to-video'
+    Boolean(selectedVoice) &&
+    voiceInfo.mode === 'reference' &&
+    task === 'reference-to-video'
   // Plus d'images que le modèle n'en accepte : envoi bloqué (jamais d'image
   // ignorée sans que la personne le décide).
   const extraImages =
@@ -317,15 +318,12 @@ export function Composer({
     family.tasks['image-to-video'] &&
     family.tasks['reference-to-video'],
   )
-  // Sans persona (pas de menu « Réf. »), le choix reste dans la barre dès qu'une image est jointe.
-  const showRefToggle = canChooseRefMode && !persona && counts.images > 0
 
   // Contextes envoyés : ceux qui sont actifs ET proposés pour ce type de média.
   const activeContextIds = contexts
     .filter(
       (c) =>
         c.enabled &&
-        (c.personaId === null || c.personaId === personaId) &&
         state.contextIds.includes(c.id) &&
         (c.media === 'all' || c.media === (family?.media ?? 'image')),
     )
@@ -334,7 +332,6 @@ export function Composer({
   const request: GenerationRequest | null = family
     ? {
         threadId: threadId ?? null,
-        personaId,
         family: family.id,
         refMode: state.refMode,
         prompt: state.prompt,
@@ -411,7 +408,7 @@ export function Composer({
       workflowId: null,
       workflowNodeId: null,
       voiceId: body.voiceId ?? null,
-      personaId: body.personaId ?? null,
+      personaId: null,
       prompt: body.prompt,
       finalPrompt: body.prompt,
       family: body.family,
@@ -497,7 +494,7 @@ export function Composer({
     setUploading((n) => n + list.length)
     for (const f of list) {
       try {
-        const { asset } = await assetsApi.upload(f, { personaId })
+        const { asset } = await assetsApi.upload(f)
         composer.addAttachments([asset])
       } catch (e) {
         toast.error(`${f.name} : ${(e as Error).message}`)
@@ -596,13 +593,11 @@ export function Composer({
           <WorkflowForm
             workflowId={workflowFormId}
             threadId={threadId}
-            personaId={personaId}
             onClose={() => setWorkflowFormId(null)}
           />
         ) : (
           <ContextChips
             media={family?.media ?? 'image'}
-            personaId={personaId}
             activeIds={state.contextIds}
             onToggle={composer.toggleContext}
             loras={personaLoras}
@@ -840,26 +835,25 @@ export function Composer({
               <LibraryBrowser
                 open={libraryOpen}
                 onOpenChange={setLibraryOpen}
-                personaId={personaId}
+                personaId={null}
                 onImport={(asset) => composer.addAttachments([asset])}
               />
-              {persona && (
-                <ReferencePicker
-                  persona={persona}
-                  info={imageInfo}
-                  refMode={
-                    canChooseRefMode
-                      ? { value: state.refMode, onChange: composer.setRefMode }
-                      : undefined
-                  }
-                  selectedIds={state.attachments.map((a) => a.id)}
-                  onToggle={(a) =>
-                    state.attachments.some((x) => x.id === a.id)
-                      ? composer.removeAttachment(a.id)
-                      : composer.addAttachments([a])
-                  }
-                />
-              )}
+              {/* Références de tous les personas et de Général (un titre par section). */}
+              <ReferencePicker
+                personas={personas}
+                info={imageInfo}
+                refMode={
+                  canChooseRefMode
+                    ? { value: state.refMode, onChange: composer.setRefMode }
+                    : undefined
+                }
+                selectedIds={state.attachments.map((a) => a.id)}
+                onToggle={(a) =>
+                  state.attachments.some((x) => x.id === a.id)
+                    ? composer.removeAttachment(a.id)
+                    : composer.addAttachments([a])
+                }
+              />
               <MediaSwitch value={media} onChange={switchMedia} />
               <ModelPicker
                 media={media}
@@ -880,9 +874,9 @@ export function Composer({
                 }
               />
               {/* Voix du persona, juste à droite du modèle : seulement pour un modèle vidéo qui accepte une voix. */}
-              {VOICE_ENABLED && persona && persona.kind !== 'artistic' && voiceInfo.max > 0 && (
+              {VOICE_ENABLED && voicePersona && voiceInfo.max > 0 && (
                 <VoicePicker
-                  persona={persona}
+                  persona={voicePersona}
                   value={selectedVoice?.id ?? null}
                   onChange={composer.setVoice}
                 />
@@ -941,26 +935,10 @@ export function Composer({
                   state.family && composer.resetParams(state.family)
                 }
               />
-              <WorkflowPickerButton onPick={setWorkflowFormId} active={Boolean(workflowFormId)} />
-              {showRefToggle && (
-                <div className="flex h-8 items-center rounded-full border border-border/60 bg-background/40 p-0.5 text-[11px]">
-                  {(['start-frame', 'reference'] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => composer.setRefMode(m)}
-                      className={cn(
-                        'h-full rounded-full px-2.5 transition-colors',
-                        state.refMode === m
-                          ? 'bg-accent text-foreground'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {m === 'start-frame' ? 'Début / Fin' : 'Références'}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <WorkflowPickerButton
+                onPick={setWorkflowFormId}
+                active={Boolean(workflowFormId)}
+              />
             </div>
 
             {/* Générer : prix à gauche du bouton, sans infobulle. */}

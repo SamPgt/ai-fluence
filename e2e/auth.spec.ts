@@ -23,10 +23,10 @@ test.describe('déconnecté', () => {
     await expect(page).toHaveURL(/\/parametres\?tab=api-key/)
     await expect(page.getByRole('tab', { name: 'Clés API' })).toHaveAttribute('data-state', 'active')
     await expect(page.getByLabel('Clé SpicyAPI')).toBeVisible()
-    // Le compte est bien connecté : son menu porte son nom.
-    await page.getByRole('button', { name: 'Menu utilisateur' }).click()
-    await expect(page.getByRole('menu')).toContainText('Nouvelle Personne')
-    await expect(page.getByRole('menu')).toContainText(email)
+    // Le compte est bien connecté : le bouton de son menu porte son nom et son e-mail.
+    const menu = page.getByRole('button', { name: 'Menu utilisateur' })
+    await expect(menu).toContainText('Nouvelle Personne')
+    await expect(menu).toContainText(email)
   })
 
   test('l’inscription avec un e-mail déjà pris affiche une erreur', async ({ page }) => {
@@ -124,8 +124,10 @@ test.describe('déconnecté', () => {
     const user = await signupByApi(page.request, 'Compte Sortant')
     await page.goto('/')
     await hydrated(page)
-    await page.getByRole('button', { name: 'Menu utilisateur' }).click()
-    await expect(page.getByRole('menu')).toContainText(user.email)
+    // Le compte (nom, e-mail) est affiché sur le bouton du menu.
+    const menu = page.getByRole('button', { name: 'Menu utilisateur' })
+    await expect(menu).toContainText(user.email)
+    await menu.click()
     await page.getByRole('menuitem', { name: 'Déconnexion' }).click()
     await expect(page).toHaveURL(/\/connexion$/)
 

@@ -53,13 +53,39 @@ describe('GET /threads', () => {
     const t: Thread = res.body.threads[0];
     expect(t.id).toBe(thread.id);
     expect(t.title).toBe('un chat sur un toit');
-    expect(t.personaId).toBeNull();
+    expect(t.personaIds).toEqual([]);
     expect(t.isPinned).toBe(false);
     expect(t.generationCount).toBe(1);
     expect(Number(t.totalCost)).toBeCloseTo(0.01);
     expect(t.coverUrl).toBe(generation.outputs[0].url);
     expect(t.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(t.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('personas du fil : ceux dont une référence a servi, dans l’ordre de la Bibliothèque', async () => {
+    const me = await signup();
+    const lea = await me.createPersona({ name: 'Léa' });
+    const max = await me.createPersona({ name: 'Max' });
+    const ref = (personaId: string) => me.uploadAsset({ personaId, isReference: true });
+    const general = await me.uploadAsset();
+    const { thread } = await me.generate({ referenceAssetIds: [(await ref(max.id)).id, general.id] });
+    await me.generate({ threadId: thread.id, referenceAssetIds: [(await ref(lea.id)).id] });
+    const t: Thread = (await me.get(`/threads/${thread.id}`)).body.thread;
+    expect(t.personaIds).toEqual([lea.id, max.id]);
+    // Un persona à la corbeille n'apparaît plus.
+    expect((await me.del(`/personas/${max.id}`)).status).toBe(200);
+    expect(((await me.get('/threads')).body.threads as Thread[])[0].personaIds).toEqual([lea.id]);
+  });
+
+  it('images du fil : les 3 dernières, de la plus récente à la plus ancienne', async () => {
+    const me = await signup();
+    const { generation: g1, thread } = await me.generate();
+    const g2 = await me.generate({ threadId: thread.id });
+    const g3 = await me.generate({ threadId: thread.id });
+    const g4 = await me.generate({ threadId: thread.id });
+    const t: Thread = (await me.get('/threads')).body.threads[0];
+    expect(t.previewUrls).toEqual([g4, g3, g2].map(x => x.generation.outputs[0].url));
+    expect(t.previewUrls).not.toContain(g1.outputs[0].url);
   });
 
   it('additionne le coût et compte les générations du même fil', async () => {
@@ -105,41 +131,38 @@ describe('GET /threads', () => {
     expect(ids((await me.get('/threads')).body.threads)).toEqual([a.thread.id, b.thread.id]);
   });
 
-  it('filtre par persona, et « none » donne les fils sans persona', async () => {
+  it('liste tous les fils : un personaId en paramètre est ignoré', async () => {
     const me = await signup();
-    const p1 = await me.createPersona({ name: 'Alice' });
-    const p2 = await me.createPersona({ name: 'Bob' });
-    const t1 = await insertThread(me, { personaId: p1.id });
-    const t2 = await insertThread(me, { personaId: p2.id });
-    const t0 = await insertThread(me);
-    expect(ids((await me.get(`/threads?personaId=${p1.id}`)).body.threads)).toEqual([t1.id]);
-    expect(ids((await me.get(`/threads?personaId=${p2.id}`)).body.threads)).toEqual([t2.id]);
-    expect(ids((await me.get('/threads?personaId=none')).body.threads)).toEqual([t0.id]);
-    expect((await me.get('/threads')).body.threads).toHaveLength(3);
+    const p = await me.createPersona({ name: 'Alice' });
+    const t1 = await insertThread(me, { title: 'un' });
+    const t2 = await insertThread(me, { title: 'deux' });
+    await setUpdatedAt(t1.id, new Date('2026-01-01T00:00:00Z'));
+    for (const q of ['', `?personaId=${p.id}`, '?personaId=none', `?personaId=${randomUUID()}`, '?personaId=pas-un-uuid']) {
+      const res = await me.get(`/threads${q}`);
+      expect(res.status).toBe(200);
+      expect(ids(res.body.threads)).toEqual([t2.id, t1.id]);
+    }
   });
 
-  it('une génération avec un persona range le fil sous ce persona', async () => {
+  it('une référence de persona ne range pas le fil sous ce persona : il le cite seulement', async () => {
+    const me = await signup();
+    const p = await me.createPersona({ name: 'Chloé' });
+    const ref = await me.uploadAsset({ personaId: p.id, isReference: true });
+    // Un personaId envoyé à la génération est ignoré.
+    const { thread } = await me.generate({ personaId: p.id, referenceAssetIds: [ref.id] });
+    expect(thread.personaIds).toEqual([]);
+    const listed = ((await me.get('/threads')).body.threads as Thread[]).find(t => t.id === thread.id)!;
+    expect(listed.personaIds).toEqual([p.id]);
+    expect(listed).not.toHaveProperty('personaId');
+    const [row] = await db.select().from(threads).where(eq(threads.id, thread.id));
+    expect(row.personaId).toBeNull();
+  });
+
+  it('un fil sans référence de persona n’en cite aucun, même généré avec un personaId', async () => {
     const me = await signup();
     const p = await me.createPersona({ name: 'Chloé' });
     const { thread } = await me.generate({ personaId: p.id });
-    expect(ids((await me.get(`/threads?personaId=${p.id}`)).body.threads)).toEqual([thread.id]);
-    expect((await me.get('/threads?personaId=none')).body.threads).toEqual([]);
-  });
-
-  it('un persona inconnu donne une liste vide', async () => {
-    const me = await signup();
-    await insertThread(me);
-    const res = await me.get(`/threads?personaId=${randomUUID()}`);
-    expect(res.status).toBe(200);
-    expect(res.body.threads).toEqual([]);
-  });
-
-  // Ancien bug (corrigé) : `personaId` n'est validé que comme une chaîne. Une valeur qui n'est
-  // ni un UUID ni « none » part telle quelle dans Postgres et provoque une erreur 500.
-  it('refuse un personaId qui n’est pas un UUID par une erreur 400', async () => {
-    const me = await signup();
-    const res = await me.get('/threads?personaId=pas-un-uuid');
-    expect(res.status).toBe(400);
+    expect(((await me.get(`/threads/${thread.id}`)).body.thread as Thread).personaIds).toEqual([]);
   });
 
   it('n’affiche ni les fils des autres utilisateurs ni les fils à la corbeille', async () => {
@@ -379,33 +402,24 @@ describe('PATCH /threads/:id', () => {
     expect((await me.patch(`/threads/${t.id}`, { isPinned: 'oui' })).status).toBe(400);
   });
 
-  it('change le persona d’un fil, ou le retire avec null', async () => {
-    const me = await signup();
-    const p = await me.createPersona({ name: 'Dora' });
-    const t = await insertThread(me);
-    const set = await me.patch(`/threads/${t.id}`, { personaId: p.id });
-    expect(set.status).toBe(200);
-    expect(set.body.thread.personaId).toBe(p.id);
-    expect(ids((await me.get(`/threads?personaId=${p.id}`)).body.threads)).toEqual([t.id]);
-    const unset = await me.patch(`/threads/${t.id}`, { personaId: null });
-    expect(unset.body.thread.personaId).toBeNull();
-  });
-
-  it('refuse un personaId qui n’est pas un UUID par une erreur 400', async () => {
-    const me = await signup();
-    const t = await insertThread(me);
-    expect((await me.patch(`/threads/${t.id}`, { personaId: 'abc' })).status).toBe(400);
-  });
-
-  // Ancien bug (corrigé) : la propriété du persona n'est pas vérifiée. On peut ranger son fil sous
-  // le persona d'un autre utilisateur. Le comportement attendu est un refus (404).
-  it('refuse de ranger un fil sous le persona d’un autre utilisateur', async () => {
+  it('ignore un personaId envoyé : un fil n’appartient plus à un persona', async () => {
     const me = await signup();
     const other = await signup();
+    const mine = await me.createPersona({ name: 'Dora' });
     const theirs = await other.createPersona({ name: 'Étrangère' });
-    const t = await insertThread(me);
-    const res = await me.patch(`/threads/${t.id}`, { personaId: theirs.id });
-    expect(res.status).toBe(404);
+    const t = await insertThread(me, { title: 'avant' });
+    for (const personaId of [mine.id, theirs.id, null, 'abc']) {
+      const res = await me.patch(`/threads/${t.id}`, { personaId });
+      expect(res.status).toBe(200);
+      expect(res.body.thread.personaIds).toEqual([]);
+      expect(res.body.thread.title).toBe('avant');
+    }
+    // Les autres champs passent toujours.
+    const res = await me.patch(`/threads/${t.id}`, { title: 'après', personaId: mine.id });
+    expect(res.status).toBe(200);
+    expect(res.body.thread.title).toBe('après');
+    const [row] = await db.select().from(threads).where(eq(threads.id, t.id));
+    expect(row.personaId).toBeNull();
   });
 
   // Même règle que pour le compte et les raccourcis : un corps vide ne change rien.

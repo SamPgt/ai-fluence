@@ -11,7 +11,7 @@ const viewer = (page: Page) => page.getByRole('dialog', { name: 'Aperçu' })
 
 async function gotoGallery(page: Page) {
   await page.goto('/galerie')
-  await expect(page.getByText('Galerie', { exact: true })).toBeVisible()
+  await expect(page.getByRole('main').getByText('Galerie', { exact: true })).toBeVisible()
 }
 
 test('galerie vide : un message l’indique, pas de pagination', async ({ app, page }) => {
@@ -96,10 +96,10 @@ test('les résultats d’un fil à la corbeille sont masqués', async ({ app, pa
   await expect(items(page).first()).toContainText('resultat garde')
 })
 
-test('filtre par persona', async ({ app, page }) => {
+test('filtre par persona : les résultats des fils où une de ses références a servi', async ({ app, page }) => {
   const persona = await app.createPersona({ name: 'Iris' })
   await generateDone(page, { prompt: 'sans persona' })
-  await generateDone(page, { prompt: 'avec iris', personaId: persona.id })
+  await app.generateWithPersona(persona.id, { prompt: 'avec iris' })
   await gotoGallery(page)
   await expect(items(page)).toHaveCount(2)
   await page.getByRole('combobox').first().click()

@@ -1,6 +1,7 @@
 /**
- * Paramètres (/parametres) : onglets Compte, Raccourcis, Crédits, Stockage et
- * Clés API. Le compte e2e est partagé : chaque test le remet en état ensuite.
+ * Paramètres (/parametres) : onglets Compte, Modèles, Crédits, Stockage et
+ * Clés API. Les raccourcis se gèrent dans la page Général de la Bibliothèque.
+ * Le compte e2e est partagé : chaque test le remet en état ensuite.
  */
 import { existsSync } from 'node:fs'
 import type { Page } from '@playwright/test'
@@ -19,10 +20,10 @@ test.afterEach(async ({ page }) => {
   await restoreSharedUser(page.request)
 })
 
-test('les onglets sont Compte, Raccourcis, Crédits, Stockage et Clés API, rien d’autre @core @smoke', async ({ page }) => {
+test('les onglets sont Compte, Modèles, Crédits, Stockage et Clés API, rien d’autre @core @smoke', async ({ page }) => {
   await gotoSettings(page)
-  await expect(page.getByRole('tab')).toHaveText(['Compte', 'Raccourcis', 'Crédits', 'Stockage', 'Clés API'])
-  for (const absent of ['Modèles', 'Logo', 'Couleur']) {
+  await expect(page.getByRole('tab')).toHaveText(['Compte', 'Modèles', 'Crédits', 'Stockage', 'Clés API'])
+  for (const absent of ['Raccourcis', 'Logo', 'Couleur']) {
     await expect(page.getByRole('tab', { name: absent })).toHaveCount(0)
   }
   // Compte est l'onglet par défaut, et l'onglet choisi passe dans l'URL.
@@ -44,12 +45,10 @@ test.describe('Compte', () => {
     await expect(page.getByText('Compte mis à jour')).toBeVisible()
     await expect(save).toBeDisabled()
 
-    // Initiales dans la barre et nom dans le menu utilisateur.
+    // Initiales puis nom sur le bouton du menu utilisateur, en bas de la sidebar.
     const menu = page.getByRole('button', { name: 'Menu utilisateur' })
-    await expect(menu).toHaveText('MC')
-    await menu.click()
-    await expect(page.getByRole('menu')).toContainText('Marie Curie')
-    await page.keyboard.press('Escape')
+    await expect(menu.locator('span').first()).toHaveText('MC')
+    await expect(menu).toContainText('Marie Curie')
 
     await page.reload()
     await hydrated(page)
@@ -82,13 +81,20 @@ test.describe('Compte', () => {
 
     await page.getByRole('button', { name: 'Retirer' }).click()
     await expect(avatar.locator('img')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Menu utilisateur' })).toHaveText('E')
+    await expect(page.getByRole('button', { name: 'Menu utilisateur' }).locator('span').first()).toHaveText('E')
   })
 })
 
-test.describe('Raccourcis', () => {
+/** Page Général de la Bibliothèque, onglet Raccourcis. */
+async function gotoShortcuts(page: Page) {
+  await page.goto('/bibliotheque/general?tab=shortcuts')
+  await hydrated(page)
+  await expect(page.getByRole('tab', { name: 'Raccourcis' })).toHaveAttribute('data-state', 'active')
+}
+
+test.describe('Raccourcis (page Général)', () => {
   test('créer, modifier, masquer, réafficher puis supprimer un raccourci @core', async ({ page }) => {
-    await gotoSettings(page, 'shortcuts')
+    await gotoShortcuts(page)
     await expect(page.getByText('Aucun raccourci pour l’instant.')).toBeVisible()
 
     // Création : Photo seulement.
@@ -152,10 +158,10 @@ test.describe('Raccourcis', () => {
 
   test('annuler la suppression garde le raccourci', async ({ page }) => {
     const res = await page.request.post('/api/presets', {
-      data: { label: 'Gardé', text: 'texte gardé', media: 'all', personaId: null },
+      data: { label: 'Gardé', text: 'texte gardé', media: 'all' },
     })
     expect(res.ok(), await res.text()).toBeTruthy()
-    await gotoSettings(page, 'shortcuts')
+    await gotoShortcuts(page)
     const row = page.locator('div.rounded-lg', { hasText: 'Gardé' })
     await row.getByRole('button', { name: 'Supprimer' }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Annuler' }).click()
@@ -163,6 +169,18 @@ test.describe('Raccourcis', () => {
     await expect(row).toBeVisible()
     expect(sql('SELECT count(*) FROM prompt_presets')).toBe('1')
   })
+})
+
+test('Général : onglets Références, LoRA et Raccourcis, retour à la Bibliothèque', async ({ page }) => {
+  await page.goto('/bibliotheque/general')
+  await hydrated(page)
+  await expect(page.getByRole('tab')).toHaveText(['Références', 'LoRA', 'Raccourcis'])
+  await expect(page.getByRole('tab', { name: 'Références' })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('button', { name: 'Ajouter aux références : Général' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Raccourcis' }).click()
+  await expect(page).toHaveURL(/tab=shortcuts/)
+  await page.getByRole('link', { name: 'Retour à la bibliothèque' }).click()
+  await expect(page).toHaveURL(/\/bibliotheque$/)
 })
 
 test.describe('Crédits', () => {

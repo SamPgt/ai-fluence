@@ -1,8 +1,10 @@
 /**
- * Palette des nœuds : le volet de gauche des workflows (à la place des fils).
+ * Palette des nœuds : remplace la sidebar de l'app dans l'éditeur de workflow.
  * Glisser un nœud sur le canvas le pose à cet endroit ; un clic le pose au centre.
  */
+import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { ChevronLeft, PanelLeft } from 'lucide-react'
 import { useReactFlow, useStoreApi, type XYPosition } from '@xyflow/react'
 import {
   APP_DEFAULT_FAMILY,
@@ -14,6 +16,7 @@ import {
 import { catalogQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useUiPref } from '@/components/providers/ui-prefs'
 import { CreditFooter } from '@/components/layout/CreditFooter'
 import { NODE_ICONS } from './NodeShell'
 import { initialData } from './nodes'
@@ -53,6 +56,7 @@ export function useAddNode() {
 }
 
 export function NodePalette({ collapsed }: { collapsed: boolean }) {
+  const [, setCollapsed] = useUiPref('sidebarCollapsed')
   const { screenToFlowPosition } = useReactFlow()
   const addNode = useAddNode()
 
@@ -81,7 +85,25 @@ export function NodePalette({ collapsed }: { collapsed: boolean }) {
     >
       {/* En-tête et pied fixes : seule la liste des nœuds défile. */}
       <div className="flex h-full w-72 flex-col">
-        <div className="shrink-0 px-4 pt-4 pb-1">
+        {/* Retour à la liste des workflows, et repli comme la sidebar de l'app. */}
+        <div className="flex shrink-0 items-center gap-1 p-3 pb-0">
+          <Link
+            to="/workflows"
+            className="flex h-8 flex-1 items-center gap-1.5 rounded-[5px] px-2 text-[13px] text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Retour
+          </Link>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            aria-label="Replier le panneau"
+            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="shrink-0 px-4 pt-3 pb-1">
           <h2 className="text-sm font-medium">Nœuds</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             Glisse un nœud sur le canvas, ou clique pour l’ajouter au centre.

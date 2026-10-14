@@ -1,6 +1,7 @@
 /**
- * Nettoyage des brouillons (localStorage) : un fil ou un persona mis à la
- * corbeille emporte ses brouillons, et rien d'autre.
+ * Nettoyage des brouillons (localStorage) : un fil mis à la corbeille emporte
+ * son brouillon, et rien d'autre. Un persona n'a pas de fil : sa suppression
+ * ne touche à aucun brouillon.
  */
 import { DRAFTS_KEY, expect, test } from './helpers'
 
@@ -47,30 +48,25 @@ test('fil restauré depuis la corbeille : sans brouillon', async ({ app, page })
   expect(await app.drafts()).not.toHaveProperty(a.id)
 })
 
-test('persona mis à la corbeille : les brouillons de ses fils partent, pas les autres @core', async ({
-  app,
-  page,
-}) => {
+test('persona mis à la corbeille : les fils et leurs brouillons restent', async ({ app, page }) => {
   const persona = await app.createPersona({ name: 'Alice' })
-  const own = (await app.generate({ prompt: 'fil alice', personaId: persona.id })).thread
-  const other = (await app.generate({ prompt: 'fil libre' })).thread
-  await app.gotoThread(own.id)
+  // Une référence d'Alice a servi dans ce fil : il n'appartient pas pour autant au persona.
+  const used = (await app.generateWithPersona(persona.id, { prompt: 'fil alice' })).thread
+  await app.gotoThread(used.id)
   await app.prompt.fill('brouillon alice')
-  await app.gotoThread(other.id)
-  await app.prompt.fill('brouillon libre')
   await app.gotoNew()
   await app.prompt.fill('brouillon nouveau')
-  expect(Object.keys(await app.drafts())).toHaveLength(3)
+  expect(Object.keys(await app.drafts())).toHaveLength(2)
 
   await page.goto(`/personas/${persona.id}`)
   await page.getByRole('button', { name: /Supprimer le persona/ }).click()
   await page.getByRole('button', { name: 'Mettre à la corbeille' }).click()
-  await expect(page).not.toHaveURL(new RegExp(persona.id))
+  await expect(page).toHaveURL(/\/bibliotheque$/)
 
   const drafts = await app.drafts()
-  expect(drafts).not.toHaveProperty(own.id)
-  expect(drafts[other.id].prompt).toBe('brouillon libre')
+  expect(drafts[used.id].prompt).toBe('brouillon alice')
   expect(drafts.new.prompt).toBe('brouillon nouveau')
+  await expect(page.getByTestId('thread-panel').getByRole('link', { name: /fil alice/ })).toBeVisible()
 })
 
 test('un brouillon vide n’est jamais enregistré', async ({ app }) => {

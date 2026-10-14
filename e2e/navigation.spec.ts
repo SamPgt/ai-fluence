@@ -14,11 +14,14 @@ test('la liste de gauche montre les fils, le plus récent en haut @core', async 
   await app.generate({ prompt: 'second fil' })
   await app.gotoNew()
   const panel = page.getByTestId('thread-panel')
-  await expect(panel.getByText('Tous les fils')).toBeVisible()
   await expect(panel.getByText('Récents')).toBeVisible()
   await expect.poll(() => threadTitles(page)).toEqual(['second fil', 'premier fil'])
-  await expect(panel.getByRole('link', { name: /premier fil/ })).toContainText('1 génération · 0,01 $')
+  // Une ligne : miniature et titre seulement, le coût est dans l'en-tête du fil.
+  const row = panel.getByRole('link', { name: /premier fil/ })
+  await expect(row).toHaveText('premier fil')
   await expect(panel).toContainText('Crédit : 10,00 $')
+  await row.click()
+  await expect(page.getByRole('main').getByText(/^Total du fil :/)).toHaveText('Total du fil : 0,01 $')
 })
 
 test('sans fil, la liste l’annonce', async ({ app, page }) => {
@@ -34,30 +37,63 @@ test('cliquer un fil l’ouvre et le marque actif', async ({ app, page }) => {
   await expect(page.getByTestId('thread-panel').getByRole('link', { name: /fil a ouvrir/ })).toHaveClass(/bg-accent /)
 })
 
-test('« Replier le panneau » replie puis rouvre la liste, et l’état survit au rechargement', async ({
+test('« Replier le panneau » réduit la sidebar en rail d’icônes, et l’état survit au rechargement', async ({
   app,
   page,
 }) => {
   await app.gotoNew()
+  const panel = page.getByTestId('thread-panel')
   await expect.poll(() => panelWidth(page)).toBe(288)
-  await page.getByRole('button', { name: 'Replier le panneau' }).click()
-  await expect.poll(() => panelWidth(page)).toBe(0)
+  await expect(panel).not.toHaveAttribute('data-collapsed')
+  await panel.getByRole('button', { name: 'Replier le panneau' }).click()
+  await expect.poll(() => panelWidth(page)).toBe(48)
+  await expect(panel).toHaveAttribute('data-collapsed')
+  // L'en-tête de la page ne propose plus de bouton : tout passe par le rail.
+  await expect(page.getByRole('main').getByRole('button', { name: /panneau/ })).toHaveCount(0)
   await app.reload()
-  await expect.poll(() => panelWidth(page)).toBe(0)
-  await page.getByRole('button', { name: 'Replier le panneau' }).click()
+  await expect.poll(() => panelWidth(page)).toBe(48)
+  await panel.getByRole('button', { name: 'Déplier le panneau' }).click()
   await expect.poll(() => panelWidth(page)).toBe(288)
+  await expect(panel.getByRole('button', { name: 'Déplier le panneau' })).toHaveCount(0)
+})
+
+test('rail replié : navigation, nouveau fil et fils récents @core', async ({ app, page }) => {
+  const { thread } = await app.generate({ prompt: 'fil du rail' })
+  await app.gotoNew()
+  const panel = page.getByTestId('thread-panel')
+  await panel.getByRole('button', { name: 'Replier le panneau' }).click()
+  await expect(panel).toHaveAttribute('data-collapsed')
+
+  await panel.getByRole('link', { name: 'Bibliothèque' }).click()
+  await expect(page).toHaveURL(/\/bibliotheque$/)
+  await panel.getByRole('link', { name: 'Galerie' }).click()
+  await expect(page).toHaveURL(/\/galerie$/)
+  await expect(panel.getByRole('link', { name: 'Galerie' })).toHaveClass(/bg-accent/)
+
+  // « Fils récents » ouvre la liste des fils, un clic ouvre le fil.
+  await panel.getByRole('button', { name: 'Fils récents' }).click()
+  const recent = page.locator('[data-slot=popover-content]')
+  await recent.getByRole('link', { name: 'fil du rail' }).click()
+  await expect(page).toHaveURL(new RegExp(`/t/${thread.id}$`))
+
+  await panel.getByRole('button', { name: 'Nouveau fil' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  // La recherche et le compte restent accessibles.
+  await expect(panel.getByRole('button', { name: 'Rechercher', exact: true })).toBeVisible()
+  await panel.getByRole('button', { name: 'Menu utilisateur' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Paramétrage' })).toBeVisible()
 })
 
 test('⌘B / Ctrl+B replie et rouvre le panneau', async ({ app, page }) => {
   await app.gotoNew()
   await expect.poll(() => panelWidth(page)).toBe(288)
   await page.keyboard.press('ControlOrMeta+b')
-  await expect.poll(() => panelWidth(page)).toBe(0)
+  await expect.poll(() => panelWidth(page)).toBe(48)
   await page.keyboard.press('ControlOrMeta+b')
   await expect.poll(() => panelWidth(page)).toBe(288)
   // Les deux touches fonctionnent, quel que soit le système.
   await page.keyboard.press('Control+b')
-  await expect.poll(() => panelWidth(page)).toBe(0)
+  await expect.poll(() => panelWidth(page)).toBe(48)
 })
 
 test('le raccourci affiché sur « Nouveau fil » ouvre un nouveau fil', async ({ app, page }) => {
@@ -105,10 +141,10 @@ test('la recherche (⌘K) trouve un fil par son titre et l’ouvre @core @smoke'
   await expect(page).toHaveURL(new RegExp(`/t/${target.id}(\\?g=.+)?$`))
 })
 
-test('le bouton « Rechercher… » ouvre la recherche, qui annonce l’absence de résultat', async ({ app, page }) => {
+test('la loupe de la sidebar ouvre la recherche, qui annonce l’absence de résultat', async ({ app, page }) => {
   await app.generate({ prompt: 'une pomme' })
   await app.gotoNew()
-  await page.getByRole('button', { name: /Rechercher…/ }).click()
+  await page.getByTestId('thread-panel').getByRole('button', { name: 'Rechercher', exact: true }).click()
   const input = page.getByPlaceholder('Rechercher dans les fils et les prompts…')
   await input.fill('zzzintrouvable')
   await expect(page.getByText('Aucun résultat pour « zzzintrouvable »')).toBeVisible()
@@ -194,4 +230,24 @@ test('le lien du crédit mène à l’onglet Crédits', async ({ app, page }) =>
   await page.getByTestId('thread-panel').getByRole('link', { name: /Crédit/ }).click()
   await expect(page).toHaveURL(/\/parametres\?tab=credits/)
   await expect(page.getByText('Crédits et consommation')).toBeVisible()
+})
+
+test('la sidebar : marque vers un nouveau fil, puis Accueil, Bibliothèque, Workflows et Galerie @core', async ({ app, page }) => {
+  const { thread } = await app.generate({ prompt: 'fil de la sidebar' })
+  await app.gotoThread(thread.id)
+  const panel = page.getByTestId('thread-panel')
+  const nav = panel.getByRole('navigation')
+  await expect(nav.getByRole('link')).toHaveText(['Accueil', 'Bibliothèque', 'Workflows', 'Galerie'])
+  // Plus de rail de personas ni de lien « Tous les fils ».
+  await expect(panel.getByText('Tous les fils')).toHaveCount(0)
+
+  await nav.getByRole('link', { name: 'Bibliothèque' }).click()
+  await expect(page).toHaveURL(/\/bibliotheque$/)
+  await expect(page.getByRole('heading', { name: 'Bibliothèque', level: 1 })).toBeVisible()
+  await nav.getByRole('link', { name: 'Workflows' }).click()
+  await expect(page).toHaveURL(/\/workflows$/)
+
+  await panel.getByRole('link', { name: 'Sublime, accueil' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'Que veux-tu créer ?' })).toBeVisible()
 })

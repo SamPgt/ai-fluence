@@ -1,7 +1,7 @@
 /**
  * Corbeille : un persona, un fil ou un workflow supprimé est d'abord masqué (`deleted_at`).
- * Supprimer un persona met aussi ses fils à la corbeille, avec la même date :
- * c'est ce qui permet de les restaurer ensemble.
+ * Un fil n'appartient plus à un persona : supprimer un persona ne touche pas aux fils
+ * (seules ses références et ses LoRA partent avec lui).
  * Après 7 jours (ou en vidant la corbeille), les lignes sont supprimées et les
  * fichiers locaux partent dans la Corbeille du système, jamais effacés d'office.
  */
@@ -22,39 +22,21 @@ const purgeAt = (deletedAt: Date) => new Date(deletedAt.getTime() + TRASH_DAYS *
 // ── Mise à la corbeille / restauration ────────────────────────
 
 export async function trashPersona(userId: string, personaId: string): Promise<boolean> {
-  const now = new Date();
-  return db.transaction(async tx => {
-    const [row] = await tx
-      .update(personas)
-      .set({ deletedAt: now })
-      .where(and(eq(personas.id, personaId), eq(personas.userId, userId), isNull(personas.deletedAt)))
-      .returning({ id: personas.id });
-    if (!row) return false;
-    await tx
-      .update(threads)
-      .set({ deletedAt: now })
-      // Filtre par utilisateur : jamais les fils d'un autre compte, même rattachés à ce persona.
-      .where(and(eq(threads.userId, userId), eq(threads.personaId, personaId), isNull(threads.deletedAt)));
-    return true;
-  });
+  const [row] = await db
+    .update(personas)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(personas.id, personaId), eq(personas.userId, userId), isNull(personas.deletedAt)))
+    .returning({ id: personas.id });
+  return Boolean(row);
 }
 
 export async function restorePersona(userId: string, personaId: string): Promise<boolean> {
-  return db.transaction(async tx => {
-    const [p] = await tx
-      .select({ deletedAt: personas.deletedAt })
-      .from(personas)
-      .where(and(eq(personas.id, personaId), eq(personas.userId, userId), isNotNull(personas.deletedAt)))
-      .limit(1);
-    if (!p?.deletedAt) return false;
-    // Seuls les fils supprimés avec le persona reviennent avec lui.
-    await tx
-      .update(threads)
-      .set({ deletedAt: null })
-      .where(and(eq(threads.userId, userId), eq(threads.personaId, personaId), eq(threads.deletedAt, p.deletedAt)));
-    await tx.update(personas).set({ deletedAt: null }).where(eq(personas.id, personaId));
-    return true;
-  });
+  const [row] = await db
+    .update(personas)
+    .set({ deletedAt: null })
+    .where(and(eq(personas.id, personaId), eq(personas.userId, userId), isNotNull(personas.deletedAt)))
+    .returning({ id: personas.id });
+  return Boolean(row);
 }
 
 export async function trashThread(userId: string, threadId: string): Promise<boolean> {
@@ -67,19 +49,12 @@ export async function trashThread(userId: string, threadId: string): Promise<boo
 }
 
 export async function restoreThread(userId: string, threadId: string): Promise<boolean> {
-  const [t] = await db
-    .select({ personaId: threads.personaId, personaDeleted: personas.deletedAt })
-    .from(threads)
-    .leftJoin(personas, eq(personas.id, threads.personaId))
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId), isNotNull(threads.deletedAt)))
-    .limit(1);
-  if (!t) return false;
-  // Son persona est encore à la corbeille : le fil revient dans « Tous les fils ».
-  await db
+  const [row] = await db
     .update(threads)
-    .set({ deletedAt: null, ...(t.personaDeleted ? { personaId: null } : {}) })
-    .where(eq(threads.id, threadId));
-  return true;
+    .set({ deletedAt: null })
+    .where(and(eq(threads.id, threadId), eq(threads.userId, userId), isNotNull(threads.deletedAt)))
+    .returning({ id: threads.id });
+  return Boolean(row);
 }
 
 export async function trashWorkflow(userId: string, workflowId: string): Promise<boolean> {
@@ -106,7 +81,7 @@ export async function listTrash(userId: string): Promise<TrashResponse> {
   const ps = await db
     .select({
       p: personas,
-      threadCount: sql<number>`(select count(*)::int from threads t where t.persona_id = "personas"."id" and t.deleted_at = "personas"."deleted_at")`,
+      referenceCount: sql<number>`(select count(*)::int from assets a where a.persona_id = "personas"."id" and a.is_reference)`,
     })
     .from(personas)
     .where(and(eq(personas.userId, userId), isNotNull(personas.deletedAt)))
@@ -116,22 +91,13 @@ export async function listTrash(userId: string): Promise<TrashResponse> {
   const avatars = avatarIds.length ? await db.select().from(assets).where(inArray(assets.id, avatarIds)) : [];
   const avatarUrl = new Map(avatars.map(a => [a.id, toAsset(a).url]));
 
-  // Fils supprimés un par un (pas ceux partis avec leur persona, rangés sous le persona).
   const ts = await db
     .select({
       t: threads,
-      personaName: personas.name,
       coverAssetId: sql<string | null>`(select a.id from assets a inner join generations g on g.id = a.generation_id where g.thread_id = "threads"."id" and a.media_type = 'image' order by a.created_at desc limit 1)`,
     })
     .from(threads)
-    .leftJoin(personas, eq(personas.id, threads.personaId))
-    .where(
-      and(
-        eq(threads.userId, userId),
-        isNotNull(threads.deletedAt),
-        or(isNull(personas.deletedAt), sql`${personas.deletedAt} <> ${threads.deletedAt}`),
-      ),
-    )
+    .where(and(eq(threads.userId, userId), isNotNull(threads.deletedAt)))
     .orderBy(sql`${threads.deletedAt} desc`);
 
   const ws = await db
@@ -142,19 +108,18 @@ export async function listTrash(userId: string): Promise<TrashResponse> {
 
   return {
     days: TRASH_DAYS,
-    personas: ps.map(({ p, threadCount }) => ({
+    personas: ps.map(({ p, referenceCount }) => ({
       id: p.id,
       name: p.name,
       color: p.color,
       avatarUrl: p.avatarAssetId ? (avatarUrl.get(p.avatarAssetId) ?? null) : null,
-      threadCount,
+      referenceCount,
       deletedAt: p.deletedAt!.toISOString(),
       purgeAt: purgeAt(p.deletedAt!),
     })),
-    threads: ts.map(({ t, personaName, coverAssetId }) => ({
+    threads: ts.map(({ t, coverAssetId }) => ({
       id: t.id,
       title: t.title,
-      personaName: personaName ?? null,
       coverUrl: coverAssetId ? `/api/media/${coverAssetId}` : null,
       deletedAt: t.deletedAt!.toISOString(),
       purgeAt: purgeAt(t.deletedAt!),
@@ -214,7 +179,7 @@ export async function purge(
       ).map(r => r.id)
     : [];
 
-  // Fils visés + fils partis avec ces personas.
+  // Fils visés (un persona n'emporte plus ses fils).
   const threadRows = await db
     .select({ id: threads.id })
     .from(threads)
@@ -225,7 +190,6 @@ export async function purge(
         or(
           target.expired ? lt(threads.deletedAt, cutoff) : undefined,
           target.threadIds?.length ? inArray(threads.id, target.threadIds) : undefined,
-          personaIds.length ? inArray(threads.personaId, personaIds) : undefined,
         ) ?? sql`false`,
       ),
     );
@@ -286,7 +250,12 @@ export async function purge(
     if (doomed.length) await tx.delete(assets).where(inArray(assets.id, doomed.map(a => a.id)));
     if (threadIds.length) await tx.delete(threads).where(inArray(threads.id, threadIds)); // générations en cascade
     if (workflowIds.length) await tx.delete(workflows).where(inArray(workflows.id, workflowIds)); // idem
-    if (personaIds.length) await tx.delete(personas).where(inArray(personas.id, personaIds));
+    if (personaIds.length) {
+      // Médias gardés (encore utilisés ailleurs) : ils quittent les références, sinon ils
+      // réapparaîtraient dans Général une fois le persona supprimé.
+      await tx.update(assets).set({ isReference: false }).where(inArray(assets.personaId, personaIds));
+      await tx.delete(personas).where(inArray(personas.id, personaIds));
+    }
   });
 
   return { personas: personaIds.length, threads: threadIds.length, workflows: workflowIds.length, files };

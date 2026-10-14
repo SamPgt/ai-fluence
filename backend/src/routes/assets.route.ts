@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/index.js';
 import { assets, generations } from '../db/schema.js';
@@ -17,6 +17,10 @@ import {
 } from '../services/storage.service.js';
 import { ownedPersona, storeUpload } from '../services/upload.service.js';
 import type { AppEnv } from '../types.js';
+
+/** Propriétaire d'une référence : un persona, ou `general` (aucun persona). */
+const referenceOwner = z.union([z.literal('general'), z.uuid()]);
+const ownerIs = (owner: string) => (owner === 'general' ? isNull(assets.personaId) : eq(assets.personaId, owner));
 
 const PG_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?([+-]\d{2}(:?\d{2})?|Z)?$/;
 
@@ -62,18 +66,12 @@ export const assetsRoutes = new Hono<AppEnv>()
     });
     return c.json({ asset: toAsset(row) }, 201);
   })
-  /** Bibliothèque de références d'un persona. */
-  .get('/references', zValidator('query', z.object({ personaId: z.uuid() })), async c => {
+  /** Références d'un persona, ou de Général (`general` : rangées dans aucun persona). */
+  .get('/references', zValidator('query', z.object({ personaId: referenceOwner })), async c => {
     const rows = await db
       .select()
       .from(assets)
-      .where(
-        and(
-          eq(assets.userId, c.get('user').id),
-          eq(assets.personaId, c.req.valid('query').personaId),
-          eq(assets.isReference, true),
-        ),
-      )
+      .where(and(eq(assets.userId, c.get('user').id), ownerIs(c.req.valid('query').personaId), eq(assets.isReference, true)))
       // Ordre choisi par glisser-déposer ; les nouvelles (sans position) en premier.
       .orderBy(sql`${assets.referencePosition} asc nulls first`, desc(assets.createdAt));
     return c.json({ assets: rows.map(toAsset) });
@@ -81,17 +79,17 @@ export const assetsRoutes = new Hono<AppEnv>()
   /** Nouvel ordre de la bibliothèque de références d'un persona. */
   .put(
     '/references/order',
-    zValidator('json', z.object({ personaId: z.uuid(), ids: z.array(z.uuid()).max(500) })),
+    zValidator('json', z.object({ personaId: referenceOwner, ids: z.array(z.uuid()).max(500) })),
     async c => {
       const user = c.get('user');
       const { personaId, ids } = c.req.valid('json');
-      if (!(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
+      if (personaId !== 'general' && !(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
       await db.transaction(async tx => {
         for (const [position, id] of ids.entries()) {
           await tx
             .update(assets)
             .set({ referencePosition: position })
-            .where(and(eq(assets.id, id), eq(assets.userId, user.id), eq(assets.personaId, personaId)));
+            .where(and(eq(assets.id, id), eq(assets.userId, user.id), ownerIs(personaId)));
         }
       });
       return c.json({ ok: true });
@@ -100,14 +98,14 @@ export const assetsRoutes = new Hono<AppEnv>()
   /** Ajoute ou retire un média de la bibliothèque de références d'un persona. */
   .patch(
     '/:id/reference',
-    zValidator('json', z.object({ personaId: z.uuid(), isReference: z.boolean() })),
+    zValidator('json', z.object({ personaId: referenceOwner, isReference: z.boolean() })),
     async c => {
       const user = c.get('user');
       const { personaId, isReference } = c.req.valid('json');
-      if (!(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
+      if (personaId !== 'general' && !(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
       const [row] = await db
         .update(assets)
-        .set({ isReference, personaId })
+        .set({ isReference, personaId: personaId === 'general' ? null : personaId })
         .where(and(eq(assets.id, c.req.param('id')), eq(assets.userId, user.id)))
         .returning();
       if (!row) return c.json({ error: 'Média introuvable.' }, 404);
@@ -137,7 +135,11 @@ export const assetsRoutes = new Hono<AppEnv>()
         // Ni ceux des workflows à la corbeille.
         sql`not exists (select 1 from generations g inner join workflows w on w.id = g.workflow_id where g.id = ${assets.generationId} and (w.deleted_at is not null or g.removed_at is not null))`,
       ];
-      if (q.personaId) where.push(eq(assets.personaId, q.personaId));
+      // Persona : résultats des fils où une de ses références a servi (un fil n'appartient plus à un persona).
+      if (q.personaId)
+        where.push(
+          sql`exists (select 1 from generations g inner join generations g2 on g2.thread_id = g.thread_id inner join assets r on g2.reference_asset_ids ? r.id::text where g.id = ${assets.generationId} and r.persona_id = ${q.personaId})`,
+        );
       if (q.media) where.push(eq(assets.mediaType, q.media));
       if (q.before) {
         const cursor = decodeCursor(q.before);

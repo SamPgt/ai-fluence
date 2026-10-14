@@ -6,7 +6,14 @@ import type { SearchResult } from '@ai-fluence/shared'
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import { threadsApi } from '@/lib/api'
 
-export function ChatSearchDialog() {
+/** `compact` : simple loupe (en-tête de la sidebar, barre repliée) ; `className` remplace son style. */
+export function ChatSearchDialog({
+  compact = false,
+  className,
+}: {
+  compact?: boolean
+  className?: string
+}) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -58,27 +65,55 @@ export function ChatSearchDialog() {
     navigate({
       to: '/t/$threadId',
       params: { threadId: result.threadId },
-      search: result.matchedGenerationId ? { g: result.matchedGenerationId } : {},
+      search: result.matchedGenerationId
+        ? { g: result.matchedGenerationId }
+        : {},
     })
   }
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        // Même gabarit que « Nouveau fil » : 32px de haut, rayon 5px, texte 13px.
-        className="flex h-8 w-full items-center gap-2 rounded-[5px] border border-border/40 bg-muted/50 px-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <Search className="h-3.5 w-3.5" />
-        <span>Rechercher…</span>
-        <kbd className="pointer-events-none ml-auto inline-flex h-5 items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground select-none">
-          <span className="text-xs">⌘</span>K
-        </kbd>
-      </button>
+      {compact ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Rechercher"
+          title="Rechercher (⌘K)"
+          className={
+            className ??
+            'grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground'
+          }
+        >
+          <Search
+            className={className ? 'h-4 w-4' : 'h-4 w-4'}
+            strokeWidth={1.6}
+          />
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          // Même gabarit que « Nouveau fil » : 32px de haut, rayon 5px, texte 13px.
+          className="flex h-8 w-full items-center gap-2 rounded-[5px] border border-border/40 bg-muted/50 px-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <Search className="h-3.5 w-3.5" />
+          <span>Rechercher…</span>
+          <kbd className="pointer-events-none ml-auto inline-flex h-5 items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground select-none">
+            <span className="text-xs">⌘</span>K
+          </kbd>
+        </button>
+      )}
 
-      <Dialog open={open} onOpenChange={(v) => (v ? setOpen(true) : handleClose())}>
-        <DialogContent className="gap-0 p-0 sm:max-w-[600px]" showCloseButton={false}>
-          <DialogTitle className="sr-only">Rechercher dans les fils</DialogTitle>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => (v ? setOpen(true) : handleClose())}
+      >
+        <DialogContent
+          className="gap-0 p-0 sm:max-w-[600px]"
+          showCloseButton={false}
+        >
+          <DialogTitle className="sr-only">
+            Rechercher dans les fils
+          </DialogTitle>
           <div className="flex items-center border-b px-4 py-3">
             <Search className="mr-2 h-4 w-4 text-muted-foreground" />
             <input
@@ -89,20 +124,31 @@ export function ChatSearchDialog() {
               className="flex-1 border-0 bg-transparent text-sm focus:outline-none"
               autoFocus
             />
-            <button onClick={handleClose} className="ml-2 rounded p-1 hover:bg-muted">
+            <button
+              onClick={handleClose}
+              className="ml-2 rounded p-1 hover:bg-muted"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
 
           <div className="max-h-[400px] overflow-y-auto p-2">
-            {isLoading && <div className="py-8 text-center text-sm text-muted-foreground">Recherche…</div>}
+            {isLoading && (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                Recherche…
+              </div>
+            )}
 
             {!isLoading && search.length === 0 && (
-              <div className="py-8 text-center text-sm text-muted-foreground">Tape pour chercher…</div>
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                Tape pour chercher…
+              </div>
             )}
 
             {!isLoading && search.length > 0 && results.length === 0 && (
-              <div className="py-8 text-center text-sm text-muted-foreground">Aucun résultat pour « {search} »</div>
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                Aucun résultat pour « {search} »
+              </div>
             )}
 
             {!isLoading && results.length > 0 && (
@@ -118,12 +164,16 @@ export function ChatSearchDialog() {
                   >
                     <div className="flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 shrink-0 text-primary" />
-                      <span className="truncate text-sm font-medium">{result.threadTitle}</span>
+                      <span className="truncate text-sm font-medium">
+                        {result.threadTitle}
+                      </span>
                     </div>
                     {result.matchedPrompt && (
                       <div className="flex items-start gap-2 pl-6">
                         <FileText className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span className="line-clamp-2 text-xs text-muted-foreground">{result.matchedPrompt}</span>
+                        <span className="line-clamp-2 text-xs text-muted-foreground">
+                          {result.matchedPrompt}
+                        </span>
                       </div>
                     )}
                   </button>

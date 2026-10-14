@@ -21,10 +21,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ShortcutsTab } from '@/components/settings/ShortcutsTab'
+import { DefaultFamily } from '@/components/settings/DefaultFamily'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
-const TABS = ['account', 'shortcuts', 'credits', 'storage', 'api-key'] as const
+const TABS = ['account', 'models', 'credits', 'storage', 'api-key'] as const
 type Tab = (typeof TABS)[number]
 
 export const Route = createFileRoute('/_app/parametres')({
@@ -74,7 +74,7 @@ function SettingsPage() {
           >
             <TabsList className="w-full justify-start overflow-x-auto">
               <TabsTrigger value="account">Compte</TabsTrigger>
-              <TabsTrigger value="shortcuts">Raccourcis</TabsTrigger>
+              <TabsTrigger value="models">Modèles</TabsTrigger>
               <TabsTrigger value="credits">Crédits</TabsTrigger>
               <TabsTrigger value="storage">Stockage</TabsTrigger>
               <TabsTrigger value="api-key">Clés API</TabsTrigger>
@@ -88,8 +88,8 @@ function SettingsPage() {
             <TabsContent value="credits">
               <CreditsTab />
             </TabsContent>
-            <TabsContent value="shortcuts">
-              <ShortcutsTab />
+            <TabsContent value="models">
+              <ModelsTab />
             </TabsContent>
             <TabsContent value="account">
               <AccountTab />
@@ -114,6 +114,37 @@ function useSettingsMutation<T>(
     },
     onError: (e) => toast.error((e as Error).message),
   })
+}
+
+/** Modèles proposés par défaut dans le composer (un nouveau fil, ou après une réinitialisation). */
+function ModelsTab() {
+  const { data: settings } = useQuery(settingsQuery())
+  const save = useSettingsMutation(
+    (patch: {
+      defaultImageFamily?: string | null
+      defaultVideoFamily?: string | null
+    }) => settingsApi.update(patch),
+    'Modèle par défaut enregistré',
+  )
+  return (
+    <Section
+      title="Modèles par défaut"
+      description="Sélectionnés automatiquement dans le composer pour un nouveau fil."
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <DefaultFamily
+          media="image"
+          value={settings?.defaultImageFamily ?? null}
+          onChange={(v) => save.mutate({ defaultImageFamily: v })}
+        />
+        <DefaultFamily
+          media="video"
+          value={settings?.defaultVideoFamily ?? null}
+          onChange={(v) => save.mutate({ defaultVideoFamily: v })}
+        />
+      </div>
+    </Section>
+  )
 }
 
 function ApiKeyTab() {
@@ -383,7 +414,10 @@ function CreditsTab() {
           />
         )}
         {data.balance && (
-          <Stat label="Disponible" value={formatUsd(data.balance.available, 'balance')} />
+          <Stat
+            label="Disponible"
+            value={formatUsd(data.balance.available, 'balance')}
+          />
         )}
         {data.usage && (
           <Stat

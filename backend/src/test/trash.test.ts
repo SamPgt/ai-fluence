@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import type { TrashResponse } from '@ai-fluence/shared';
+import type { Thread, TrashResponse } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { assets, generations, personas, promptPresets, threads } from '../db/schema.js';
 import { purge, TRASH_DAYS } from '../services/trash.service.js';
@@ -71,57 +71,62 @@ describe('GET /trash', () => {
     expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [], workflows: [] });
   });
 
-  it('range un fil supprimé avec son persona sous ce persona, pas à part', async () => {
+  it('liste un persona supprimé avec son nombre de références, sans emporter ses fils', async () => {
     const me = await signup();
     const avatar = await me.uploadAsset();
     const lea = await me.createPersona({ name: 'Léa', color: '#123456', avatarAssetId: avatar.id });
-    await generateOne(me, { personaId: lea.id });
-    await generateOne(me, { personaId: lea.id });
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    await me.uploadAsset({ personaId: lea.id, isReference: true });
+    // Import du persona hors références : pas compté.
+    await me.uploadAsset({ personaId: lea.id });
+    const { thread } = await generateOne(me, { referenceAssetIds: [ref.id] });
     await me.del(`/personas/${lea.id}`);
 
     const trash = await getTrash(me);
     expect(trash.threads).toEqual([]);
     expect(trash.personas).toHaveLength(1);
     const p = trash.personas[0];
-    expect(p).toMatchObject({ id: lea.id, name: 'Léa', color: '#123456', avatarUrl: `/api/media/${avatar.id}`, threadCount: 2 });
+    expect(p).toMatchObject({ id: lea.id, name: 'Léa', color: '#123456', avatarUrl: `/api/media/${avatar.id}`, referenceCount: 2 });
+    expect(p).not.toHaveProperty('threadCount');
     expect(new Date(p.purgeAt).getTime() - new Date(p.deletedAt).getTime()).toBe(TRASH_DAYS * DAY_MS);
+    // Le fil reste dans la liste, sans ce persona.
+    const threadsNow = (await me.get('/threads')).body.threads as Thread[];
+    expect(threadsNow.map(t => t.id)).toEqual([thread.id]);
+    expect(threadsNow[0].personaIds).toEqual([]);
   });
 
-  it('liste un fil supprimé seul avec le nom de son persona et sa vignette @smoke', async () => {
+  it('liste un fil supprimé avec sa vignette, sans nom de persona @smoke', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
-    const { thread, output } = await generateOne(me, { personaId: lea.id, prompt: 'un chat' });
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const { thread, output } = await generateOne(me, { referenceAssetIds: [ref.id], prompt: 'un chat' });
     expect((await me.del(`/threads/${thread.id}`)).status).toBe(200);
 
     const trash = await getTrash(me);
     expect(trash.personas).toEqual([]);
     expect(trash.threads).toHaveLength(1);
     const t = trash.threads[0];
-    expect(t).toMatchObject({ id: thread.id, title: 'un chat', personaName: 'Léa', coverUrl: `/api/media/${output.id}` });
+    expect(t).toMatchObject({ id: thread.id, title: 'un chat', coverUrl: `/api/media/${output.id}` });
+    expect(Object.keys(t).sort()).toEqual(['coverUrl', 'deletedAt', 'id', 'purgeAt', 'title']);
     expect(new Date(t.purgeAt).getTime() - new Date(t.deletedAt).getTime()).toBe(TRASH_DAYS * DAY_MS);
   });
 
-  it('liste un fil sans persona avec personaName à null', async () => {
-    const me = await signup();
-    const { thread } = await generateOne(me);
-    await me.del(`/threads/${thread.id}`);
-    const trash = await getTrash(me);
-    expect(trash.threads[0]).toMatchObject({ id: thread.id, personaName: null });
-  });
-
-  it('garde à part un fil supprimé avant son persona', async () => {
+  it('liste chaque fil supprimé, que le persona de ses références soit à la corbeille ou non', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
-    const { thread: early } = await generateOne(me, { personaId: lea.id });
-    await generateOne(me, { personaId: lea.id });
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const { thread: early } = await generateOne(me, { referenceAssetIds: [ref.id] });
+    const { thread: late } = await generateOne(me, { referenceAssetIds: [ref.id] });
     await me.del(`/threads/${early.id}`);
+    await new Promise(r => setTimeout(r, 10));
     await me.del(`/personas/${lea.id}`);
+    await new Promise(r => setTimeout(r, 10));
+    await me.del(`/threads/${late.id}`);
 
     const trash = await getTrash(me);
-    expect(trash.personas).toHaveLength(1);
-    expect(trash.personas[0].threadCount).toBe(1);
-    expect(trash.threads.map(t => t.id)).toEqual([early.id]);
-    expect(trash.threads[0].personaName).toBe('Léa');
+    expect(trash.personas.map(p => p.id)).toEqual([lea.id]);
+    expect(trash.personas[0].referenceCount).toBe(1);
+    expect(trash.threads.map(t => t.id)).toEqual([late.id, early.id]);
   });
 
   it('trie personas et fils du plus récent au plus ancien', async () => {
@@ -152,23 +157,27 @@ describe('GET /trash', () => {
 });
 
 describe('POST /trash/personas/:id/restore', () => {
-  it('restaure le persona et les fils partis avec lui, pas ceux supprimés avant', async () => {
+  it('restaure seulement le persona, avec ses références, sans toucher aux fils', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
-    const { thread: early } = await generateOne(me, { personaId: lea.id });
-    const { thread: withPersona } = await generateOne(me, { personaId: lea.id });
-    const { thread: free } = await generateOne(me);
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const { thread: early } = await generateOne(me, { referenceAssetIds: [ref.id] });
+    const { thread: kept } = await generateOne(me, { referenceAssetIds: [ref.id] });
     await me.del(`/threads/${early.id}`);
     await me.del(`/personas/${lea.id}`);
+    // Le fil non supprimé n'est jamais parti à la corbeille.
+    expect(await ids(me, '/threads', 'threads')).toEqual([kept.id]);
 
     const res = await me.post(`/trash/personas/${lea.id}/restore`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
 
     expect(await ids(me, '/personas', 'personas')).toEqual([lea.id]);
-    expect((await ids(me, '/threads', 'threads')).sort()).toEqual([withPersona.id, free.id].sort());
-    expect((await me.get(`/threads/${withPersona.id}`)).body.thread.personaId).toBe(lea.id);
+    expect(await ids(me, `/assets/references?personaId=${lea.id}`, 'assets')).toEqual([ref.id]);
+    expect(await ids(me, '/threads', 'threads')).toEqual([kept.id]);
+    expect((await me.get(`/threads/${kept.id}`)).body.thread.personaIds).toEqual([lea.id]);
 
+    // Le fil supprimé à part reste à la corbeille.
     const trash = await getTrash(me);
     expect(trash.personas).toEqual([]);
     expect(trash.threads.map(t => t.id)).toEqual([early.id]);
@@ -207,10 +216,11 @@ describe('POST /trash/personas/:id/restore', () => {
 });
 
 describe('POST /trash/threads/:id/restore', () => {
-  it('restaure un fil supprimé seul en gardant son persona', async () => {
+  it('restaure un fil supprimé, qui cite toujours le persona de ses références', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
-    const { thread } = await generateOne(me, { personaId: lea.id });
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const { thread } = await generateOne(me, { referenceAssetIds: [ref.id] });
     await me.del(`/threads/${thread.id}`);
 
     const res = await me.post(`/trash/threads/${thread.id}/restore`);
@@ -218,31 +228,35 @@ describe('POST /trash/threads/:id/restore', () => {
     expect(res.body).toEqual({ ok: true });
     const detail = await me.get(`/threads/${thread.id}`);
     expect(detail.status).toBe(200);
-    expect(detail.body.thread.personaId).toBe(lea.id);
+    expect(detail.body.thread.personaIds).toEqual([lea.id]);
     expect(detail.body.generations).toHaveLength(1);
     expect((await getTrash(me)).threads).toEqual([]);
   });
 
-  it('restaure sans persona un fil dont le persona est encore à la corbeille', async () => {
+  it('restaure un fil dont le persona est encore à la corbeille, sans toucher au persona', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
-    const { thread } = await generateOne(me, { personaId: lea.id });
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const { thread } = await generateOne(me, { referenceAssetIds: [ref.id] });
     await me.del(`/personas/${lea.id}`);
+    await me.del(`/threads/${thread.id}`);
 
     expect((await me.post(`/trash/threads/${thread.id}/restore`)).status).toBe(200);
     const detail = await me.get(`/threads/${thread.id}`);
     expect(detail.status).toBe(200);
-    expect(detail.body.thread.personaId).toBeNull();
-    expect(await ids(me, '/threads?personaId=none', 'threads')).toEqual([thread.id]);
+    // Un persona à la corbeille n'est pas cité.
+    expect(detail.body.thread.personaIds).toEqual([]);
+    expect(await ids(me, '/threads', 'threads')).toEqual([thread.id]);
 
-    // Le persona reste à la corbeille, sans ce fil.
+    // Le persona reste à la corbeille, avec sa référence.
     const trash = await getTrash(me);
+    expect(trash.threads).toEqual([]);
     expect(trash.personas.map(p => p.id)).toEqual([lea.id]);
-    expect(trash.personas[0].threadCount).toBe(0);
+    expect(trash.personas[0].referenceCount).toBe(1);
 
-    // Restaurer ensuite le persona ne lui rend pas ce fil.
-    await me.post(`/trash/personas/${lea.id}/restore`);
-    expect((await me.get(`/threads/${thread.id}`)).body.thread.personaId).toBeNull();
+    // Une fois le persona restauré, le fil le cite de nouveau.
+    expect((await me.post(`/trash/personas/${lea.id}/restore`)).status).toBe(200);
+    expect((await me.get(`/threads/${thread.id}`)).body.thread.personaIds).toEqual([lea.id]);
   });
 
   it('répond 404 pour un fil qui n’est pas à la corbeille', async () => {
@@ -268,42 +282,55 @@ describe('POST /trash/threads/:id/restore', () => {
 });
 
 describe('DELETE /trash/personas/:id', () => {
-  it('supprime pour de bon le persona, ses fils, ses générations, ses médias et ses fichiers', async () => {
+  it('supprime pour de bon le persona et ses médias propres, jamais les fils', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
     const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
     const avatar = await me.uploadAsset({ personaId: lea.id });
+    const imported = await me.uploadAsset({ personaId: lea.id });
     await me.patch(`/personas/${lea.id}`, { name: 'Léa', avatarAssetId: avatar.id });
-    const { thread, output, path } = await generateOne(me, { personaId: lea.id, referenceAssetIds: [ref.id] });
-    const preset = (await me.post('/presets', { label: 'L', text: 'x', personaId: lea.id })).body.preset;
-    const refPath = await filePath(ref.id);
-    const avatarPath = await filePath(avatar.id);
+    const { thread, output, path } = await generateOne(me);
+    // Ancien raccourci rattaché au persona (plus possible par l'API) : il part avec lui.
+    const [preset] = await db
+      .insert(promptPresets)
+      .values({ userId: me.user.id, personaId: lea.id, label: 'L', text: 'x', position: 99 })
+      .returning();
+    const paths = await Promise.all([ref.id, avatar.id, imported.id].map(filePath));
     await me.del(`/personas/${lea.id}`);
 
     const res = await me.del(`/trash/personas/${lea.id}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 1, threads: 1, workflows: 0, files: 3 });
+    expect(res.body).toEqual({ personas: 1, threads: 0, workflows: 0, files: 3 });
 
     expect(await personaExists(lea.id)).toBe(false);
-    expect(await threadExists(thread.id)).toBe(false);
-    expect(await generationCount(thread.id)).toBe(0);
-    for (const id of [ref.id, avatar.id, output.id]) expect(await assetExists(id)).toBe(false);
-    for (const p of [path, refPath, avatarPath]) expect(existsSync(p)).toBe(false);
-    // Les raccourcis du persona partent avec lui.
+    for (const id of [ref.id, avatar.id, imported.id]) expect(await assetExists(id)).toBe(false);
+    for (const p of paths) expect(existsSync(p)).toBe(false);
     expect(await db.$count(promptPresets, eq(promptPresets.id, preset.id))).toBe(0);
+    // Le fil et ses résultats restent.
+    expect(await threadExists(thread.id)).toBe(true);
+    expect(await generationCount(thread.id)).toBe(1);
+    expect(await assetExists(output.id)).toBe(true);
+    expect(existsSync(path)).toBe(true);
     expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [], workflows: [] });
   });
 
-  it('supprime aussi un fil du persona mis à la corbeille avant lui', async () => {
+  it('ne supprime pas un fil mis à la corbeille qui utilisait ses références', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
-    const { thread: early, path } = await generateOne(me, { personaId: lea.id });
-    await me.del(`/threads/${early.id}`);
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const { thread, path } = await generateOne(me, { referenceAssetIds: [ref.id] });
+    const refPath = await filePath(ref.id);
+    await me.del(`/threads/${thread.id}`);
     await me.del(`/personas/${lea.id}`);
+
     const res = await me.del(`/trash/personas/${lea.id}`);
-    expect(res.body).toEqual({ personas: 1, threads: 1, workflows: 0, files: 1 });
-    expect(await threadExists(early.id)).toBe(false);
-    expect(existsSync(path)).toBe(false);
+    expect(res.body).toEqual({ personas: 1, threads: 0, workflows: 0, files: 0 });
+    expect(await threadExists(thread.id)).toBe(true);
+    expect(existsSync(path)).toBe(true);
+    // La référence sert encore au fil (restaurable) : elle reste.
+    expect(await assetExists(ref.id)).toBe(true);
+    expect(existsSync(refPath)).toBe(true);
+    expect((await getTrash(me)).threads.map(t => t.id)).toEqual([thread.id]);
   });
 
   it('garde une référence du persona utilisée par une génération d’un fil conservé', async () => {
@@ -321,6 +348,8 @@ describe('DELETE /trash/personas/:id', () => {
     expect(existsSync(refPath)).toBe(true);
     const detail = await me.get(`/threads/${kept.id}`);
     expect(detail.body.generations[0].references.map((r: { id: string }) => r.id)).toEqual([ref.id]);
+    // Gardée pour le fil, mais plus une référence : elle n'apparaît pas dans Général.
+    expect((await me.get('/assets/references?personaId=general')).body.assets).toEqual([]);
   });
 
   it('garde un média du persona utilisé comme avatar d’un autre persona', async () => {
@@ -356,7 +385,7 @@ describe('DELETE /trash/personas/:id', () => {
     const lea = await me.createPersona({ name: 'Léa' });
     const zoe = await me.createPersona({ name: 'Zoé' });
     const zoeRef = await me.uploadAsset({ personaId: zoe.id, isReference: true });
-    const { path: zoeOutput } = await generateOne(me, { personaId: zoe.id });
+    const { path: zoeOutput } = await generateOne(me, { referenceAssetIds: [zoeRef.id] });
     const zoeRefPath = await filePath(zoeRef.id);
     await me.del(`/personas/${lea.id}`);
 
@@ -367,22 +396,18 @@ describe('DELETE /trash/personas/:id', () => {
     expect((await me.get('/personas')).body.personas[0].referenceCount).toBe(1);
   });
 
-  // Ancien bug (corrigé) : les résultats d'une génération portent le persona de la génération. Si le fil
-  // a été déplacé vers un autre persona avant la suppression, il n'est pas mis à la
-  // corbeille, mais la purge du persona d'origine efface quand même ses résultats
-  // (filtre `assets.persona_id in (...)` sans vérifier que le fil est supprimé).
-  it('garde les résultats d’un fil déplacé vers un autre persona', async () => {
+  it('garde un résultat de génération ajouté à ses références : il suit son fil', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
-    const zoe = await me.createPersona({ name: 'Zoé' });
-    const { thread, output, path } = await generateOne(me, { personaId: lea.id });
-    expect((await me.patch(`/threads/${thread.id}`, { personaId: zoe.id })).status).toBe(200);
+    const { thread, output, path } = await generateOne(me);
+    expect((await me.patch(`/assets/${output.id}/reference`, { personaId: lea.id, isReference: true })).status).toBe(200);
     await me.del(`/personas/${lea.id}`);
-    expect(await ids(me, '/threads', 'threads')).toEqual([thread.id]);
 
-    await me.del(`/trash/personas/${lea.id}`);
+    const res = await me.del(`/trash/personas/${lea.id}`);
+    expect(res.body).toEqual({ personas: 1, threads: 0, workflows: 0, files: 0 });
     expect(await assetExists(output.id)).toBe(true);
     expect(existsSync(path)).toBe(true);
+    expect((await me.get(`/threads/${thread.id}`)).body.generations[0].outputs[0].id).toBe(output.id);
   });
 
   it('ne fait rien pour un persona qui n’est pas à la corbeille', async () => {
@@ -400,7 +425,8 @@ describe('DELETE /trash/personas/:id', () => {
     const me = await signup();
     const other = await signup();
     const p = await other.createPersona({ name: 'Autre' });
-    const { path } = await generateOne(other, { personaId: p.id });
+    const ref = await other.uploadAsset({ personaId: p.id, isReference: true });
+    const path = await filePath(ref.id);
     await other.del(`/personas/${p.id}`);
     const res = await me.del(`/trash/personas/${p.id}`);
     expect(res.body).toEqual({ personas: 0, threads: 0, workflows: 0, files: 0 });
@@ -443,7 +469,7 @@ describe('DELETE /trash/threads/:id', () => {
     const lea = await me.createPersona({ name: 'Léa' });
     const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
     const upload = await me.uploadAsset();
-    const { thread, path } = await generateOne(me, { personaId: lea.id, referenceAssetIds: [ref.id, upload.id] });
+    const { thread, path } = await generateOne(me, { referenceAssetIds: [ref.id, upload.id] });
     await me.del(`/threads/${thread.id}`);
     await me.del(`/trash/threads/${thread.id}`);
     expect(existsSync(path)).toBe(false);
@@ -517,19 +543,21 @@ describe('DELETE /trash/threads/:id', () => {
     expect(existsSync(path)).toBe(true);
   });
 
-  it('supprime un fil parti avec son persona sans supprimer le persona', async () => {
+  it('supprime un fil sans toucher au persona à la corbeille dont il utilisait une référence', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
-    const { thread, path } = await generateOne(me, { personaId: lea.id });
-    await generateOne(me, { personaId: lea.id });
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const { thread, path } = await generateOne(me, { referenceAssetIds: [ref.id] });
     await me.del(`/personas/${lea.id}`);
+    await me.del(`/threads/${thread.id}`);
 
     const res = await me.del(`/trash/threads/${thread.id}`);
     expect(res.body).toEqual({ personas: 0, threads: 1, workflows: 0, files: 1 });
     expect(existsSync(path)).toBe(false);
+    expect(existsSync(await filePath(ref.id))).toBe(true);
     const trash = await getTrash(me);
     expect(trash.personas.map(p => p.id)).toEqual([lea.id]);
-    expect(trash.personas[0].threadCount).toBe(1);
+    expect(trash.personas[0].referenceCount).toBe(1);
   });
 
   it('ne fait rien pour un fil qui n’est pas à la corbeille', async () => {
@@ -565,32 +593,43 @@ describe('DELETE /trash', () => {
     const other = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
     const zoe = await me.createPersona({ name: 'Zoé' });
-    const { path: leaPath } = await generateOne(me, { personaId: lea.id });
+    const leaRef = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const leaUsedRef = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const zoeRef = await me.uploadAsset({ personaId: zoe.id, isReference: true });
+    const leaRefPath = await filePath(leaRef.id);
+    // Fil vivant qui utilise une référence de Léa : il reste, et la référence avec lui.
+    const { thread: kept, path: keptPath } = await generateOne(me, { referenceAssetIds: [leaUsedRef.id] });
     const { thread: lone, path: lonePath } = await generateOne(me);
-    const { thread: alive, path: alivePath } = await generateOne(me, { personaId: zoe.id });
+    const { thread: alive, path: alivePath } = await generateOne(me, { referenceAssetIds: [zoeRef.id] });
     await me.del(`/personas/${lea.id}`);
     await me.del(`/threads/${lone.id}`);
 
     const otherPersona = await other.createPersona({ name: 'Autre' });
-    const { thread: otherThread, path: otherPath } = await generateOne(other, { personaId: otherPersona.id });
+    const otherRef = await other.uploadAsset({ personaId: otherPersona.id, isReference: true });
+    const { thread: otherThread, path: otherPath } = await generateOne(other, { referenceAssetIds: [otherRef.id] });
     await other.del(`/personas/${otherPersona.id}`);
+    await other.del(`/threads/${otherThread.id}`);
 
     const res = await me.del('/trash');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ personas: 1, threads: 2, workflows: 0, files: 2 });
+    expect(res.body).toEqual({ personas: 1, threads: 1, workflows: 0, files: 2 });
     expect(await getTrash(me)).toEqual({ days: TRASH_DAYS, personas: [], threads: [], workflows: [] });
-    expect(existsSync(leaPath)).toBe(false);
+    expect(existsSync(leaRefPath)).toBe(false);
     expect(existsSync(lonePath)).toBe(false);
 
     // Ce qui n'est pas à la corbeille reste.
     expect(await ids(me, '/personas', 'personas')).toEqual([zoe.id]);
-    expect(await ids(me, '/threads', 'threads')).toEqual([alive.id]);
+    expect((await ids(me, '/threads', 'threads')).sort()).toEqual([kept.id, alive.id].sort());
     expect(existsSync(alivePath)).toBe(true);
+    expect(existsSync(keptPath)).toBe(true);
+    expect(existsSync(await filePath(leaUsedRef.id))).toBe(true);
 
     // La corbeille de l'autre utilisateur reste intacte.
-    expect((await getTrash(other)).personas).toHaveLength(1);
-    expect(await threadExists(otherThread.id)).toBe(true);
+    const otherTrash = await getTrash(other);
+    expect(otherTrash.personas).toHaveLength(1);
+    expect(otherTrash.threads.map(t => t.id)).toEqual([otherThread.id]);
     expect(existsSync(otherPath)).toBe(true);
+    expect(existsSync(await filePath(otherRef.id))).toBe(true);
   });
 
   it('répond avec des compteurs à zéro pour une corbeille vide', async () => {
@@ -606,7 +645,8 @@ describe('purge automatique des éléments expirés', () => {
     const me = await signup();
     const old = await me.createPersona({ name: 'Ancien' });
     const recent = await me.createPersona({ name: 'Récent' });
-    const { thread: oldPersonaThread, path: oldPersonaPath } = await generateOne(me, { personaId: old.id });
+    const oldRef = await me.uploadAsset({ personaId: old.id, isReference: true });
+    const oldRefPath = await filePath(oldRef.id);
     const { thread: oldThread, path: oldThreadPath } = await generateOne(me);
     const { thread: recentThread, path: recentThreadPath } = await generateOne(me);
     const { thread: alive } = await generateOne(me);
@@ -615,17 +655,16 @@ describe('purge automatique des éléments expirés', () => {
     await me.del(`/threads/${oldThread.id}`);
     await me.del(`/threads/${recentThread.id}`);
 
-    // Mises à la corbeille il y a 8 jours (le fil du persona garde la même date que lui).
+    // Mises à la corbeille il y a 8 jours.
     const longAgo = new Date(Date.now() - (TRASH_DAYS + 1) * DAY_MS);
     await db.update(personas).set({ deletedAt: longAgo }).where(eq(personas.id, old.id));
-    await db.update(threads).set({ deletedAt: longAgo }).where(inArray(threads.id, [oldPersonaThread.id, oldThread.id]));
+    await db.update(threads).set({ deletedAt: longAgo }).where(inArray(threads.id, [oldThread.id]));
 
     const res = await purge({ expired: true });
-    expect(res).toEqual({ personas: 1, threads: 2, workflows: 0, files: 2 });
+    expect(res).toEqual({ personas: 1, threads: 1, workflows: 0, files: 2 });
     expect(await personaExists(old.id)).toBe(false);
-    expect(await threadExists(oldPersonaThread.id)).toBe(false);
     expect(await threadExists(oldThread.id)).toBe(false);
-    expect(existsSync(oldPersonaPath)).toBe(false);
+    expect(existsSync(oldRefPath)).toBe(false);
     expect(existsSync(oldThreadPath)).toBe(false);
 
     expect(await personaExists(recent.id)).toBe(true);

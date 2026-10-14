@@ -1,7 +1,7 @@
 /**
  * Prompt réellement envoyé au modèle (`finalPrompt`), structuré par ordre
  * d'importance : la LoRA d'abord (le mot déclencheur agit mieux en tête), puis
- * la demande, la consigne d'édition, les raccourcis et le contexte général.
+ * la demande, la consigne d'édition et les raccourcis.
  */
 
 export const EDIT_INSTRUCTION = 'Edit image 1: it is the image to modify. Any other images are references only.';
@@ -12,8 +12,6 @@ export interface PromptParts {
   triggers: string[];
   /** Raccourcis activés. */
   contexts: { label: string; text: string }[];
-  /** Contexte du persona, en lignes étiquetées. */
-  blocks: { title: string; text: string }[];
   /** « Éditer » : la première image est celle à modifier. */
   editFirstImage?: boolean;
 }
@@ -31,13 +29,6 @@ export function assemblePrompt(p: PromptParts): string {
       p.contexts
         .filter(c => c.text.trim())
         .map(c => `${c.label.trim() ? `${c.label.trim()} : ` : ''}${oneLine(c.text)}`)
-        .join('\n'),
-    ],
-    [
-      'Contexte général',
-      p.blocks
-        .filter(b => b.text.trim())
-        .map(b => `- ${b.title.trim() ? `${b.title.trim()} : ` : ''}${oneLine(b.text)}`)
         .join('\n'),
     ],
   ];

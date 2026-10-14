@@ -163,11 +163,11 @@ describe('POST /assets', () => {
     expect(res.body.asset).toMatchObject({ personaId: p.id, isReference: true });
   });
 
-  it('ignore isReference sans persona', async () => {
+  it('isReference sans persona : une référence de Général', async () => {
     const me = await signup();
     const res = await me.upload({ isReference: true });
     expect(res.status).toBe(201);
-    expect(res.body.asset).toMatchObject({ personaId: null, isReference: false });
+    expect(res.body.asset).toMatchObject({ personaId: null, isReference: true });
   });
 
   it('ignore le persona d’un autre utilisateur', async () => {
@@ -201,6 +201,25 @@ describe('POST /assets', () => {
 });
 
 describe('GET /assets/references', () => {
+  it('Général : les références sans persona, rangées et retirées comme celles d’un persona @smoke', async () => {
+    const me = await signup();
+    const lea = await me.createPersona({ name: 'Léa' });
+    const a = await me.uploadAsset({ isReference: true });
+    const b = await me.uploadAsset({ isReference: true });
+    await me.uploadAsset({ personaId: lea.id, isReference: true });
+    await me.uploadAsset();
+    const list = async () => ((await me.get('/assets/references?personaId=general')).body.assets as { id: string }[]).map(x => x.id);
+    expect((await list()).sort()).toEqual([a.id, b.id].sort());
+    expect((await me.put('/assets/references/order', { personaId: 'general', ids: [b.id, a.id] })).status).toBe(200);
+    expect(await list()).toEqual([b.id, a.id]);
+    // Une référence de Léa passée dans Général, puis retirée.
+    const r = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    expect((await me.patch(`/assets/${r.id}/reference`, { personaId: 'general', isReference: true })).body.asset.personaId).toBeNull();
+    expect(await list()).toContain(r.id);
+    expect((await me.patch(`/assets/${b.id}/reference`, { personaId: 'general', isReference: false })).status).toBe(200);
+    expect(await list()).not.toContain(b.id);
+  });
+
   it('liste les références du persona, les plus récentes en premier', async () => {
     const me = await signup();
     const p = await me.createPersona({ name: 'Nina' });
@@ -433,13 +452,19 @@ describe('GET /assets/gallery', () => {
     expect(await ids('?media=video')).toEqual([vid.id]);
   });
 
-  it('filtre par persona', async () => {
+  // Les nouveaux résultats ne sont plus rangés sous un persona : le filtre ne garde que
+  // les anciens résultats qui en portent un.
+  it('filtre par persona : les résultats des fils où une de ses références a servi', async () => {
     const me = await signup();
     const p = await me.createPersona({ name: 'Gina' });
-    const withP = await me.generate({ personaId: p.id });
+    const ref = await me.uploadAsset({ personaId: p.id, isReference: true });
+    const first = await me.generate({ referenceAssetIds: [ref.id] });
+    // Même fil, sans référence : il fait partie du fil de Gina.
+    const second = await me.generate({ threadId: first.thread.id });
     await me.generate();
-    const res = await me.get(`/assets/gallery?personaId=${p.id}`);
-    expect(res.body.items.map((i: { asset: { id: string } }) => i.asset.id)).toEqual([withP.generation.outputs[0].id]);
+    const ids = (await me.get(`/assets/gallery?personaId=${p.id}`)).body.items.map((i: { asset: { id: string } }) => i.asset.id);
+    expect(ids.sort()).toEqual([first.generation.outputs[0].id, second.generation.outputs[0].id].sort());
+    expect((await me.get('/assets/gallery')).body.items).toHaveLength(3);
   });
 
   it('exclut les résultats des fils à la corbeille', async () => {

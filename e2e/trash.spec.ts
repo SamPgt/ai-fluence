@@ -5,6 +5,7 @@
 import { sql } from './db'
 import { expect, test, type App } from './helpers'
 import { hydrated } from './support-auth'
+import { listReferences, uploadReference } from './support-personas'
 
 async function gotoTrash(app: App) {
   await app.page.goto('/corbeille')
@@ -14,11 +15,15 @@ async function gotoTrash(app: App) {
 
 const row = (app: App, title: string) => app.page.getByTestId('trash-row').filter({ hasText: title })
 
-/** Un fil seul et un persona avec un fil, tous à la corbeille. */
+/**
+ * Un fil et un persona (avec deux références), tous deux à la corbeille. Un fil où
+ * une référence du persona a servi reste, lui, hors de la corbeille.
+ */
 async function seedTrash(app: App) {
   const loose = (await app.generate({ prompt: 'fil perdu' })).thread
   const persona = await app.createPersona({ name: 'Bérénice' })
-  const owned = (await app.generate({ prompt: 'fil de berenice', personaId: persona.id })).thread
+  await uploadReference(app.page, persona.id, 'b1.png')
+  const owned = (await app.generateWithPersona(persona.id, { prompt: 'fil de berenice' })).thread
   await app.trashThread(loose.id)
   expect((await app.page.request.delete(`/api/personas/${persona.id}`)).ok()).toBeTruthy()
   return { loose, persona, owned }
@@ -38,19 +43,21 @@ test('la corbeille est accessible depuis le menu utilisateur', async ({ app, pag
   await expect(page.getByText('La corbeille est vide.')).toBeVisible()
 })
 
-test('un fil et un persona (avec ses fils) à la corbeille sont listés', async ({ app, page }) => {
+test('un fil et un persona (avec ses références) à la corbeille sont listés', async ({ app, page }) => {
   await seedTrash(app)
   await gotoTrash(app)
   await expect(page.getByRole('heading', { name: 'Personas' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Fils' })).toBeVisible()
-  await expect(row(app, 'Bérénice')).toContainText('1 fil · Supprimé définitivement dans 7 jours')
+  await expect(row(app, 'Bérénice')).toContainText('2 références · Supprimé définitivement dans 7 jours')
+  // Un fil n'a plus de persona : seulement le délai.
   await expect(row(app, 'fil perdu')).toContainText('Supprimé définitivement dans 7 jours')
-  // Le fil parti avec son persona est rangé sous le persona, pas dans « Fils ».
+  await expect(row(app, 'fil perdu')).not.toContainText('Bérénice')
+  // Le fil où une référence du persona a servi n'est pas parti avec lui.
   await expect(row(app, 'fil de berenice')).toHaveCount(0)
   await expect(page.getByTestId('trash-row')).toHaveCount(2)
-  // Rien de tout ça dans la liste des fils ni dans la barre des personas.
-  await expect(page.getByTestId('thread-panel').getByText('Aucun fil pour l’instant.')).toBeVisible()
-  await expect(page.getByLabel('Bérénice', { exact: true })).toHaveCount(0)
+  const panel = page.getByTestId('thread-panel')
+  await expect(panel.getByRole('link', { name: /fil de berenice/ })).toBeVisible()
+  await expect(panel.getByRole('link', { name: /fil perdu/ })).toHaveCount(0)
 })
 
 test('restaurer un fil le remet dans la liste des fils @core @smoke', async ({ app, page }) => {
@@ -67,20 +74,20 @@ test('restaurer un fil le remet dans la liste des fils @core @smoke', async ({ a
   expect(sql(`SELECT deleted_at IS NULL FROM threads WHERE id = '${loose.id}'`)).toBe('t')
 })
 
-test('restaurer un persona fait revenir ses fils @core', async ({ app, page }) => {
+test('restaurer un persona fait revenir ses références @core', async ({ app, page }) => {
   const { persona, owned } = await seedTrash(app)
   await gotoTrash(app)
   await row(app, 'Bérénice').getByRole('button', { name: 'Restaurer' }).click()
   await expect(page.getByText('Bérénice restauré')).toBeVisible()
   await expect(row(app, 'Bérénice')).toHaveCount(0)
-
-  // Le persona revient dans la barre, avec son fil.
-  // Clic sur le persona : il ouvre son fil le plus récent, celui restauré.
-  await app.selectPersona('Bérénice')
-  await expect(page).toHaveURL(new RegExp(`/t/${owned.id}$`))
-  await expect(page.getByTestId('thread-panel').getByRole('link', { name: /fil de berenice/ })).toBeVisible()
   expect(sql(`SELECT deleted_at IS NULL FROM personas WHERE id = '${persona.id}'`)).toBe('t')
-  expect(sql(`SELECT deleted_at IS NULL FROM threads WHERE id = '${owned.id}'`)).toBe('t')
+  expect(await listReferences(page, persona.id)).toHaveLength(2)
+
+  // Il revient dans la Bibliothèque, et sa bulle dans le fil où sa référence a servi.
+  await page.goto('/bibliotheque')
+  await expect(page.getByRole('region', { name: 'Bérénice', exact: true })).toContainText('2 références')
+  await app.gotoThread(owned.id)
+  await expect(page.getByTestId('thread-personas').getByRole('link', { name: 'Bérénice' })).toBeVisible()
 })
 
 test('la suppression définitive demande d’écrire « confirmer » et retire l’élément @core', async ({ app, page }) => {
@@ -116,9 +123,9 @@ test('le mot de confirmation ignore la casse et Entrée valide', async ({ app, p
   await word.press('Enter')
   await expect(page.getByRole('dialog')).toBeHidden()
   await expect(row(app, 'Bérénice')).toHaveCount(0)
-  // Le persona part avec ses fils.
+  // Le persona part seul : le fil où sa référence a servi reste.
   expect(sql(`SELECT count(*) FROM personas WHERE id = '${persona.id}'`)).toBe('0')
-  expect(sql(`SELECT count(*) FROM threads WHERE id = '${owned.id}'`)).toBe('0')
+  expect(sql(`SELECT count(*) FROM threads WHERE id = '${owned.id}' AND deleted_at IS NULL`)).toBe('1')
 })
 
 test('annuler la suppression définitive garde l’élément et vide le champ', async ({ app, page }) => {
@@ -152,10 +159,10 @@ test('« Vider la corbeille » supprime tout, après « confirmer »', async ({ 
   await expect(page.getByText('La corbeille est vide.')).toBeVisible()
   await expect(page.getByTestId('trash-row')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Vider la corbeille' })).toHaveCount(0)
-  expect(sql(`SELECT count(*) FROM threads WHERE id IN ('${loose.id}', '${owned.id}')`)).toBe('0')
+  expect(sql(`SELECT count(*) FROM threads WHERE id = '${loose.id}'`)).toBe('0')
   expect(sql(`SELECT count(*) FROM personas WHERE id = '${persona.id}'`)).toBe('0')
-  // Ce qui n'était pas à la corbeille reste.
-  expect(sql(`SELECT count(*) FROM threads WHERE id = '${kept.id}'`)).toBe('1')
+  // Ce qui n'était pas à la corbeille reste, même le fil où une référence du persona a servi.
+  expect(sql(`SELECT count(*) FROM threads WHERE id IN ('${kept.id}', '${owned.id}')`)).toBe('2')
 })
 
 test('« Annuler » du toast restaure le fil mis à la corbeille depuis la liste', async ({ app, page }) => {

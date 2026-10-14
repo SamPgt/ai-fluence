@@ -6,10 +6,21 @@ import { describe, expect, it } from 'vitest';
 import { db } from '../db/index.js';
 import { assets, userSettings } from '../db/schema.js';
 import { env } from '../env.js';
-import { call, signup } from './helpers.js';
+import { call, SEEDANCE_MINI, SEEDREAM_FLASH, signup } from './helpers.js';
 
 const KEY = 'sk-spicy-test-0000000000';
-const SETTINGS_KEYS = ['apiKeyHint', 'defaultMediaDir', 'elevenLabsKeyHint', 'enhanceModel', 'hasApiKey', 'hasElevenLabsKey', 'mediaDir'];
+const SETTINGS_KEYS = [
+  'apiKeyHint',
+  'defaultImageFamily',
+  'defaultMediaDir',
+  'defaultVideoFamily',
+  'elevenLabsKeyHint',
+  'enhanceModel',
+  'hasApiKey',
+  'hasElevenLabsKey',
+  'loras',
+  'mediaDir',
+];
 
 /** Dossier temporaire propre au test, dans .vitest-data. */
 const tempDir = () => join(env.DATA_DIR, 'settings-tests', randomUUID().slice(0, 8));
@@ -21,7 +32,7 @@ describe('GET /settings', () => {
     expect(res.status).toBe(200);
     expect(Object.keys(res.body).sort()).toEqual(['settings']);
     expect(Object.keys(res.body.settings).sort()).toEqual(SETTINGS_KEYS);
-    for (const gone of ['defaultImageFamily', 'defaultVideoFamily', 'falApiKey', 'hasFalKey', 'falKeyHint']) {
+    for (const gone of ['falApiKey', 'hasFalKey', 'falKeyHint']) {
       expect(res.body.settings).not.toHaveProperty(gone);
     }
     // Aucun champ de l'ancienne clé fal (on regarde les noms, pas les valeurs : `false` contient « fal »).
@@ -58,6 +69,14 @@ describe('GET /settings', () => {
     expect(settings.mediaDir).toBe(settings.defaultMediaDir);
     expect(isAbsolute(settings.mediaDir)).toBe(true);
     expect(settings.enhanceModel).toBe('deepseek/v4.1-flash/chat');
+  });
+
+  it('sans choix : modèles par défaut de l’app (null) et aucune LoRA de Général', async () => {
+    const me = await signup();
+    const { settings } = (await me.get('/settings')).body;
+    expect(settings.defaultImageFamily).toBeNull();
+    expect(settings.defaultVideoFamily).toBeNull();
+    expect(settings.loras).toEqual([]);
   });
 
   it('répond 401 sans session', async () => {
@@ -148,6 +167,40 @@ describe('PATCH /settings', () => {
     const res = await me.patch('/settings', {});
     expect(res.status).toBe(200);
     expect(res.body.settings).toEqual(before);
+  });
+
+  it('choisit les modèles photo et vidéo par défaut, puis revient à ceux de l’app avec null', async () => {
+    const me = await signup();
+    let res = await me.patch('/settings', { defaultImageFamily: SEEDREAM_FLASH });
+    expect(res.status).toBe(200);
+    expect(res.body.settings).toMatchObject({ defaultImageFamily: SEEDREAM_FLASH, defaultVideoFamily: null });
+    res = await me.patch('/settings', { defaultVideoFamily: SEEDANCE_MINI });
+    expect(res.status).toBe(200);
+    // Un champ absent ne change pas.
+    expect(res.body.settings).toMatchObject({ defaultImageFamily: SEEDREAM_FLASH, defaultVideoFamily: SEEDANCE_MINI });
+    expect((await me.get('/settings')).body.settings).toMatchObject({
+      defaultImageFamily: SEEDREAM_FLASH,
+      defaultVideoFamily: SEEDANCE_MINI,
+    });
+    res = await me.patch('/settings', { defaultImageFamily: null, defaultVideoFamily: null });
+    expect(res.status).toBe(200);
+    expect(res.body.settings).toMatchObject({ defaultImageFamily: null, defaultVideoFamily: null });
+  });
+
+  it.each([
+    ['un modèle vidéo comme modèle photo par défaut', { defaultImageFamily: SEEDANCE_MINI }],
+    ['un modèle photo comme modèle vidéo par défaut', { defaultVideoFamily: SEEDREAM_FLASH }],
+    ['un modèle photo par défaut inconnu', { defaultImageFamily: 'inconnu/modele' }],
+    ['un modèle vidéo par défaut inconnu', { defaultVideoFamily: 'inconnu/modele' }],
+    ['un modèle par défaut qui n’est pas une chaîne', { defaultImageFamily: 12 }],
+  ])('refuse %s avec 400, sans rien changer', async (_label, body) => {
+    const me = await signup();
+    await me.patch('/settings', { defaultImageFamily: SEEDREAM_FLASH, defaultVideoFamily: SEEDANCE_MINI });
+    expect((await me.patch('/settings', body)).status).toBe(400);
+    expect((await me.get('/settings')).body.settings).toMatchObject({
+      defaultImageFamily: SEEDREAM_FLASH,
+      defaultVideoFamily: SEEDANCE_MINI,
+    });
   });
 
   it.each([

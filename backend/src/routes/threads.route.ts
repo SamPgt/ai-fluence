@@ -4,7 +4,7 @@ import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { SearchResult, ThreadDetailResponse } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { personas, threads } from '../db/schema.js';
+import { threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { loadGenerations } from '../services/generation.service.js';
 import { toThread } from '../services/serialize.js';
@@ -17,17 +17,17 @@ const aggregates = {
   // Générations du fil, plus les workflows lancés depuis ce fil.
   totalCost: sql<string>`((select coalesce(sum(g.cost::numeric) filter (where g.status = 'succeeded'), 0) from generations g where g.thread_id = "threads"."id") + (select coalesce(sum(r.cost::numeric), 0) from workflow_node_results r inner join workflow_runs wr on wr.id = r.run_id where wr.thread_id = "threads"."id"))::text`,
   generationCount: sql<number>`(select count(*)::int from generations g where g.thread_id = "threads"."id")`,
+  // Personas dont une référence a servi dans le fil (générations, entrées des workflows lancés depuis le fil).
+  personaIds: sql<string[]>`(select coalesce(json_agg(p.id order by p.position), '[]'::json) from personas p where p.deleted_at is null and exists (select 1 from assets a where a.persona_id = p.id and (exists (select 1 from generations g where g.thread_id = "threads"."id" and g.reference_asset_ids ? a.id::text) or exists (select 1 from workflow_runs wr, jsonb_array_elements(wr.inputs) i where wr.thread_id = "threads"."id" and coalesce(i->'assetIds', '[]'::jsonb) ? a.id::text))))`,
+  previewAssetIds: sql<string[]>`(select coalesce(json_agg(x.id), '[]'::json) from (select a.id from assets a inner join generations g on g.id = a.generation_id where g.thread_id = "threads"."id" and g.removed_at is null and a.media_type = 'image' order by a.created_at desc limit 3) x)`,
   coverAssetId: sql<string | null>`(select a.id from assets a inner join generations g on g.id = a.generation_id where g.thread_id = "threads"."id" and g.removed_at is null and a.media_type = 'image' order by a.created_at desc limit 1)`,
 };
 
 const threadsRoutes = new Hono<AppEnv>()
   .use(auth)
-  // `none` = fils sans persona ; sinon un id de persona (un id mal formé ferait planter Postgres).
-  .get('/', zValidator('query', z.object({ personaId: z.union([z.literal('none'), z.uuid()]).optional() })), async c => {
-    const { personaId } = c.req.valid('query');
+  // Tous les fils : un fil n'appartient plus à un persona.
+  .get('/', async c => {
     const where = [eq(threads.userId, c.get('user').id), isNull(threads.deletedAt)];
-    if (personaId === 'none') where.push(sql`${threads.personaId} is null`);
-    else if (personaId) where.push(eq(threads.personaId, personaId));
     const rows = await db
       .select({ t: threads, ...aggregates })
       .from(threads)
@@ -83,21 +83,11 @@ const threadsRoutes = new Hono<AppEnv>()
       z.object({
         title: z.string().trim().min(1).max(120).optional(),
         isPinned: z.boolean().optional(),
-        personaId: z.uuid().nullable().optional(),
       }),
     ),
     async c => {
       const user = c.get('user');
       const patch = c.req.valid('json');
-      // Le persona doit être à cet utilisateur (et pas à la corbeille).
-      if (patch.personaId) {
-        const [p] = await db
-          .select({ id: personas.id })
-          .from(personas)
-          .where(and(eq(personas.id, patch.personaId), eq(personas.userId, user.id), isNull(personas.deletedAt)))
-          .limit(1);
-        if (!p) return c.json({ error: 'Persona introuvable.' }, 404);
-      }
       const owned = and(eq(threads.id, c.req.param('id')), eq(threads.userId, user.id), isNull(threads.deletedAt));
       // Rien à modifier : le fil tel quel (Drizzle refuse une mise à jour vide).
       const [row] = Object.values(patch).some(v => v !== undefined)

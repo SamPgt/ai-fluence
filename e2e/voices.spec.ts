@@ -23,18 +23,20 @@ test.afterEach(async ({ page }) => {
   await page.request.delete('/api/settings/elevenlabs-key')
 })
 
-test('fiche persona : contexte, photos (voix), puis modèles par défaut @core @smoke', async ({ app, page }) => {
+test('fiche persona : photos de références (puis voix), ni contexte ni modèles par défaut @core @smoke', async ({
+  app,
+  page,
+}) => {
   const p = await app.createPersona({ name: 'Alice' })
   await page.goto(`/personas/${p.id}`)
   await waitHydrated(page)
   // PROCHAINEMENT : ajout de la voix. En pause, pas de section « Voix de référence ».
-  const wanted = VOICE_ENABLED
-    ? ['Contexte du persona', 'Photos de références', 'Voix de référence', 'Modèles par défaut']
-    : ['Contexte du persona', 'Photos de références', 'Modèles par défaut']
+  const wanted = VOICE_ENABLED ? ['Photos de références', 'Voix de référence'] : ['Photos de références']
+  const known = [...wanted, 'Contexte du persona', 'Modèles par défaut', 'Voix de référence']
   await expect
     .poll(async () => {
       const titles = await page.locator('section h2').allTextContents()
-      return titles.filter((t) => wanted.includes(t))
+      return titles.filter((t) => known.includes(t))
     })
     .toEqual(wanted)
 })
@@ -82,13 +84,14 @@ test('menu des modèles : icône de voix sur les modèles vidéo qui acceptent u
 
 test('composer : bouton « Voix » pour un modèle vidéo à voix, absent en photo @core', async ({ app, page }) => {
   test.skip(!VOICE_ENABLED, 'PROCHAINEMENT : ajout de la voix')
-  await app.createPersona({
+  const alice = await app.createPersona({
     name: 'Alice',
-    defaultVideoFamily: WAN,
     voices: [{ id: 'v1', voiceId: 'fake-sarah', name: 'Sarah', previewUrl: null, labels: {} }],
   })
-  await app.gotoNew()
-  await app.selectPersona('Alice')
+  expect((await page.request.patch('/api/settings', { data: { defaultVideoFamily: WAN } })).ok()).toBeTruthy()
+  // Voix proposées : celles d'un persona présent dans le fil (une de ses références y a servi).
+  const { thread } = await app.generateWithPersona(alice.id, { prompt: 'fil alice' })
+  await app.gotoThread(thread.id)
   await expect(page.getByTestId('voice-picker')).toHaveCount(0)
   await app.chooseMedia('Vidéo')
   await expect(app.modelPicker).toContainText('Wan 3.0')

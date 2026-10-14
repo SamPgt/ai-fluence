@@ -5,7 +5,6 @@
 import { expect, test } from './helpers'
 
 const GPT = 'openai/gpt-image-2.5-sunburst'
-const QWEN = 'alibaba/qwen-image-3.0-pro'
 
 test.describe('nouveau fil', () => {
   test('le brouillon et ses réglages survivent au rechargement @core @smoke', async ({ app }) => {
@@ -30,30 +29,6 @@ test.describe('nouveau fil', () => {
     await expect(app.modelPicker).toContainText('Seedream 5.0 Flash')
     await expect(app.ratio).toHaveText(defaultRatio!)
     await expect(app.count).toHaveAccessibleName("Nombre d'images x1")
-  })
-
-  test('un seul brouillon quel que soit le persona choisi', async ({ app }) => {
-    await app.createPersona({ name: 'Alice', defaultImageFamily: GPT })
-    await app.createPersona({ name: 'Bea', defaultImageFamily: QWEN })
-    await app.gotoNew()
-    await app.selectPersona('Alice')
-    await expect(app.modelPicker).toContainText('GPT Image 2.5')
-    await app.prompt.fill('portrait en studio')
-    await app.selectPersona('Bea')
-    await expect(app.prompt).toHaveValue('portrait en studio')
-    // Demande commencée : le modèle choisi avec elle reste.
-    await expect(app.modelPicker).toContainText('GPT Image 2.5')
-    expect(Object.keys(await app.drafts())).toEqual(['new'])
-  })
-
-  test('composer vide : changer de persona reprend son modèle', async ({ app }) => {
-    await app.createPersona({ name: 'Alice', defaultImageFamily: GPT })
-    await app.createPersona({ name: 'Bea', defaultImageFamily: QWEN })
-    await app.gotoNew()
-    await app.selectPersona('Alice')
-    await expect(app.modelPicker).toContainText('GPT Image 2.5')
-    await app.selectPersona('Bea')
-    await expect(app.modelPicker).toContainText('Qwen Image 3.0 Pro')
   })
 
   test('envoi : le fil créé garde les réglages, le brouillon du nouveau fil est vidé @core', async ({

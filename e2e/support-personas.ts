@@ -20,8 +20,8 @@ export async function hydrated(page: Page) {
   )
 }
 
-/** Fiche d'un persona, onglet choisi, une fois la page prête. */
-export async function gotoPersona(page: Page, id: string, tab?: 'general' | 'lora' | 'shortcuts') {
+/** Fiche d'un persona, onglet choisi (`general` = Références), une fois la page prête. */
+export async function gotoPersona(page: Page, id: string, tab?: 'general' | 'lora') {
   await page.goto(`/personas/${id}${tab ? `?tab=${tab}` : ''}`)
   await hydrated(page)
   await expect(page.getByText(/^Paramétrage de /)).toBeVisible()
@@ -37,12 +37,12 @@ export async function getPersona(page: Page, id: string): Promise<Persona> {
   return p!
 }
 
-/** Ajoute une image à la bibliothèque de références d'un persona (via l'API). */
+/** Ajoute une image aux références d'un persona, ou de Général (`general`), via l'API. */
 export async function uploadReference(page: Page, personaId: string, name = 'ref.png'): Promise<Asset> {
   const res = await page.request.post('/api/assets', {
     multipart: {
       file: pngFile(name),
-      personaId,
+      ...(personaId === 'general' ? {} : { personaId }),
       isReference: 'true',
     },
   })
@@ -60,15 +60,15 @@ export async function saved(page: Page) {
   await expect(page.getByText('Enregistré', { exact: true })).toBeVisible()
 }
 
-/** Ordre des personas dans la barre de gauche (noms). */
-export async function railOrder(page: Page): Promise<string[]> {
-  const links = page.locator('nav a[aria-label^="Paramétrer "]')
-  const labels = await links.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? ''))
-  return labels.map((l) => l.replace(/^Paramétrer /, ''))
-}
+/** Sections de la Bibliothèque (une par persona, puis Général), dans l'ordre. */
+export const librarySections = (page: Page) => page.getByTestId('library-section')
 
-/** Bulle d'un persona dans la barre de gauche. */
-export const bubble = (page: Page, name: string) => page.locator('nav').getByLabel(name, { exact: true })
+/** Page Bibliothèque, prête. */
+export async function gotoLibrary(page: Page) {
+  await page.goto('/bibliotheque')
+  await hydrated(page)
+  await expect(page.getByRole('heading', { name: 'Bibliothèque', level: 1 })).toBeVisible()
+}
 
 /** Menu des modèles déroulants : popover ouvert. */
 export const popover = (page: Page) => page.locator('[data-slot=popover-content]')
@@ -90,7 +90,6 @@ export async function sendAndCapture(page: Page, send: () => Promise<void>) {
     referenceAssetIds: string[]
     loraIds?: string[]
     loraWords?: Record<string, string[]>
-    personaId: string | null
     contextIds?: string[]
   }
   const { generation } = (await response.json()) as { generation: Generation }

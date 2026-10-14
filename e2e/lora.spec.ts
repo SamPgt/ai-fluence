@@ -1,13 +1,15 @@
 /**
- * LoRA d'un persona : ajout par lien sur la fiche, import depuis la bibliothèque
- * Civitai (simulée dans le navigateur, jamais civitai.com), choix dans le menu
- * des raccourcis du composer (mots déclencheurs, 3 LoRA au maximum), envoi
- * (loraIds, loraWords, section « # Lora ») et pastille « Tags · N » du fil.
+ * LoRA d'un persona ou de Général : ajout par lien sur la fiche, import depuis la
+ * bibliothèque Civitai (simulée dans le navigateur, jamais civitai.com), choix
+ * dans le menu des raccourcis du composer (mots déclencheurs, 3 LoRA au maximum),
+ * envoi (loraIds, loraWords, section « # Lora ») et pastille « Tags · N » du fil.
+ * Le composer propose les LoRA de Général et celles des personas présents (fil ou
+ * images jointes).
  */
 import type { Page, Route } from '@playwright/test'
 import type { CivitaiLora, CivitaiSearchResponse, Generation, PersonaLora } from '@ai-fluence/shared'
 import { expect, test, type App } from './helpers'
-import { PNG, getPersona, gotoPersona, popover, saved, sendAndCapture } from './support-personas'
+import { PNG, getPersona, gotoPersona, hydrated, popover, saved, sendAndCapture, uploadReference } from './support-personas'
 
 const Z_IMAGE = 'alibaba/z-image-turbo-lora'
 const FLUX = 'black-forest-labs/flux-1-dev-lora'
@@ -129,15 +131,19 @@ async function mockCivitai(page: Page, items: CivitaiLora[] = [PORTRAIT, NEON]) 
 
 // ── Composer ─────────────────────────────────────────────────
 
-/** Persona avec ses LoRA, sélectionné dans un nouveau fil, modèle Z-Image Turbo LoRA. */
+/** LoRA de Général (Paramétrage du compte). */
+async function setGeneralLoras(page: Page, loras: PersonaLora[]) {
+  const res = await page.request.patch('/api/settings', { data: { loras } })
+  expect(res.ok(), await res.text()).toBeTruthy()
+}
+
+/** LoRA dans Général, nouveau fil, modèle Z-Image Turbo LoRA. */
 async function composerWithLoras(app: App, loras: PersonaLora[] = LORAS) {
-  const persona = await app.createPersona({ name: 'Alice', loras })
+  await setGeneralLoras(app.page, loras)
   await app.gotoNew()
-  await app.selectPersona('Alice')
   await app.chooseModel('Z-Image Turbo LoRA')
   // Le menu des modèles finit de se fermer.
   await expect(popover(app.page)).toHaveCount(0)
-  return persona
 }
 
 async function openShortcuts(page: Page) {
@@ -364,6 +370,62 @@ test.describe('Fiche persona : bibliothèque Civitai (simulée)', () => {
   })
 })
 
+test.describe('Général : LoRA par lien', () => {
+  test('ajoutées sur la page Général, enregistrées dans le compte', async ({ page }) => {
+    await page.goto('/bibliotheque/general?tab=lora')
+    await hydrated(page)
+    await expect(page.getByText('Aucune LoRA dans Général.')).toBeVisible()
+    await page.getByRole('button', { name: 'Ajouter une LoRA par lien' }).click()
+    await page.getByPlaceholder('Nom', { exact: true }).fill('Grain général')
+    await page.getByPlaceholder(/^https:\/\/huggingface\.co/).fill(loraUrl('general'))
+    await expect
+      .poll(async () => (await (await page.request.get('/api/settings')).json()).settings.loras)
+      .toEqual([expect.objectContaining({ label: 'Grain général', path: loraUrl('general') })])
+    await page.reload()
+    await expect(page.getByPlaceholder('Nom', { exact: true })).toHaveValue('Grain général')
+  })
+})
+
+test.describe('Composer : LoRA des personas présents', () => {
+  test('les LoRA d’un persona sont proposées dès qu’une de ses références est jointe @core', async ({
+    app,
+    page,
+  }) => {
+    const persona = await app.createPersona({ name: 'Alice', loras: [LORAS[0]] })
+    await uploadReference(page, persona.id)
+    await setGeneralLoras(page, [LORAS[1]])
+    await app.gotoNew()
+    await app.chooseModel('Z-Image Turbo LoRA')
+    await expect(popover(page)).toHaveCount(0)
+    // Sans Alice : seulement Général.
+    await openShortcuts(page)
+    await expect(option(page, 'Style Film')).toBeVisible()
+    await expect(option(page, 'Visage Alice')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+
+    // Une référence d'Alice jointe depuis le menu des références (« Édition » pour ce modèle) : ses LoRA s'ajoutent.
+    await page.getByRole('button', { name: /^Édition/ }).click()
+    const thumb = popover(page).getByRole('region', { name: 'Références : Alice' }).locator('button:has(img)')
+    await expect(thumb).toHaveCount(1)
+    await thumb.click()
+    await expect(app.attachments).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await openShortcuts(page)
+    await expect(option(page, 'Visage Alice')).toBeVisible()
+    await expect(option(page, 'Style Film')).toBeVisible()
+  })
+
+  test('dans un fil où une référence du persona a servi, ses LoRA sont proposées', async ({ app, page }) => {
+    const persona = await app.createPersona({ name: 'Alice', loras: [LORAS[0]] })
+    const { thread } = await app.generateWithPersona(persona.id, { prompt: 'avec alice' })
+    await app.gotoThread(thread.id)
+    await app.chooseModel('Z-Image Turbo LoRA')
+    await expect(popover(page)).toHaveCount(0)
+    await openShortcuts(page)
+    await expect(option(page, 'Visage Alice')).toBeVisible()
+  })
+})
+
 test.describe('Composer : menu des LoRA et raccourcis', () => {
   test('seules les LoRA du modèle choisi sont proposées, sans les mots masqués', async ({
     app,
@@ -522,11 +584,10 @@ test.describe('Envoi avec LoRA', () => {
   })
 
   test('un mot masqué envoyé quand même par l’API est ignoré', async ({ app, page }) => {
-    const p = await app.createPersona({ name: 'Alice', loras: LORAS })
+    await app.createPersona({ name: 'Alice', loras: LORAS })
     const res = await page.request.post('/api/generations', {
       data: {
         family: Z_IMAGE,
-        personaId: p.id,
         prompt: 'test',
         params: {},
         referenceAssetIds: [],

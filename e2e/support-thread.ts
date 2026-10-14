@@ -16,7 +16,6 @@ export type CreateBody = {
   family?: string
   prompt?: string
   threadId?: string | null
-  personaId?: string | null
   params?: Record<string, unknown>
   referenceAssetIds?: string[]
   contextIds?: string[]
@@ -85,7 +84,7 @@ export async function uploadImage(page: Page, personaId?: string): Promise<Asset
   return (await res.json()).asset
 }
 
-/** Raccourci (contexte) disponible pour tous les personas. */
+/** Raccourci (contexte), toujours général. */
 export async function createPreset(page: Page, label: string, text: string): Promise<PromptPreset> {
   const res = await page.request.post('/api/presets', { data: { label, text, media: 'all' } })
   expect(res.ok(), await res.text()).toBeTruthy()

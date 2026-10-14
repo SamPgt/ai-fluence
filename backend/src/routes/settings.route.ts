@@ -5,13 +5,14 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { Balance, CreditsResponse, Settings } from '@ai-fluence/shared';
+import { getFamily, type Balance, type CreditsResponse, type Settings } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
 import { generations, userSettings } from '../db/schema.js';
 import { env, expandHome } from '../env.js';
 import { checkElevenLabsKey } from '../services/elevenlabs.service.js';
 import { apiKeyHint, encryptSecret } from '../lib/crypto.js';
 import { auth } from '../middleware/auth.js';
+import { loraSchema, withIds } from './personas.route.js';
 import { defaultMediaDir, getSettingsRow, mediaDirOf, type SettingsRow } from '../services/settings.service.js';
 import { callSpicy, clientFor, clientForUser, invalidateCatalog } from '../services/spicy.service.js';
 import type { AppEnv, SessionUser } from '../types.js';
@@ -25,12 +26,20 @@ function toSettings(user: SessionUser, row: SettingsRow): Settings {
     hasElevenLabsKey: Boolean(row.elevenLabsApiKeyEnc),
     elevenLabsKeyHint: row.elevenLabsApiKeyHint,
     enhanceModel: row.enhanceModel,
+    defaultImageFamily: row.defaultImageFamily,
+    defaultVideoFamily: row.defaultVideoFamily,
+    loras: row.loras,
   };
 }
 
 const updateSchema = z.object({
   mediaDir: z.string().trim().max(500).nullable().optional(),
   enhanceModel: z.string().min(3).optional(),
+  // Modèle par défaut : une famille connue du bon type, ou null pour celui de l'app.
+  defaultImageFamily: z.string().refine(id => getFamily(id)?.media === 'image', 'Modèle photo inconnu.').nullable().optional(),
+  defaultVideoFamily: z.string().refine(id => getFamily(id)?.media === 'video', 'Modèle vidéo inconnu.').nullable().optional(),
+  /** LoRA de Général (même format et même limite que celles d'un persona). */
+  loras: z.array(loraSchema).max(12).optional(),
 });
 
 async function balanceOf(userId: string): Promise<Balance | null> {
@@ -69,6 +78,9 @@ const settingsRoutes = new Hono<AppEnv>()
       } else patch.mediaDir = null;
     }
     if (body.enhanceModel !== undefined) patch.enhanceModel = body.enhanceModel;
+    if (body.defaultImageFamily !== undefined) patch.defaultImageFamily = body.defaultImageFamily;
+    if (body.defaultVideoFamily !== undefined) patch.defaultVideoFamily = body.defaultVideoFamily;
+    if (body.loras !== undefined) patch.loras = withIds(body.loras);
     const [row] = await db.update(userSettings).set(patch).where(eq(userSettings.userId, user.id)).returning();
     return c.json({ settings: toSettings(user, row) });
   })

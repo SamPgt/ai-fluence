@@ -11,7 +11,8 @@ import { toPersona } from '../services/serialize.js';
 import { trashPersona } from '../services/trash.service.js';
 import type { AppEnv } from '../types.js';
 
-const loraSchema = z.object({
+/** LoRA d'un persona, ou de Général (settings.route). */
+export const loraSchema = z.object({
   id: z.string().optional(),
   label: z.string().trim().max(60).default(''),
   path: z.url({ protocol: /^https$/, message: 'Lien https direct vers le .safetensors' }),
@@ -86,7 +87,7 @@ const personaSchema = z.object({
 const personaUpdateSchema = z.object(personaFields).partial();
 
 /** Garantit un id stable à chaque LoRA et à chaque bloc de contexte. */
-const withIds = <T extends { id?: string }>(items: T[]) => items.map(i => ({ ...i, id: i.id || randomUUID() }));
+export const withIds = <T extends { id?: string }>(items: T[]) => items.map(i => ({ ...i, id: i.id || randomUUID() }));
 
 const refCount = sql<number>`(select count(*)::int from assets a where a.persona_id = "personas"."id" and a.is_reference)`;
 

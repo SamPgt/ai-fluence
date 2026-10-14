@@ -43,14 +43,11 @@ function toMedia(photo: boolean, video: boolean): Media {
 function ShortcutDialog({
   open,
   shortcut,
-  personaId,
   onOpenChange,
 }: {
   open: boolean
   /** Raccourci à modifier, ou `null` pour en créer un. */
   shortcut: PromptPreset | null
-  /** Persona propriétaire des nouveaux raccourcis (null = disponibles partout). */
-  personaId: string | null
   onOpenChange: (open: boolean) => void
 }) {
   const queryClient = useQueryClient()
@@ -76,7 +73,7 @@ function ShortcutDialog({
       }
       return shortcut
         ? presetsApi.update(shortcut.id, body)
-        : presetsApi.create({ ...body, personaId })
+        : presetsApi.create(body)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: qk.presets })
@@ -269,16 +266,9 @@ function ShortcutRow({
   )
 }
 
-/**
- * Liste des raccourcis d'une portée : un persona, ou `null` pour ceux disponibles partout.
- */
-export function ShortcutsTab({
-  personaId = null,
-}: {
-  personaId?: string | null
-}) {
-  const { data: all = [] } = useQuery(presetsQuery())
-  const shortcuts = all.filter((s) => s.personaId === personaId)
+/** Liste des raccourcis (tous généraux : plus de raccourci propre à un persona). */
+export function ShortcutsTab() {
+  const { data: shortcuts = [] } = useQuery(presetsQuery())
   const [editing, setEditing] = useState<PromptPreset | null>(null)
   const [open, setOpen] = useState(false)
 
@@ -293,9 +283,7 @@ export function ShortcutsTab({
         <div>
           <h2 className="text-sm font-semibold">Raccourcis</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {personaId
-              ? 'Raccourcis propres à ce persona. '
-              : 'Disponibles pour tous les personas. '}
+            Textes ajoutés à la demande d’un clic, dans le composer.
           </p>
         </div>
         <Button
@@ -320,7 +308,6 @@ export function ShortcutsTab({
       <ShortcutDialog
         open={open}
         shortcut={editing}
-        personaId={personaId}
         onOpenChange={setOpen}
       />
     </section>

@@ -65,7 +65,7 @@ export function AuthCard({ mode }: { mode: 'login' | 'signup' }) {
         <div className="space-y-2 text-center">
           <img
             src="/logo.svg"
-            alt="AI Fluence"
+            alt="Sublime"
             className="mx-auto h-12 w-12 select-none"
             draggable={false}
           />

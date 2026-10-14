@@ -23,15 +23,15 @@ async function getWorkflow(page: Page, id: string): Promise<Workflow> {
   return (await (await page.request.get(`/api/workflows/${id}`)).json()).workflow
 }
 
-test('l’icône Workflows de la barre ouvre la liste @core', async ({ app, page }) => {
+test('le lien Workflows de la sidebar ouvre la liste @core', async ({ app, page }) => {
   void app
   await page.goto('/galerie')
-  await page.getByRole('link', { name: 'Workflows' }).click()
+  const link = page.getByTestId('thread-panel').getByRole('link', { name: 'Workflows' })
+  await link.click()
   await expect(page).toHaveURL(/\/workflows$/)
-  await expect(page.getByText('Workflows', { exact: true })).toBeVisible()
-  // Jamais le volet des fils sur la page Workflows, ni son bouton.
-  await expect(page.getByTestId('thread-panel')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Replier le panneau' })).toHaveCount(0)
+  await expect(page.getByRole('main').getByText('Workflows', { exact: true })).toBeVisible()
+  // La liste garde la sidebar, avec le lien Workflows actif.
+  await expect(link).toHaveClass(/bg-accent /)
 })
 
 test('créer un workflow ouvre son canvas ; renommé, il apparaît dans la liste @core @smoke', async ({ app, page }) => {
@@ -56,7 +56,8 @@ test('créer un workflow ouvre son canvas ; renommé, il apparaît dans la liste
     .poll(async () => (await getWorkflow(page, page.url().split('/workflows/')[1])).name)
     .toBe('Shooting plage')
 
-  await page.getByRole('link', { name: 'Retour aux workflows' }).click()
+  // La palette remplace la sidebar : « Retour » en haut ramène à la liste.
+  await page.getByTestId('node-palette').getByRole('link', { name: 'Retour' }).click()
   await expect(cards(page)).toHaveCount(1)
   await expect(cards(page)).toContainText('Shooting plage')
   await expect(cards(page)).toContainText('0 nœud')

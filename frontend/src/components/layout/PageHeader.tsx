@@ -21,7 +21,8 @@ export function PageHeader({
   const [collapsed, setCollapsed] = useUiPref('sidebarCollapsed')
   return (
     <header className="flex h-10.5 shrink-0 items-center gap-2 border-b border-border/40 bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      {panel !== 'none' && (
+      {/* La sidebar repliée garde ses icônes (bouton Déplier) ; seule la palette des nœuds se rouvre d'ici. */}
+      {panel === 'palette' && collapsed && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

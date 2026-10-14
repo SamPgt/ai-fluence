@@ -38,7 +38,8 @@ export async function storeUpload(
       mime: opts.mime,
       filePath: saved.path,
       bytes: saved.bytes,
-      isReference: Boolean(opts.isReference && persona),
+      // Référence d'un persona, ou de Général sans persona (jamais d'un persona inconnu).
+      isReference: Boolean(opts.isReference && (persona || !opts.personaId)),
     })
     .returning();
   return row;

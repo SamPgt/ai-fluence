@@ -54,6 +54,11 @@ export const userSettings = pgTable('user_settings', {
   mediaDir: text('media_dir'),
   // Modèle rapide (~5 s) : Grok 4.7 réfléchit longtemps (~30 s) pour une simple reformulation.
   enhanceModel: text('enhance_model').notNull().default('deepseek/v4.1-flash/chat'),
+  /** Modèles proposés par défaut dans le composer (Paramétrage, onglet Modèles). */
+  defaultImageFamily: text('default_image_family'),
+  defaultVideoFamily: text('default_video_family'),
+  /** LoRA de Général (rangés dans aucun persona). */
+  loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
   updatedAt: updatedAt(),
 });
 

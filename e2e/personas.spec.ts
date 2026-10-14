@@ -1,34 +1,44 @@
 /**
- * Personas : création depuis la barre, sélection (filtre des fils et persona du
- * composer), fiche avec sauvegarde automatique, blocs de contexte envoyés dans
- * le prompt, modèles par défaut, ordre de la barre et mise à la corbeille.
+ * Personas : des bibliothèques (références, LoRA), pas des lieux. Création depuis
+ * la Bibliothèque, sections par persona puis Général, fiche avec sauvegarde
+ * automatique (onglets Références et LoRA), bulles des personas utilisés dans un
+ * fil et mise à la corbeille (sans toucher aux fils).
  */
 import type { Page } from '@playwright/test'
 import { expect, test } from './helpers'
 import {
-  bubble,
-  center,
-  dragTo,
   getPersona,
+  gotoLibrary,
   gotoPersona,
   hydrated,
+  librarySections,
   listPersonas,
+  listReferences,
   pngFile,
-  popover,
-  railOrder,
   saved,
-  sendAndCapture,
+  uploadReference,
 } from './support-personas'
 
 const VERT = '#22c55e'
 
+/** Section d'un persona (ou de Général) dans la Bibliothèque. */
+const section = (page: Page, name: string) => page.getByRole('region', { name, exact: true })
+
+/** Personas d'un fil, lus par l'API. */
+async function threadPersonaIds(page: Page, id: string): Promise<string[]> {
+  return (await (await page.request.get(`/api/threads/${id}`)).json()).thread.personaIds
+}
+
+/** Noms des sections de la Bibliothèque, dans l'ordre. */
+const sectionNames = (page: Page) =>
+  librarySections(page).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
+
 test.describe('Création', () => {
-  test('le bouton + de la barre crée le persona avec sa couleur et ouvre sa fiche @core @smoke', async ({
-    app,
+  test('« Ajouter » de la Bibliothèque crée le persona avec sa couleur et ouvre sa fiche @core @smoke', async ({
     page,
   }) => {
-    await app.gotoNew()
-    await page.getByRole('button', { name: 'Nouveau persona' }).click()
+    await gotoLibrary(page)
+    await page.getByRole('button', { name: 'Ajouter', exact: true }).click()
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByText('Nouveau persona')).toBeVisible()
     // Sans nom, le bouton reste désactivé.
@@ -43,75 +53,82 @@ test.describe('Création', () => {
     expect(persona).toMatchObject({ name: 'Alice Martin', color: VERT })
     expect(page.url()).toContain(persona.id)
 
-    // La bulle apparaît dans la barre, avec les initiales sur la couleur choisie.
-    const rail = bubble(page, 'Alice Martin')
-    await expect(rail).toBeVisible()
-    await expect(rail).toHaveText('AM')
-    await expect(rail.locator('span').first()).toHaveCSS('background-color', 'rgb(34, 197, 94)')
+    // Sa section apparaît dans la Bibliothèque, avec les initiales sur la couleur choisie.
+    await page.getByTestId('thread-panel').getByRole('link', { name: 'Bibliothèque' }).click()
+    const own = section(page, 'Alice Martin')
+    await expect(own).toBeVisible()
+    const avatar = own.getByText('AM', { exact: true })
+    await expect(avatar).toHaveCSS('background-color', 'rgb(34, 197, 94)')
   })
 
-  test('le nouveau persona devient le persona sélectionné', async ({ app, page }) => {
-    await app.gotoNew()
-    await page.getByRole('button', { name: 'Nouveau persona' }).click()
+  test('Entrée dans le nom crée aussi le persona', async ({ page }) => {
+    await gotoLibrary(page)
+    await page.getByRole('button', { name: 'Ajouter', exact: true }).click()
     await page.getByRole('dialog').getByLabel('Nom').fill('Bob')
     await page.getByRole('dialog').getByLabel('Nom').press('Enter')
     await expect(page.getByText('Paramétrage de Bob')).toBeVisible()
-    await app.gotoNew()
-    // Le menu des références du persona est proposé dans le composer.
-    await expect(page.getByTitle('Références de Bob', { exact: true })).toBeVisible()
   })
 })
 
-test.describe('Sélection dans la barre', () => {
-  test('filtre la liste des fils et fixe le persona du composer @core', async ({ app, page }) => {
+test.describe('Bibliothèque', () => {
+  test('une section par persona dans leur ordre, puis Général, avec leurs références @core', async ({
+    app,
+    page,
+  }) => {
     const alice = await app.createPersona({ name: 'Alice' })
     const bob = await app.createPersona({ name: 'Bob' })
-    await app.generate({ prompt: 'fil alice', personaId: alice.id })
-    await app.generate({ prompt: 'fil bob', personaId: bob.id })
-    await app.generate({ prompt: 'fil sans persona' })
+    for (const n of ['a', 'b']) await uploadReference(page, alice.id, `${n}.png`)
+    await uploadReference(page, 'general', 'g.png')
+    await gotoLibrary(page)
 
-    await app.gotoNew()
-    for (const t of ['fil alice', 'fil bob', 'fil sans persona'])
-      await expect(page.getByRole('link', { name: t })).toBeVisible()
+    await expect.poll(() => sectionNames(page)).toEqual(['Alice', 'Bob', 'Général'])
+    await expect(section(page, 'Alice')).toContainText('2 références')
+    await expect(section(page, 'Bob')).toContainText('0 référence')
+    await expect(section(page, 'Général')).toContainText('1 référence')
+    await expect(section(page, 'Alice').locator('img')).toHaveCount(2)
+    await expect(section(page, 'Général').locator('img')).toHaveCount(1)
 
-    await app.selectPersona('Alice')
-    await expect(page.getByRole('link', { name: 'fil alice' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'fil bob' })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'fil sans persona' })).toHaveCount(0)
-    await expect(page.getByTitle('Références de Alice', { exact: true })).toBeVisible()
-
-    await app.selectPersona('Bob')
-    await expect(page.getByRole('link', { name: 'fil bob' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'fil alice' })).toHaveCount(0)
-    await expect(page.getByTitle('Références de Bob', { exact: true })).toBeVisible()
-
-    // « Tous les fils » : plus de persona, tout revient.
-    await page.getByRole('button', { name: 'Tous les fils' }).click()
-    for (const t of ['fil alice', 'fil bob', 'fil sans persona'])
-      await expect(page.getByRole('link', { name: t })).toBeVisible()
-    await expect(page.getByTitle(/^Références de/)).toHaveCount(0)
+    // « Voir tout » : la fiche du persona, ou la page Général.
+    await section(page, 'Bob').getByRole('link', { name: 'Voir tout' }).click()
+    await expect(page).toHaveURL(new RegExp(`/personas/${bob.id}$`))
+    await expect(page.getByText('Paramétrage de Bob')).toBeVisible()
+    await gotoLibrary(page)
+    await section(page, 'Général').getByRole('link', { name: 'Voir tout' }).click()
+    await expect(page).toHaveURL(/\/bibliotheque\/general$/)
+    await expect(page.getByText('Ce qui n’appartient à aucun persona')).toBeVisible()
   })
 
-  test('une demande envoyée avec un persona sélectionné lui appartient', async ({ app, page }) => {
+  test('la carte « + » d’une section ajoute des images à ses références', async ({ app, page }) => {
     const alice = await app.createPersona({ name: 'Alice' })
-    await app.gotoNew()
-    await app.selectPersona('Alice')
-    await app.prompt.fill('portrait au soleil')
-    const { body, generation } = await sendAndCapture(page, () => app.send())
-    expect(body.personaId).toBe(alice.id)
-    expect(generation.personaId).toBe(alice.id)
-    await expect(page).toHaveURL(/\/t\//)
+    await gotoLibrary(page)
+    const own = section(page, 'Alice')
+    await expect(own.getByRole('button', { name: 'Ajouter aux références : Alice' })).toBeVisible()
+    await own.locator('input[type=file]').setInputFiles([pngFile('a.png'), pngFile('b.png')])
+    await expect(own.locator('img')).toHaveCount(2)
+    await expect(own).toContainText('2 références')
+    expect(await listReferences(page, alice.id)).toHaveLength(2)
+
+    const general = section(page, 'Général')
+    await expect(general.getByRole('button', { name: 'Ajouter aux références : Général' })).toBeVisible()
+    await general.locator('input[type=file]').setInputFiles(pngFile('g.png'))
+    await expect(general.locator('img')).toHaveCount(1)
+    expect(await listReferences(page, 'general')).toHaveLength(1)
+    expect(await listReferences(page, alice.id)).toHaveLength(2)
   })
 
-  test('la sélection survit au rechargement', async ({ app, page }) => {
-    await app.createPersona({ name: 'Alice' })
-    await app.generate({ prompt: 'fil libre' })
-    await app.gotoNew()
-    await app.selectPersona('Alice')
-    await expect(page.getByRole('link', { name: 'fil libre' })).toHaveCount(0)
-    await app.reload()
-    await expect(page.getByTitle('Références de Alice', { exact: true })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'fil libre' })).toHaveCount(0)
+  test('sans persona : Général seul', async ({ page }) => {
+    await gotoLibrary(page)
+    await expect.poll(() => sectionNames(page)).toEqual(['Général'])
+  })
+
+  test('un ordre enregistré par l’API est celui de la Bibliothèque', async ({ app, page }) => {
+    const a = await app.createPersona({ name: 'Alice' })
+    const b = await app.createPersona({ name: 'Bob' })
+    const c = await app.createPersona({ name: 'Chloé' })
+    const res = await page.request.put('/api/personas/order', { data: { ids: [b.id, c.id, a.id] } })
+    expect(res.ok()).toBeTruthy()
+    await gotoLibrary(page)
+    await expect.poll(() => sectionNames(page)).toEqual(['Bob', 'Chloé', 'Alice', 'Général'])
   })
 })
 
@@ -127,8 +144,6 @@ test.describe('Fiche : sauvegarde automatique', () => {
     await expect.poll(async () => (await getPersona(page, p.id)).name).toBe('Alicia Keys')
     await expect.poll(async () => (await getPersona(page, p.id)).color).toBe(VERT)
     await saved(page)
-    // La barre suit le nouveau nom.
-    await expect(bubble(page, 'Alicia Keys')).toHaveText('AK')
 
     await page.reload()
     await hydrated(page)
@@ -145,10 +160,7 @@ test.describe('Fiche : sauvegarde automatique', () => {
     expect((await getPersona(page, p.id)).name).toBe('Alice')
   })
 
-  test('avatar : envoi d’une photo, gardée après rechargement, puis retirée', async ({
-    app,
-    page,
-  }) => {
+  test('avatar : envoi d’une photo, gardée après rechargement, puis retirée', async ({ app, page }) => {
     const p = await app.createPersona({ name: 'Alice' })
     await gotoPersona(page, p.id)
     await page.locator('input[type=file][accept="image/*"]').setInputFiles(pngFile('avatar.png'))
@@ -163,8 +175,6 @@ test.describe('Fiche : sauvegarde automatique', () => {
     await page.reload()
     await hydrated(page)
     await expect(changer.locator('img')).toHaveAttribute('src', new RegExp(avatarAssetId!))
-    // La bulle de la barre montre la photo.
-    await expect(bubble(page, 'Alice').locator('img')).toBeVisible()
 
     await changer.hover()
     await page.getByRole('button', { name: 'Retirer la photo' }).click()
@@ -172,243 +182,88 @@ test.describe('Fiche : sauvegarde automatique', () => {
     await expect.poll(async () => (await getPersona(page, p.id)).avatarAssetId).toBeNull()
     await expect(page.getByRole('button', { name: /^Couleur / })).toHaveCount(8)
   })
-})
 
-/** Sort du bloc en cours (il passe en lecture), puis ajoute un bloc. */
-async function addBlock(page: Page) {
-  await page.getByText('Contexte du persona').click()
-  await page.getByRole('button', { name: 'Ajouter un bloc' }).click()
-}
-
-test.describe('Blocs de contexte', () => {
-  // Ancien bug (corrigé) : le bloc rétrécissait dès l'appui sur la souris, le
-  // bouton « Ajouter un bloc » remontait sous le curseur et le clic était perdu.
-  test('un clic sur « Ajouter un bloc » juste après la saisie ajoute le bloc', async ({
+  test('onglets Références et LoRA seulement : ni contexte, ni raccourcis, ni modèles par défaut', async ({
     app,
     page,
   }) => {
     const p = await app.createPersona({ name: 'Alice' })
     await gotoPersona(page, p.id)
-    await page.getByLabel('Titre du bloc').fill('Apparence')
-    await page.getByLabel('Texte du bloc').fill('cheveux roux')
-    await page.getByRole('button', { name: 'Ajouter un bloc' }).click()
-    await expect(page.getByLabel('Titre du bloc')).toHaveCount(1, { timeout: 3000 })
-    await expect(page.getByLabel('Titre du bloc')).toBeFocused({ timeout: 1000 })
-  })
+    await expect(page.getByText('Identité', { exact: true })).toBeVisible()
+    await expect(page.getByRole('tab')).toHaveText(['Références', 'LoRA'])
+    await expect(page.getByText('Photos de références')).toBeVisible()
+    await expect(page.getByText('Contexte du persona')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Automatique/ })).toHaveCount(0)
 
-  test('ajout, modification puis suppression, enregistrés dans le persona', async ({
-    app,
-    page,
-  }) => {
-    const p = await app.createPersona({ name: 'Alice' })
-    await gotoPersona(page, p.id)
-
-    // Le premier bloc est toujours là, sans bouton de suppression.
-    const titles = page.getByLabel('Titre du bloc')
-    await expect(titles).toHaveCount(1)
-    await expect(page.getByRole('button', { name: 'Supprimer le bloc' })).toHaveCount(0)
-    await titles.first().fill('Apparence')
-    await page.getByLabel('Texte du bloc').first().fill('cheveux roux, yeux verts')
-
-    await addBlock(page)
-    // Le titre du nouveau bloc prend le focus.
-    await expect(titles.last()).toBeFocused()
-    await page.keyboard.type('Style')
-    await page.getByLabel('Texte du bloc').last().fill('photo argentique')
-    await expect(page.getByText('16 / 500')).toBeVisible()
-
-    await expect
-      .poll(async () => (await getPersona(page, p.id)).contextBlocks.map((b) => [b.title, b.text]))
-      .toEqual([
-        ['Apparence', 'cheveux roux, yeux verts'],
-        ['Style', 'photo argentique'],
-      ])
-
-    // Hors du bloc, le texte passe en lecture ; le crayon le remet en édition.
-    await page.getByText('Contexte du persona').click()
-    await expect(page.getByLabel('Texte du bloc')).toHaveCount(0)
-    await expect(page.getByText('cheveux roux, yeux verts')).toBeVisible()
-    await page.getByRole('button', { name: 'Modifier le bloc' }).first().click()
-    const text = page.getByLabel('Texte du bloc')
-    await expect(text).toBeFocused()
-    await text.fill('cheveux blonds')
-    await page.getByLabel('Titre du bloc').fill('Physique')
-    await expect
-      .poll(async () => (await getPersona(page, p.id)).contextBlocks[0])
-      .toMatchObject({ title: 'Physique', text: 'cheveux blonds' })
-
-    // On sort d'abord du bloc en cours (voir le bug du clic perdu ci-dessus).
-    await page.getByText('Contexte du persona').click()
-    await page.getByRole('button', { name: 'Supprimer le bloc' }).click()
-    await expect
-      .poll(async () => (await getPersona(page, p.id)).contextBlocks.map((b) => b.title))
-      .toEqual(['Physique'])
-
-    await page.reload()
-    await hydrated(page)
-    await expect(page.getByText('Physique')).toBeVisible()
-    await expect(page.getByText('cheveux blonds')).toBeVisible()
-    await expect(page.getByText('photo argentique')).toHaveCount(0)
-  })
-
-  test('leur texte part dans le prompt final sous « # Contexte général » @core', async ({
-    app,
-    page,
-  }) => {
-    const p = await app.createPersona({ name: 'Alice' })
-    await gotoPersona(page, p.id)
-    await page.getByLabel('Titre du bloc').fill('Apparence')
-    await page.getByLabel('Texte du bloc').fill('cheveux   roux\net yeux verts')
-    await addBlock(page)
-    // Bloc sans titre : seulement le texte.
-    await page.getByLabel('Texte du bloc').last().fill('toujours souriante')
-    await addBlock(page)
-    // Bloc vide : jamais envoyé.
-    await expect.poll(async () => (await getPersona(page, p.id)).contextBlocks).toHaveLength(2)
-    await saved(page)
-
-    await app.gotoNew()
-    await app.selectPersona('Alice')
-    await app.prompt.fill('à la plage')
-    const { generation } = await sendAndCapture(page, () => app.send())
-    expect(generation.finalPrompt).toBe(
-      [
-        '# Prompt (important)',
-        'à la plage',
-        '',
-        '# Contexte général',
-        '- Apparence : cheveux roux et yeux verts',
-        '- toujours souriante',
-      ].join('\n'),
-    )
-    // La bulle du fil garde la demande seule.
-    await expect(page.getByTestId('request-bubble')).toHaveText('à la plage')
-    await expect(page.getByTestId('request-bubble')).not.toContainText('Contexte')
-    expect((await app.getGeneration(generation.id)).finalPrompt).toContain('# Contexte général')
-  })
-
-  test('sans persona, pas de contexte général : le prompt part tel quel', async ({ app, page }) => {
-    await app.createPersona({
-      name: 'Alice',
-      contextBlocks: [{ id: 'b1', title: 'Apparence', text: 'cheveux roux' }],
-    })
-    await app.gotoNew()
-    await app.prompt.fill('une montagne')
-    const { generation } = await sendAndCapture(page, () => app.send())
-    expect(generation.finalPrompt).toBe('une montagne')
-  })
-
-  test('un bloc supprimé ne part plus dans le prompt', async ({ app, page }) => {
-    const p = await app.createPersona({
-      name: 'Alice',
-      contextBlocks: [
-        { id: 'b1', title: 'Apparence', text: 'cheveux roux' },
-        { id: 'b2', title: 'Tenue', text: 'robe rouge' },
-      ],
-    })
-    await gotoPersona(page, p.id)
-    await page.getByRole('button', { name: 'Supprimer le bloc' }).click()
-    await expect.poll(async () => (await getPersona(page, p.id)).contextBlocks).toHaveLength(1)
-
-    const { generation } = await app.generate({ prompt: 'en ville', personaId: p.id })
-    expect(generation.finalPrompt).toContain('# Contexte général\n- Apparence : cheveux roux')
-    expect(generation.finalPrompt).not.toContain('robe rouge')
-  })
-
-  test('dix blocs au maximum : le bouton d’ajout disparaît', async ({ app, page }) => {
-    const p = await app.createPersona({
-      name: 'Alice',
-      contextBlocks: Array.from({ length: 9 }, (_, i) => ({ id: `b${i}`, title: `T${i}`, text: `texte ${i}` })),
-    })
-    await gotoPersona(page, p.id)
-    await page.getByRole('button', { name: 'Ajouter un bloc' }).click()
-    await expect(page.getByRole('button', { name: 'Ajouter un bloc' })).toHaveCount(0)
+    await page.getByRole('tab', { name: 'LoRA' }).click()
+    await expect(page).toHaveURL(/tab=lora/)
+    await expect(page.getByText('Aucune LoRA pour ce persona.')).toBeVisible()
   })
 })
 
-test.describe('Modèles par défaut', () => {
-  test('photo et vidéo choisis sur la fiche, gardés après rechargement', async ({ app, page }) => {
-    const p = await app.createPersona({ name: 'Alice' })
-    await gotoPersona(page, p.id)
-    await page.getByRole('button', { name: 'Automatique (Seedream 5.0 Flash)' }).click()
-    await app.pickInModelMenu('Nano Banana Pro')
-    await expect(popover(page)).toHaveCount(0)
-    await page.getByRole('button', { name: 'Automatique (Seedance 2.0 Mini)' }).click()
-    await app.pickInModelMenu('Kling 3.0')
-    await expect
-      .poll(async () => {
-        const x = await getPersona(page, p.id)
-        return [x.defaultImageFamily, x.defaultVideoFamily]
-      })
-      .toEqual(['google/nano-banana-pro', 'kling/3.0'])
-
-    await page.reload()
-    await hydrated(page)
-    await expect(page.getByRole('button', { name: 'Nano Banana Pro' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Kling 3.0' })).toBeVisible()
-
-    // Retour à Automatique pour la vidéo seulement.
-    await page.getByRole('button', { name: 'Revenir au choix automatique' }).last().click()
-    await expect(page.getByRole('button', { name: 'Automatique (Seedance 2.0 Mini)' })).toBeVisible()
-    await expect
-      .poll(async () => (await getPersona(page, p.id)).defaultVideoFamily)
-      .toBeNull()
-    expect((await getPersona(page, p.id)).defaultImageFamily).toBe('google/nano-banana-pro')
-  })
-
-  test('le menu vidéo de la fiche ne propose que des modèles vidéo', async ({ app, page }) => {
-    const p = await app.createPersona({ name: 'Alice' })
-    await gotoPersona(page, p.id)
-    await page.getByRole('button', { name: 'Automatique (Seedance 2.0 Mini)' }).click()
-    await page.getByPlaceholder('Rechercher un modèle').fill('Seedream')
-    await expect(
-      page.locator('[data-slot=popover-content]').getByText('Seedream 5.0 Flash', { exact: true }),
-    ).toHaveCount(0)
-  })
-})
-
-test.describe('Ordre de la barre', () => {
-  test('glisser une bulle change l’ordre, enregistré côté serveur', async ({ app, page }) => {
-    await app.createPersona({ name: 'Alice' })
-    await app.createPersona({ name: 'Bob' })
+test.describe('Personas d’un fil', () => {
+  test('les bulles des personas dont une référence a servi suivent le titre du fil @core', async ({
+    app,
+    page,
+  }) => {
+    const alice = await app.createPersona({ name: 'Alice' })
+    const bob = await app.createPersona({ name: 'Bob' })
     await app.createPersona({ name: 'Chloé' })
-    await app.gotoNew()
-    expect(await railOrder(page)).toEqual(['Alice', 'Bob', 'Chloé'])
+    const a = await uploadReference(page, alice.id, 'a.png')
+    const b = await uploadReference(page, bob.id, 'b.png')
+    const { thread } = await app.generate({ prompt: 'duo', referenceAssetIds: [a.id, b.id] })
+    expect((await threadPersonaIds(page, thread.id)).sort()).toEqual([alice.id, bob.id].sort())
 
-    const from = await center(bubble(page, 'Chloé'))
-    const to = await center(bubble(page, 'Alice'))
-    const order = page.waitForRequest(
-      (r) => r.method() === 'PUT' && r.url().endsWith('/api/personas/order'),
-    )
-    await dragTo(page, from, { x: to.x, y: to.y - 10 })
-    await order
-    await expect.poll(() => railOrder(page)).toEqual(['Chloé', 'Alice', 'Bob'])
-    await expect
-      .poll(async () => (await listPersonas(page)).map((p) => p.name))
-      .toEqual(['Chloé', 'Alice', 'Bob'])
-    // Le dépôt ne sélectionne pas le persona déplacé.
-    await expect(page.getByTitle(/^Références de/)).toHaveCount(0)
+    await app.gotoThread(thread.id)
+    const bubbles = page.getByTestId('thread-personas').getByRole('link')
+    await expect(bubbles).toHaveCount(2)
+    await expect(bubbles.first()).toHaveAttribute('aria-label', 'Alice')
+    await expect(bubbles.last()).toHaveAttribute('aria-label', 'Bob')
+    await expect(page.getByTestId('thread-personas').getByRole('link', { name: 'Chloé' })).toHaveCount(0)
 
-    await app.reload()
-    expect(await railOrder(page)).toEqual(['Chloé', 'Alice', 'Bob'])
+    // Une bulle mène à la fiche du persona.
+    await bubbles.first().click()
+    await expect(page).toHaveURL(new RegExp(`/personas/${alice.id}$`))
   })
 
-  test('un ordre enregistré par l’API est celui de la barre', async ({ app, page }) => {
-    const a = await app.createPersona({ name: 'Alice' })
-    const b = await app.createPersona({ name: 'Bob' })
-    const c = await app.createPersona({ name: 'Chloé' })
-    const res = await page.request.put('/api/personas/order', { data: { ids: [b.id, c.id, a.id] } })
-    expect(res.ok()).toBeTruthy()
-    await app.gotoNew()
-    await expect.poll(() => railOrder(page)).toEqual(['Bob', 'Chloé', 'Alice'])
+  test('sans référence d’un persona, pas de bulle', async ({ app, page }) => {
+    await app.createPersona({ name: 'Alice' })
+    const { thread } = await app.generate({ prompt: 'seul' })
+    expect(await threadPersonaIds(page, thread.id)).toEqual([])
+    await app.gotoThread(thread.id)
+    await expect(page.getByTestId('request-bubble')).toBeVisible()
+    await expect(page.getByTestId('thread-personas')).toHaveCount(0)
+  })
+
+  test('une référence jointe depuis le composer ajoute la bulle après l’envoi', async ({ app, page }) => {
+    const alice = await app.createPersona({ name: 'Alice' })
+    await uploadReference(page, alice.id)
+    const { thread } = await app.generate({ prompt: 'avant' })
+    await app.gotoThread(thread.id)
+    await expect(page.getByTestId('thread-personas')).toHaveCount(0)
+
+    await page.getByRole('button', { name: /^Réf\./ }).click()
+    await page
+      .locator('[data-slot=popover-content]')
+      .getByRole('region', { name: 'Références : Alice' })
+      .locator('button:has(img)')
+      .first()
+      .click()
+    await page.keyboard.press('Escape')
+    await app.prompt.fill('avec alice')
+    await app.send()
+    await expect(page.getByTestId('thread-personas').getByRole('link', { name: 'Alice' })).toBeVisible()
   })
 })
 
 test.describe('Mise à la corbeille', () => {
-  test('« Supprimer le persona » puis confirmation : il quitte la barre @core', async ({ app, page }) => {
+  test('« Supprimer le persona » puis confirmation : il quitte la Bibliothèque, les fils restent @core', async ({
+    app,
+    page,
+  }) => {
     const p = await app.createPersona({ name: 'Alice' })
     await app.createPersona({ name: 'Bob' })
-    const { thread } = await app.generate({ prompt: 'fil alice', personaId: p.id })
+    const { thread } = await app.generateWithPersona(p.id, { prompt: 'fil alice' })
     await gotoPersona(page, p.id)
 
     await page.getByRole('button', { name: 'Supprimer le persona' }).click()
@@ -416,15 +271,14 @@ test.describe('Mise à la corbeille', () => {
     await expect(dialog.getByText('Mettre Alice à la corbeille ?')).toBeVisible()
     await dialog.getByRole('button', { name: 'Mettre à la corbeille' }).click()
 
-    await expect(page).toHaveURL(/\/$/)
+    await expect(page).toHaveURL(/\/bibliotheque$/)
     await expect(page.getByText('Alice mis à la corbeille')).toBeVisible()
-    await expect(bubble(page, 'Alice')).toHaveCount(0)
-    await expect(bubble(page, 'Bob')).toBeVisible()
+    await expect.poll(() => sectionNames(page)).toEqual(['Bob', 'Général'])
     expect((await listPersonas(page)).map((x) => x.name)).toEqual(['Bob'])
-    // Ses fils partent avec lui.
-    await expect(page.getByRole('link', { name: 'fil alice' })).toHaveCount(0)
-    const res = await page.request.get(`/api/threads/${thread.id}`)
-    expect(res.ok()).toBeFalsy()
+    // Le fil reste, sans la bulle du persona parti.
+    await expect(page.getByTestId('thread-panel').getByRole('link', { name: /fil alice/ })).toBeVisible()
+    expect((await page.request.get(`/api/threads/${thread.id}`)).ok()).toBeTruthy()
+    expect(await threadPersonaIds(page, thread.id)).toEqual([])
   })
 
   test('annuler la confirmation garde le persona', async ({ app, page }) => {
@@ -441,10 +295,11 @@ test.describe('Mise à la corbeille', () => {
     await gotoPersona(page, p.id)
     await page.getByRole('button', { name: 'Supprimer le persona' }).click()
     await page.getByRole('button', { name: 'Mettre à la corbeille' }).click()
-    await expect(bubble(page, 'Alice')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/bibliotheque$/)
+    await expect.poll(() => sectionNames(page)).toEqual(['Général'])
     await page.locator('[data-sonner-toast]').getByRole('button', { name: 'Annuler' }).click()
-    await expect(bubble(page, 'Alice')).toBeVisible()
-    await expect(page.getByTitle('Références de Alice', { exact: true })).toBeVisible()
+    await expect.poll(() => sectionNames(page)).toEqual(['Alice', 'Général'])
+    expect(await listPersonas(page)).toHaveLength(1)
   })
 
   test('une fiche inconnue affiche « Persona introuvable »', async ({ page }) => {
@@ -453,30 +308,17 @@ test.describe('Mise à la corbeille', () => {
   })
 })
 
-test.describe('Clic sur un persona', () => {
-  test('ouvre son fil le plus récent @core', async ({ app, page }) => {
-    const alice = await app.createPersona({ name: 'Alice' })
-    const old = (await app.generate({ prompt: 'fil ancien', personaId: alice.id })).thread
-    const recent = (await app.generate({ prompt: 'fil récent', personaId: alice.id })).thread
-    await app.generate({ prompt: 'autre fil sans persona' })
-    expect(old.id).not.toBe(recent.id)
-    await app.gotoNew()
-    await app.selectPersona('Alice')
-    await expect(page).toHaveURL(new RegExp(`/t/${recent.id}$`))
-    // Une activité plus récente sur l'ancien fil le fait passer devant.
-    await app.generate({ prompt: 'relance', personaId: alice.id, threadId: old.id })
-    await app.gotoNew()
-    await app.selectPersona('Alice')
-    await expect(page).toHaveURL(new RegExp(`/t/${old.id}$`))
-  })
-
-  test('sans fil, ouvre un nouveau fil avec ce persona', async ({ app, page }) => {
-    await app.createPersona({ name: 'Bea' })
-    await app.generate({ prompt: 'fil sans persona' })
-    await app.gotoNew()
-    await app.selectPersona('Bea')
-    await expect(page).toHaveURL(/\/$/)
-    // Accueil du nouveau fil, au nom du persona.
-    await expect(page.getByRole('heading', { name: 'Bea' })).toBeVisible()
-  })
+test('Bibliothèque : la recherche filtre les sections par nom', async ({ app, page }) => {
+  await app.createPersona({ name: 'Léa' })
+  await app.createPersona({ name: 'Max' })
+  await gotoLibrary(page)
+  await expect(librarySections(page)).toHaveCount(3)
+  const search = page.getByRole('textbox', { name: 'Rechercher dans la bibliothèque' })
+  await search.fill('lé')
+  await expect(librarySections(page)).toHaveCount(1)
+  await expect(librarySections(page)).toHaveAttribute('aria-label', 'Léa')
+  await search.fill('zzz')
+  await expect(page.getByText('Aucun persona ne correspond à « zzz ».')).toBeVisible()
+  await search.fill('gén')
+  await expect(librarySections(page)).toHaveAttribute('aria-label', 'Général')
 })

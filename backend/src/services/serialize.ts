@@ -49,16 +49,23 @@ export function toPersona(row: PersonaRow, referenceCount = 0): Persona {
 
 export function toThread(
   row: ThreadRow,
-  agg: { totalCost?: string | null; generationCount?: number; coverAssetId?: string | null } = {},
+  agg: {
+    totalCost?: string | null;
+    generationCount?: number;
+    coverAssetId?: string | null;
+    personaIds?: string[] | null;
+    previewAssetIds?: string[] | null;
+  } = {},
 ): Thread {
   return {
     id: row.id,
     title: row.title,
-    personaId: row.personaId,
+    personaIds: agg.personaIds ?? [],
     isPinned: row.isPinned,
     totalCost: agg.totalCost ?? '0',
     generationCount: agg.generationCount ?? 0,
     coverUrl: agg.coverAssetId ? mediaUrl(agg.coverAssetId) : null,
+    previewUrls: (agg.previewAssetIds ?? []).map(mediaUrl),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

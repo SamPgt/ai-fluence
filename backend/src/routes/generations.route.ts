@@ -18,7 +18,6 @@ import type { AppEnv } from '../types.js';
 
 const generationSchema = z.object({
   threadId: z.uuid().nullable().optional(),
-  personaId: z.uuid().nullable().optional(),
   family: z.string().min(3),
   refMode: z.enum(['start-frame', 'reference']).optional(),
   // Sans espaces ni retours à la ligne aux extrémités (sinon une ligne vide apparaît dans la bulle).

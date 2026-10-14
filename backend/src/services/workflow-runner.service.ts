@@ -248,16 +248,7 @@ export async function startRun(user: SessionUser, workflowId: string, req: Workf
       if (!t) throw new HTTPException(404, { message: 'Fil introuvable.' });
       threadId = t.id;
     } else {
-      const personaId = req.thread.personaId
-        ? ((
-            await db
-              .select({ id: personas.id })
-              .from(personas)
-              .where(and(eq(personas.id, req.thread.personaId), eq(personas.userId, user.id), isNull(personas.deletedAt)))
-              .limit(1)
-          )[0]?.id ?? null)
-        : null;
-      const [t] = await db.insert(threads).values({ userId: user.id, personaId, title: workflow.name }).returning({ id: threads.id });
+      const [t] = await db.insert(threads).values({ userId: user.id, title: workflow.name }).returning({ id: threads.id });
       threadId = t.id;
     }
     await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, threadId));

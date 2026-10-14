@@ -33,7 +33,6 @@ const promptsRoutes = new Hono<AppEnv>().use(auth).post(
     'json',
     z.object({
       prompt: z.string().trim().min(1).max(3000),
-      personaId: z.uuid().nullable().optional(),
       media: z.enum(['image', 'video']),
     }),
   ),

@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { ApiError, catalogApi, personasApi, presetsApi, settingsApi, threadsApi, workflowsApi } from './api'
+import { ApiError, assetsApi, catalogApi, personasApi, presetsApi, settingsApi, threadsApi, workflowsApi } from './api'
 
 export const qk = {
   catalog: ['catalog'] as const,
@@ -39,6 +39,13 @@ export const balanceQuery = (enabled = true) =>
     refetchInterval: 60_000,
     enabled,
     retry: false,
+  })
+
+/** Références d'un persona (dans l'ordre choisi). */
+export const referencesQuery = (personaId: string) =>
+  queryOptions({
+    queryKey: qk.references(personaId),
+    queryFn: () => assetsApi.references(personaId).then((r) => r.assets),
   })
 
 export const personasQuery = () =>

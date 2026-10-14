@@ -8,7 +8,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getFamily } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { assets, generations } from '../db/schema.js';
+import { assets, generations, userSettings } from '../db/schema.js';
 import { fakeSpicyClient } from '../services/spicy.fake.js';
 import { EDIT_INSTRUCTION } from '../services/prompt.js';
 import { type Agent, GPT, SEEDANCE_MINI, SEEDREAM_FLASH, call, signup } from './helpers.js';
@@ -66,7 +66,7 @@ async function createPreset(me: Agent, label: string, text: string) {
   return res.body.preset as { id: string };
 }
 
-/** Persona avec une LoRA Z-Image (mots déclencheurs sks, rousse) et un contexte. */
+/** Persona avec une LoRA Z-Image (mots déclencheurs sks, rousse). */
 async function loraPersona(me: Agent, extra: Record<string, unknown> = {}) {
   return me.createPersona({
     name: 'Léa',
@@ -175,13 +175,13 @@ describe('POST /generations/quote', () => {
     expect(res.body.quote).toMatchObject({ task: 'image-to-image', dropped: 2 });
   });
 
-  it('compte les LoRA du persona appliquées (cochées et entraînées pour ce modèle)', async () => {
+  it('compte les LoRA appliquées (cochées et entraînées pour ce modèle), sans choisir de persona', async () => {
     const me = await signup();
     const persona = await loraPersona(me);
     const loraId = persona.loras[0].id;
     const res = await me.post(
       '/generations/quote',
-      body({ family: Z_IMAGE_LORA, personaId: persona.id, loraIds: [loraId] }),
+      body({ family: Z_IMAGE_LORA, loraIds: [loraId] }),
     );
     expect(res.status).toBe(200);
     expect(res.body.quote.lorasApplied).toBe(1);
@@ -190,7 +190,7 @@ describe('POST /generations/quote', () => {
   it('aucune LoRA appliquée si elle n’est pas cochée', async () => {
     const me = await signup();
     const persona = await loraPersona(me);
-    const res = await me.post('/generations/quote', body({ family: Z_IMAGE_LORA, personaId: persona.id }));
+    const res = await me.post('/generations/quote', body({ family: Z_IMAGE_LORA }));
     expect(res.status).toBe(200);
     expect(res.body.quote.lorasApplied).toBe(0);
   });
@@ -200,7 +200,7 @@ describe('POST /generations/quote', () => {
     const persona = await loraPersona(me);
     const res = await me.post(
       '/generations/quote',
-      body({ family: SEEDREAM_FLASH, personaId: persona.id, loraIds: [persona.loras[0].id] }),
+      body({ family: SEEDREAM_FLASH, loraIds: [persona.loras[0].id] }),
     );
     expect(res.status).toBe(200);
     expect(res.body.quote.lorasApplied).toBe(0);
@@ -218,7 +218,7 @@ describe('POST /generations/quote', () => {
     const quote = vi.spyOn(client, 'quoteTask');
     const res = await me.post(
       '/generations/quote',
-      body({ family: WAN_22_LORA, personaId: persona.id, loraIds: persona.loras.map(l => l.id) }),
+      body({ family: WAN_22_LORA, loraIds: persona.loras.map(l => l.id) }),
     );
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.quote.lorasApplied).toBe(2);
@@ -289,7 +289,6 @@ describe('POST /generations/quote', () => {
     ['nombre d’images non entier', { count: 1.5 }],
     ['référence qui n’est pas un uuid', { referenceAssetIds: ['abc'] }],
     ['fil qui n’est pas un uuid', { threadId: 'abc' }],
-    ['persona qui n’est pas un uuid', { personaId: 'abc' }],
     ['image à éditer qui n’est pas un uuid', { editAssetId: 'abc' }],
     ['mode de référence inconnu', { refMode: 'magie' }],
     ['famille trop courte', { family: 'ab' }],
@@ -311,13 +310,34 @@ describe('POST /generations/quote', () => {
     expect(res.body.error).toContain('Aucune clé API SpicyAPI');
   });
 
-  it('404 pour le persona d’un autre utilisateur', async () => {
+  it('un personaId envoyé est ignoré, même celui d’un autre utilisateur', async () => {
     const other = await signup();
     const persona = await other.createPersona({ name: 'Autre' });
     const me = await signup();
     const res = await me.post('/generations/quote', body({ personaId: persona.id }));
-    expect(res.status).toBe(404);
-    expect(res.body.error).toBe('Persona introuvable.');
+    expect(res.status).toBe(200);
+  });
+
+  it('n’applique jamais la LoRA d’un persona d’un autre utilisateur', async () => {
+    const other = await signup();
+    const persona = await loraPersona(other);
+    const me = await signup();
+    const res = await me.post(
+      '/generations/quote',
+      body({ family: Z_IMAGE_LORA, personaId: persona.id, loraIds: [persona.loras[0].id] }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.quote.lorasApplied).toBe(0);
+  });
+
+  it('applique une LoRA de Général (rangée dans aucun persona)', async () => {
+    const me = await signup();
+    const lora = { id: 'general-lora', label: 'Style', path: LORA_URL, scale: 1, family: Z_IMAGE_LORA, triggerWords: [] };
+    await db.update(userSettings).set({ loras: [lora] as any }).where(eq(userSettings.userId, me.user.id));
+    expect((await me.get('/settings')).body.settings.loras).toEqual([lora]);
+    const res = await me.post('/generations/quote', body({ family: Z_IMAGE_LORA, loraIds: [lora.id] }));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.quote.lorasApplied).toBe(1);
   });
 
   it('ignore les références d’un autre utilisateur', async () => {
@@ -396,21 +416,25 @@ describe('POST /generations', () => {
     expect(res.status).toBe(404);
   });
 
-  it('rattache la génération et le nouveau fil au persona', async () => {
+  it('un personaId envoyé est ignoré : ni la génération ni le fil ne sont rattachés', async () => {
     const me = await signup();
     const persona = await me.createPersona({ name: 'Léa' });
     const res = await me.post('/generations', body({ personaId: persona.id }));
     expect(res.status).toBe(201);
-    expect(res.body.generation.personaId).toBe(persona.id);
-    expect(res.body.thread.personaId).toBe(persona.id);
+    expect(res.body.generation.personaId).toBeNull();
+    expect(res.body.thread.personaIds).toEqual([]);
+    expect(res.body.thread).not.toHaveProperty('personaId');
   });
 
-  it('404 pour un persona supprimé', async () => {
+  it('n’applique plus les LoRA d’un persona mis à la corbeille', async () => {
     const me = await signup();
-    const persona = await me.createPersona({ name: 'Léa' });
+    const persona = await loraPersona(me);
+    const loraId = persona.loras[0].id;
     expect((await me.del(`/personas/${persona.id}`)).status).toBeLessThan(300);
-    const res = await me.post('/generations', body({ personaId: persona.id }));
-    expect(res.status).toBe(404);
+    const res = await me.post('/generations', body({ family: Z_IMAGE_LORA, loraIds: [loraId], loraWords: { [loraId]: ['sks woman'] } }));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.generation.lorasApplied).toBe(0);
+    expect(res.body.generation.finalPrompt).toBe('une pomme rouge');
   });
 
   it('prompt seul : finalPrompt identique, sans titres', async () => {
@@ -419,8 +443,9 @@ describe('POST /generations', () => {
     expect(res.body.generation.finalPrompt).toBe('une pomme rouge');
   });
 
-  it('prompt conservé tel quel, finalPrompt avec LoRA en tête, détails puis contexte général', async () => {
+  it('prompt conservé tel quel, finalPrompt avec LoRA en tête puis détails, sans contexte du persona', async () => {
     const me = await signup();
+    // Le contexte du persona n'est plus ajouté au prompt.
     const persona = await loraPersona(me, {
       contextBlocks: [
         { title: 'Visage', text: 'yeux   verts,\ntaches de rousseur' },
@@ -436,7 +461,6 @@ describe('POST /generations', () => {
       '/generations',
       body({
         family: Z_IMAGE_LORA,
-        personaId: persona.id,
         prompt: 'Léa boit un café',
         loraIds: [loraId],
         // « cachée » est masqué, « inconnu » n'est pas un mot de la LoRA : aucun des deux n'est ajouté.
@@ -453,7 +477,6 @@ describe('POST /generations', () => {
         '# Lora\nsks woman, rousse',
         '# Prompt (important)\nLéa boit un café',
         '# Détails\nCadrage : plan serré\nLumière : golden hour',
-        '# Contexte général\n- Visage : yeux verts, taches de rousseur\n- toujours souriante',
       ].join('\n\n'),
     );
     expect(g.contexts.map((c: { id: string }) => c.id)).toEqual([cadrage.id, lumiere.id]);
@@ -472,7 +495,6 @@ describe('POST /generations', () => {
       '/generations',
       body({
         family: Z_IMAGE_LORA,
-        personaId: persona.id,
         prompt: 'Portrait de SKS Woman au soleil',
         loraIds: [loraId],
         loraWords: { [loraId]: ['sks woman', 'rousse'] },

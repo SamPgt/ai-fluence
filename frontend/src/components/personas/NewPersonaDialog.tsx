@@ -6,7 +6,6 @@ import { toast } from 'sonner'
 import { personasApi } from '@/lib/api'
 import { qk } from '@/lib/queries'
 import { cn } from '@/lib/utils'
-import { useUiPref } from '@/components/providers/ui-prefs'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -17,7 +16,6 @@ export const PERSONA_COLORS = ['#8b5cf6', '#ec4899', '#f97316', '#eab308', '#22c
 export function NewPersonaDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [, setPersonaId] = useUiPref('personaId')
   const [name, setName] = useState('')
   const [color, setColor] = useState(PERSONA_COLORS[0])
 
@@ -25,7 +23,6 @@ export function NewPersonaDialog({ open, onOpenChange }: { open: boolean; onOpen
     mutationFn: () => personasApi.create({ name, color }),
     onSuccess: ({ persona }) => {
       queryClient.invalidateQueries({ queryKey: qk.personas })
-      setPersonaId(persona.id)
       onOpenChange(false)
       setName('')
       navigate({ to: '/personas/$personaId', params: { personaId: persona.id } })
@@ -43,7 +40,7 @@ export function NewPersonaDialog({ open, onOpenChange }: { open: boolean; onOpen
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Nouveau persona</DialogTitle>
-          <DialogDescription>Un personnage ou une page : ses LoRA, ses références et son contexte.</DialogDescription>
+          <DialogDescription>Un personnage ou un univers : ses références et ses LoRA, rangés dans la Bibliothèque.</DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-5">
           <div className="space-y-1.5">

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, test as base, type Page } from '@playwright/test'
 import type { Generation, Persona, Thread } from '@ai-fluence/shared'
@@ -19,7 +20,6 @@ type GenerateBody = {
   family?: string
   prompt?: string
   threadId?: string | null
-  personaId?: string | null
   params?: Record<string, unknown>
   referenceAssetIds?: string[]
 }
@@ -63,9 +63,21 @@ export class App {
     expect((await this.page.request.delete(`/api/threads/${id}`)).ok()).toBeTruthy()
   }
 
-  /** Sélectionne un persona dans la barre de gauche. */
-  async selectPersona(name: string) {
-    await this.page.getByLabel(name, { exact: true }).click()
+  /**
+   * Fil où une référence du persona a servi : le persona y apparaît (bulles du titre,
+   * LoRA proposées). Un fil n'appartient plus à un persona.
+   */
+  async generateWithPersona(personaId: string, body: GenerateBody = {}) {
+    const res = await this.page.request.post('/api/assets', {
+      multipart: {
+        file: { name: 'ref.png', mimeType: 'image/png', buffer: readFileSync(FIXTURE_IMAGE) },
+        personaId,
+        isReference: 'true',
+      },
+    })
+    expect(res.status(), await res.text()).toBe(201)
+    const { asset } = await res.json()
+    return this.generate({ ...body, referenceAssetIds: [asset.id] })
   }
 
   // ── Composer ─────────────────────────────────────────────────
@@ -177,7 +189,7 @@ export class App {
   // ── Brouillons enregistrés (localStorage) ────────────────────
 
   /** Attend l'écriture différée des brouillons (300 ms). */
-  async drafts(): Promise<Record<string, { prompt: string; personaId: string | null; count: number }>> {
+  async drafts(): Promise<Record<string, { prompt: string; count: number }>> {
     await this.page.waitForTimeout(500)
     return this.page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? '{}'), DRAFTS_KEY)
   }

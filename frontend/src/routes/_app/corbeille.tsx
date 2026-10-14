@@ -48,7 +48,7 @@ const TEXT = {
   emptied: 'Corbeille vidée',
   cancel: 'Annuler',
   confirmInputLabel: 'Écris confirmer',
-  threadCount: (n: number) => (n > 1 ? `${n} fils` : `${n} fil`),
+  referenceCount: (n: number) => (n > 1 ? `${n} références` : `${n} référence`),
   nodeCount: (n: number) => (n > 1 ? `${n} nœuds` : `${n} nœud`),
   purgeToday: 'Supprimé définitivement aujourd’hui',
   purgeIn: (days: number) =>
@@ -181,7 +181,7 @@ function TrashPage() {
                           />
                         }
                         title={p.name}
-                        subtitle={`${TEXT.threadCount(p.threadCount)} · ${remaining(p.purgeAt)}`}
+                        subtitle={`${TEXT.referenceCount(p.referenceCount)} · ${remaining(p.purgeAt)}`}
                         restoring={
                           restore.isPending && restore.variables?.id === p.id
                         }
@@ -217,7 +217,7 @@ function TrashPage() {
                           )
                         }
                         title={t.title}
-                        subtitle={`${t.personaName ? `${t.personaName} · ` : ''}${remaining(t.purgeAt)}`}
+                        subtitle={remaining(t.purgeAt)}
                         restoring={
                           restore.isPending && restore.variables?.id === t.id
                         }

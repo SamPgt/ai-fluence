@@ -51,7 +51,6 @@ describe('POST /prompts/enhance', () => {
     ['prompt trop long', { prompt: 'a'.repeat(3001), media: 'image' }],
     ['média absent', { prompt: 'idée' }],
     ['média inconnu', { prompt: 'idée', media: 'audio' }],
-    ['persona qui n’est pas un uuid', { prompt: 'idée', media: 'image', personaId: 'abc' }],
   ])('400 de validation : %s', async (_label, payload) => {
     const me = await signup();
     const res = await me.post('/prompts/enhance', payload);

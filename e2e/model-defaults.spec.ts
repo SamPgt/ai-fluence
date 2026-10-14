@@ -1,13 +1,14 @@
 /**
- * Choix du modèle : persona, sinon modèle économique de l'app. Plus de modèle
- * général, de logo ni de couleur dans le paramétrage.
+ * Choix du modèle : modèle par défaut du Paramétrage (onglet Modèles), sinon
+ * modèle économique de l'app. Un persona n'a plus de modèle par défaut.
  */
 import { expect, test } from './helpers'
+import { gotoSettings } from './support-auth'
 
 const GPT = 'openai/gpt-image-2.5-sunburst'
 const WAN_PRIME = 'alibaba/wan-3.0-prime'
 
-test('sans persona : Seedream 5.0 Flash, puis Seedance 2.0 Mini en vidéo @core', async ({ app }) => {
+test('sans modèle par défaut : Seedream 5.0 Flash, puis Seedance 2.0 Mini en vidéo @core', async ({ app }) => {
   await app.gotoNew()
   await expect(app.modelPicker).toContainText('Seedream 5.0 Flash')
   await app.chooseMedia('Vidéo')
@@ -16,21 +17,17 @@ test('sans persona : Seedream 5.0 Flash, puis Seedance 2.0 Mini en vidéo @core'
   await expect(app.modelPicker).toContainText('Seedream 5.0 Flash')
 })
 
-test('persona avec modèles par défaut : photo et vidéo @core', async ({ app }) => {
-  await app.createPersona({ name: 'Alice', defaultImageFamily: GPT, defaultVideoFamily: WAN_PRIME })
-  await app.gotoNew()
-  await app.selectPersona('Alice')
-  await expect(app.modelPicker).toContainText('GPT Image 2.5')
-  await app.chooseMedia('Vidéo')
-  await expect(app.modelPicker).toContainText('Wan 3.0 Prime')
-})
+const defaults = async (page: import('@playwright/test').Page) => {
+  const { settings } = await (await page.request.get('/api/settings')).json()
+  return { image: settings.defaultImageFamily, video: settings.defaultVideoFamily }
+}
 
-test('fiche persona : même menu que le composer, choix puis retour à Automatique @core', async ({
+test('Paramétrage, onglet Modèles : le modèle choisi sert pour un nouveau fil @core @smoke', async ({
   app,
   page,
 }) => {
-  const persona = await app.createPersona({ name: 'Alice' })
-  await page.goto(`/personas/${persona.id}`)
+  await gotoSettings(page, 'models')
+  await expect(page.getByRole('tab', { name: 'Modèles' })).toHaveAttribute('data-state', 'active')
   const photo = page.getByRole('button', { name: 'Automatique (Seedream 5.0 Flash)' })
   await expect(photo).toBeVisible()
   await expect(page.getByRole('button', { name: 'Automatique (Seedance 2.0 Mini)' })).toBeVisible()
@@ -41,27 +38,32 @@ test('fiche persona : même menu que le composer, choix puis retour à Automatiq
   await expect(page.getByText('Modèles recommandés')).toBeVisible()
   await app.pickInModelMenu('GPT Image 2.5')
   await expect(page.getByRole('button', { name: 'GPT Image 2.5' })).toBeVisible()
-  await expect
-    .poll(async () => (await (await page.request.get('/api/personas')).json()).personas[0].defaultImageFamily)
-    .toBe(GPT)
+  await expect.poll(async () => (await defaults(page)).image).toBe(GPT)
 
-  await page.getByRole('button', { name: 'Revenir au choix automatique' }).click()
-  await expect(photo).toBeVisible()
-  await expect
-    .poll(async () => (await (await page.request.get('/api/personas')).json()).personas[0].defaultImageFamily)
-    .toBeNull()
+  // Nouveau fil : le modèle par défaut est proposé d'office.
+  await app.gotoNew()
+  await expect(app.modelPicker).toContainText('GPT Image 2.5')
 })
 
-test('paramétrage : plus de modèle général, de logo ni de couleur', async ({ page }) => {
-  await page.goto('/parametres')
-  const tabs = page.getByRole('tablist')
-  await expect(tabs.getByRole('tab', { name: 'Compte' })).toBeVisible()
-  for (const name of ['Modèles', 'Logo', 'Couleur']) {
-    await expect(tabs.getByRole('tab', { name })).toHaveCount(0)
-  }
-  const settings = await (await page.request.get('/api/settings')).json()
-  expect(settings.settings).not.toHaveProperty('defaultImageFamily')
-  expect(settings.settings).not.toHaveProperty('defaultVideoFamily')
+test('modèle vidéo par défaut, puis retour à Automatique', async ({ app, page }) => {
+  expect((await page.request.patch('/api/settings', { data: { defaultVideoFamily: WAN_PRIME } })).ok()).toBeTruthy()
+  await app.gotoNew()
+  await expect(app.modelPicker).toContainText('Seedream 5.0 Flash')
+  await app.chooseMedia('Vidéo')
+  await expect(app.modelPicker).toContainText('Wan 3.0 Prime')
+
+  await gotoSettings(page, 'models')
+  await expect(page.getByRole('button', { name: 'Wan 3.0 Prime' })).toBeVisible()
+  await page.getByRole('button', { name: 'Revenir au choix automatique' }).click()
+  await expect(page.getByRole('button', { name: 'Automatique (Seedance 2.0 Mini)' })).toBeVisible()
+  await expect.poll(async () => (await defaults(page)).video).toBeNull()
+})
+
+test('fiche persona : plus de modèle par défaut', async ({ app, page }) => {
+  const persona = await app.createPersona({ name: 'Alice' })
+  await page.goto(`/personas/${persona.id}`)
+  await expect(page.getByText('Paramétrage de Alice')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Automatique/ })).toHaveCount(0)
 })
 
 test('boutons : fond sombre par défaut, clair seulement pour envoyer', async ({ app, page }) => {

@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { PromptPreset } from '@ai-fluence/shared';
+import { db } from '../db/index.js';
+import { promptPresets } from '../db/schema.js';
 import { call, signup } from './helpers.js';
 
 const PRESET = { label: 'Plage', text: 'on a sunny beach' };
@@ -35,9 +38,8 @@ describe('GET /presets', () => {
     expect(presets.map(p => p.media)).toEqual(['image', 'all', 'image', 'all', 'image', 'video', 'video', 'all']);
     for (const p of presets) {
       expect(p.enabled).toBe(true);
-      expect(p.personaId).toBeNull();
       expect(p.text.length).toBeGreaterThan(0);
-      expect(Object.keys(p).sort()).toEqual(['enabled', 'id', 'label', 'media', 'personaId', 'position', 'text']);
+      expect(Object.keys(p).sort()).toEqual(['enabled', 'id', 'label', 'media', 'position', 'text']);
     }
   });
 
@@ -61,7 +63,6 @@ describe('POST /presets', () => {
       text: 'on a sunny beach',
       media: 'all',
       enabled: true,
-      personaId: null,
       position: 8,
     });
     const list = (await me.get('/presets')).body.presets as PromptPreset[];
@@ -82,21 +83,15 @@ describe('POST /presets', () => {
     expect(res.body.preset.enabled).toBe(false);
   });
 
-  it('rattache un raccourci à un persona de l’utilisateur', async () => {
+  it('un raccourci est toujours général : un persona envoyé est ignoré', async () => {
     const me = await signup();
     const p = await me.createPersona({ name: 'Léa' });
     const res = await me.post('/presets', { ...PRESET, personaId: p.id });
     expect(res.status).toBe(201);
-    expect(res.body.preset.personaId).toBe(p.id);
-    const list = (await me.get('/presets')).body.presets as PromptPreset[];
-    expect(list.find(x => x.id === res.body.preset.id)!.personaId).toBe(p.id);
-  });
-
-  it('accepte personaId à null', async () => {
-    const me = await signup();
-    const res = await me.post('/presets', { ...PRESET, personaId: null });
-    expect(res.status).toBe(201);
-    expect(res.body.preset.personaId).toBeNull();
+    expect(res.body.preset).not.toHaveProperty('personaId');
+    // Rien n'est rattaché en base non plus.
+    const [row] = await db.select().from(promptPresets).where(eq(promptPresets.id, res.body.preset.id));
+    expect(row.personaId).toBeNull();
   });
 
   it('accepte 40 caractères de libellé et 1000 de texte', async () => {
@@ -105,21 +100,14 @@ describe('POST /presets', () => {
     expect(res.status).toBe(201);
   });
 
-  it('répond 404 pour un persona inconnu', async () => {
+  it('ignore un personaId inconnu ou mal formé : le raccourci reste général', async () => {
     const me = await signup();
-    const res = await me.post('/presets', { ...PRESET, personaId: randomUUID() });
-    expect(res.status).toBe(404);
-    expect(res.body.error).toBe('Persona introuvable.');
-    expect((await me.get('/presets')).body.presets).toHaveLength(8);
-  });
-
-  it('répond 404 pour le persona d’un autre utilisateur', async () => {
-    const me = await signup();
-    const other = await signup();
-    const p = await other.createPersona({ name: 'Autre' });
-    const res = await me.post('/presets', { ...PRESET, personaId: p.id });
-    expect(res.status).toBe(404);
-    expect((await me.get('/presets')).body.presets).toHaveLength(8);
+    for (const personaId of [randomUUID(), 'abc', null]) {
+      const res = await me.post('/presets', { ...PRESET, personaId });
+      expect(res.status).toBe(201);
+      expect(res.body.preset).not.toHaveProperty('personaId');
+    }
+    expect((await me.get('/presets')).body.presets).toHaveLength(11);
   });
 
   it.each([
@@ -131,7 +119,6 @@ describe('POST /presets', () => {
     ['texte trop long', { label: 'x', text: 'y'.repeat(1001) }],
     ['média inconnu', { ...PRESET, media: 'audio' }],
     ['enabled qui n’est pas un booléen', { ...PRESET, enabled: 'oui' }],
-    ['personaId qui n’est pas un uuid', { ...PRESET, personaId: 'abc' }],
   ])('refuse la création (400) : %s', async (_label, body) => {
     const me = await signup();
     expect((await me.post('/presets', body)).status).toBe(400);
@@ -161,13 +148,15 @@ describe('PATCH /presets/:id', () => {
     expect(stored).toEqual(res.body.preset);
   });
 
-  it('ne modifie pas le persona rattaché', async () => {
+  it('ignore un personaId envoyé : le raccourci reste général', async () => {
     const me = await signup();
     const p = await me.createPersona({ name: 'Léa' });
-    const preset = (await me.post('/presets', { ...PRESET, personaId: p.id })).body.preset as PromptPreset;
-    const res = await me.patch(`/presets/${preset.id}`, { label: 'Autre', personaId: null });
+    const preset = (await me.post('/presets', PRESET)).body.preset as PromptPreset;
+    const res = await me.patch(`/presets/${preset.id}`, { label: 'Autre', personaId: p.id });
     expect(res.status).toBe(200);
-    expect(res.body.preset.personaId).toBe(p.id);
+    expect(res.body.preset).toEqual({ ...preset, label: 'Autre' });
+    const [row] = await db.select().from(promptPresets).where(eq(promptPresets.id, preset.id));
+    expect(row.personaId).toBeNull();
   });
 
   it('modifie aussi un raccourci par défaut', async () => {

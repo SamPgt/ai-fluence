@@ -183,7 +183,7 @@ const workflowsRoutes = new Hono<AppEnv>()
         nodeIds: z.array(id).max(WORKFLOW_LIMITS.nodes).optional(),
         expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
         inputs: inputsSchema.optional(),
-        thread: z.object({ id: z.uuid().nullable(), personaId: z.uuid().nullable() }).optional(),
+        thread: z.object({ id: z.uuid().nullable() }).optional(),
       }),
     ),
     async c => {

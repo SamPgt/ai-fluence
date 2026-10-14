@@ -27,13 +27,11 @@ interface PickedImage {
 export function WorkflowForm({
   workflowId,
   threadId,
-  personaId,
   onClose,
 }: {
   workflowId: string
   /** Fil où afficher l'exécution (absent : un nouveau fil est créé). */
   threadId?: string
-  personaId: string | null
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -68,7 +66,7 @@ export function WorkflowForm({
     mutationFn: () =>
       workflowsApi.run(workflowId, {
         inputs: values(),
-        thread: { id: threadId ?? null, personaId },
+        thread: { id: threadId ?? null },
         expectedCost: quote.data?.estimatedCost,
       }),
     onSuccess: (res) => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { toast } from 'sonner'
 import { WORKFLOW_LIMITS, type Workflow, type WorkflowGraph } from '@ai-fluence/shared'
@@ -83,7 +83,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
   return (
     <ReactFlowProvider>
       <WorkflowRunProvider workflowId={workflow.id} getGraph={() => graph.current} priceGraph={priceGraph}>
-      {/* Pas de volet des fils ici : la palette des nœuds prend sa place, à gauche de tout l'écran du workflow. */}
+      {/* La palette des nœuds remplace la sidebar de l'app (avec « Retour » en haut). */}
       <div className="flex min-h-0 flex-1">
         <NodePalette collapsed={collapsed} />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -104,13 +104,6 @@ function Editor({ workflow }: { workflow: Workflow }) {
               </div>
             }
           >
-            <Link
-              to="/workflows"
-              aria-label="Retour aux workflows"
-              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Link>
             <WorkflowName workflow={workflow} />
           </PageHeader>
           <WorkflowCanvas initial={workflow.graph} onChange={onChange} overlay={

@@ -54,7 +54,7 @@ describe('workflow dans un fil', () => {
     expect(quote.status, JSON.stringify(quote.body)).toBe(200);
     expect(quote.body.nodes.map((n: { task: string }) => n.task)).toEqual(['image-to-image']);
 
-    const res = await me.post(`/workflows/${w.id}/runs`, { inputs, thread: { id: null, personaId: null } });
+    const res = await me.post(`/workflows/${w.id}/runs`, { inputs, thread: { id: null } });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.threadId).toBeTruthy();
 
@@ -80,7 +80,7 @@ describe('workflow dans un fil', () => {
     const image = await me.uploadAsset();
     const res = await me.post(`/workflows/${w.id}/runs`, {
       inputs: { s: { assetIds: [image.id] } },
-      thread: { id: thread.id, personaId: null },
+      thread: { id: thread.id },
     });
     expect(res.body.threadId).toBe(thread.id);
     const detail = await waitThread(me, thread.id);
@@ -88,10 +88,20 @@ describe('workflow dans un fil', () => {
     expect(detail.workflowRuns).toHaveLength(1);
   });
 
+  it('le fil cite le persona d’une référence saisie dans le formulaire', async () => {
+    const { me, w } = await setup();
+    const lea = await me.createPersona({ name: 'Léa' });
+    const ref = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const res = await me.post(`/workflows/${w.id}/runs`, { inputs: { s: { assetIds: [ref.id] } }, thread: { id: null } });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const detail = await waitThread(me, res.body.threadId);
+    expect(detail.thread.personaIds).toEqual([lea.id]);
+  });
+
   it('résultat supprimé du fil : masqué (fil et Galerie), puis remis', async () => {
     const { me, w } = await setup();
     const image = await me.uploadAsset();
-    const res = await me.post(`/workflows/${w.id}/runs`, { inputs: { s: { assetIds: [image.id] } }, thread: { id: null, personaId: null } });
+    const res = await me.post(`/workflows/${w.id}/runs`, { inputs: { s: { assetIds: [image.id] } }, thread: { id: null } });
     const run = (await waitThread(me, res.body.threadId)).workflowRuns[0];
     const outputId = run.outputs[0].id;
     const inGallery = async () => ((await me.get('/assets/gallery')).body.items as { asset: { id: string } }[]).some(i => i.asset.id === outputId);
@@ -118,12 +128,12 @@ describe('workflow dans un fil', () => {
     const other = await signup();
     const image = await me.uploadAsset();
     const theirs = await other.uploadAsset();
-    const send = (body: Record<string, unknown>) => me.post(`/workflows/${w.id}/runs`, { thread: { id: null, personaId: null }, ...body });
+    const send = (body: Record<string, unknown>) => me.post(`/workflows/${w.id}/runs`, { thread: { id: null }, ...body });
     expect((await send({ inputs: { g: { text: 'x' }, s: { assetIds: [image.id] } } })).body.error).toMatch(/n’existe pas/);
     expect((await send({ inputs: { s: { assetIds: [] } } })).body.error).toBe('« Photo » est vide.');
     expect((await send({ inputs: { s: { assetIds: [theirs.id] } } })).body.error).toBe('Image introuvable.');
     const { thread } = await other.generate({ prompt: 'à lui' });
-    const res = await me.post(`/workflows/${w.id}/runs`, { inputs: { s: { assetIds: [image.id] } }, thread: { id: thread.id, personaId: null } });
+    const res = await me.post(`/workflows/${w.id}/runs`, { inputs: { s: { assetIds: [image.id] } }, thread: { id: thread.id } });
     expect(res.status).toBe(404);
     // Depuis l'éditeur, le graphe est obligatoire.
     expect((await me.post(`/workflows/${w.id}/runs`, {})).body.error).toBe('Graphe manquant.');

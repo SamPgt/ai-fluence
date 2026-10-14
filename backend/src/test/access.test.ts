@@ -45,7 +45,6 @@ const PROTECTED: [method: string, path: string, body?: () => unknown][] = [
   ['DELETE', `/personas/${ID}`],
   // Fils
   ['GET', '/threads'],
-  ['GET', '/threads?personaId=none'],
   ['GET', '/threads/search?q=pomme'],
   ['GET', `/threads/${ID}`],
   ['PATCH', `/threads/${ID}`, () => ({ title: 'Pirate' })],
@@ -163,9 +162,9 @@ async function seedA(): Promise<Seed> {
   const a = await signup({ name: 'Alice' });
   const persona = await a.createPersona({ name: 'Lina' });
   const ref = await a.uploadAsset({ personaId: persona.id, isReference: true });
-  const { generation, thread } = await a.generate({ personaId: persona.id, prompt: 'une pomme rouge secrète' });
+  const { generation, thread } = await a.generate({ referenceAssetIds: [ref.id], prompt: 'une pomme rouge secrète' });
   expect(generation.status).toBe('succeeded');
-  const preset = (await a.post('/presets', { label: 'Secret', text: 'texte secret', personaId: persona.id })).body.preset;
+  const preset = (await a.post('/presets', { label: 'Secret', text: 'texte secret' })).body.preset;
 
   const { thread: trashed } = await a.generate({ prompt: 'fil à la corbeille' });
   expect((await a.del(`/threads/${trashed.id}`)).status).toBe(200);
@@ -251,11 +250,17 @@ describe('isolation entre utilisateurs', () => {
     // Générations qui s'appuient sur les éléments de A
     const gen = (extra: Record<string, unknown>) => b.post('/generations', { family: SEEDREAM_FLASH, prompt: 'x', ...extra });
     expectStatus('générer dans le fil de A', await gen({ threadId: s.threadId }), 404);
-    expectStatus('générer avec le persona de A', await gen({ personaId: s.personaId }), 404);
+    // Un personaId envoyé est ignoré : rien de A n'est utilisé ni rattaché.
+    const withPersona = await gen({ personaId: s.personaId });
+    expectStatus('générer en envoyant le persona de A', withPersona, 201);
+    if (withPersona.status === 201) {
+      const g = await b.waitGeneration(withPersona.body.generation.id);
+      if (g.finalPrompt !== 'x') holes.push(`prompt de B modifié par le persona de A : ${g.finalPrompt}`);
+    }
     expectStatus(
-      'devis avec le persona de A',
+      'devis en envoyant le persona de A',
       await b.post('/generations/quote', { family: SEEDREAM_FLASH, prompt: 'x', personaId: s.personaId }),
-      404,
+      200,
     );
     expectStatus('devis d’upscale du résultat de A', await b.post('/generations/upscale/quote', { assetId: s.outputAssetId }), 404);
     expectStatus('upscale du résultat de A', await b.post('/generations/upscale', { assetId: s.outputAssetId }), 404);
@@ -266,6 +271,8 @@ describe('isolation entre utilisateurs', () => {
       if (g.references.length) holes.push(`références de A utilisées par B : ${ids(g.references)}`);
       if (g.contexts.length) holes.push(`raccourcis de A utilisés par B : ${JSON.stringify(g.contexts)}`);
       if (g.finalPrompt.includes('texte secret')) holes.push('texte du raccourci de A dans le prompt de B');
+      const bThread = (await b.get(`/threads/${withRefs.body.thread.id}`)).body.thread;
+      if (bThread.personaIds.length) holes.push(`le fil de B cite un persona de A : ${bThread.personaIds}`);
     }
 
     // Rattachements aux éléments de A
@@ -275,7 +282,13 @@ describe('isolation entre utilisateurs', () => {
       await b.patch(`/personas/${bPersona.id}`, { avatarAssetId: s.refAssetId }),
       400,
     );
-    expectStatus('raccourci de B sur le persona de A', await b.post('/presets', { label: 'x', text: 'y', personaId: s.personaId }), 404);
+    // Raccourcis toujours généraux : le persona envoyé est ignoré, rien n'est rattaché à A.
+    const bPreset = await b.post('/presets', { label: 'x', text: 'y', personaId: s.personaId });
+    expectStatus('raccourci de B en envoyant le persona de A', bPreset, 201);
+    if (bPreset.status === 201) {
+      const [row] = await db.select().from(promptPresets).where(eq(promptPresets.id, bPreset.body.preset.id));
+      if (row.personaId !== null) holes.push('le raccourci de B est rattaché au persona de A');
+    }
     expectStatus('photo de profil de B avec l’image de A', await b.patch('/auth/me', { avatarAssetId: s.refAssetId }), 400);
     const form = new FormData();
     form.set('file', new File([FIXTURE_PNG], 'test.png', { type: 'image/png' }));
@@ -306,7 +319,6 @@ describe('isolation entre utilisateurs', () => {
     };
     leaks('GET /personas', await b.get('/personas'));
     leaks('GET /threads', await b.get('/threads'));
-    leaks('GET /threads?personaId', await b.get(`/threads?personaId=${s.personaId}`));
     leaks('GET /threads/search', await b.get('/threads/search?q=pomme'));
     leaks('GET /presets', await b.get('/presets'));
     leaks('GET /assets/gallery', await b.get('/assets/gallery'));
@@ -338,18 +350,20 @@ describe('isolation entre utilisateurs', () => {
     expect(holes).toEqual([]);
   });
 
-  // Ancien bug (corrigé) : PATCH /threads/:id accepte n'importe quel `personaId` sans vérifier qu'il
-  // appartient à l'utilisateur. B peut donc rattacher son fil au persona de A, et quand
-  // A met ce persona à la corbeille, `trashPersona` (qui ne filtre pas sur l'utilisateur)
-  // envoie aussi le fil de B à la corbeille. Attendu : 404 « Persona introuvable ».
+  // Un fil n'appartient plus à un persona : un personaId envoyé est ignoré, et mettre un
+  // persona de A à la corbeille ne touche jamais aux fils de B.
   it("B ne peut pas rattacher son fil au persona de A", async () => {
     const s = await seedA();
     const b = await signup();
     const { thread } = await b.generate();
     const res = await b.patch(`/threads/${thread.id}`, { personaId: s.personaId });
-    expect([400, 404]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.body.thread.personaIds).toEqual([]);
     const [row] = await db.select().from(threads).where(eq(threads.id, thread.id));
     expect(row.personaId).toBeNull();
+    expect((await s.a.del(`/personas/${s.personaId}`)).status).toBe(200);
+    expect((await b.get(`/threads/${thread.id}`)).status).toBe(200);
+    expect((await b.get('/trash')).body.threads).toEqual([]);
   });
 
   it('un identifiant qui n’est pas un UUID répond 404 sans faire planter la base', async () => {

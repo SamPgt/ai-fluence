@@ -1,7 +1,7 @@
 /**
  * Menu des raccourcis (contexte supplémentaire) au-dessus du composer : même
  * présentation que le menu des modèles, tags, recherche, envoi des contextes,
- * raccourcis propres à un persona ou à un type de média.
+ * raccourcis propres à un type de média. Tous les raccourcis sont généraux.
  */
 import { expect, test } from './helpers'
 import {
@@ -181,11 +181,11 @@ test.describe('recherche', () => {
 })
 
 test.describe('navigation', () => {
-  test('« Gérer les raccourcis » ouvre l’onglet Raccourcis des paramètres', async ({ app, page }) => {
+  test('« Gérer les raccourcis » ouvre l’onglet Raccourcis de la page Général', async ({ app, page }) => {
     await app.gotoNew()
     await openShortcuts(page)
     await shortcutsMenu(page).getByRole('link', { name: 'Gérer les raccourcis' }).click()
-    await expect(page).toHaveURL(/\/parametres\?tab=shortcuts/)
+    await expect(page).toHaveURL(/\/bibliotheque\/general\?tab=shortcuts/)
     await expect(page.getByRole('tab', { name: 'Raccourcis' })).toHaveAttribute('aria-selected', 'true')
     await expect(shortcutsMenu(page)).toHaveCount(0)
   })
@@ -238,34 +238,6 @@ test.describe('envoi', () => {
 })
 
 test.describe('portée', () => {
-  test('un raccourci de persona n’apparaît que pour ce persona', async ({ app, page }) => {
-    const alice = await app.createPersona({ name: 'Alice' })
-    await app.createPersona({ name: 'Bea' })
-    await createPreset(page, { label: 'Partout', text: 'everywhere' })
-    await createPreset(page, { label: 'Tenue Alice', text: 'red dress', personaId: alice.id })
-    await app.gotoNew()
-
-    await openShortcuts(page)
-    await expect(shortcutOption(page, 'Partout')).toBeVisible()
-    await expect(shortcutOption(page, 'Tenue Alice')).toHaveCount(0)
-    await page.keyboard.press('Escape')
-
-    await app.selectPersona('Alice')
-    await openShortcuts(page)
-    await expect(shortcutOption(page, 'Partout')).toBeVisible()
-    await expect(shortcutOption(page, 'Tenue Alice')).toBeVisible()
-    await shortcutOption(page, 'Tenue Alice').click()
-    await page.keyboard.press('Escape')
-    await expect(contextTags(page)).toContainText('Tenue Alice')
-
-    // Autre persona : le raccourci d'Alice disparaît, son tag aussi.
-    await app.selectPersona('Bea')
-    await expect(contextTags(page)).toHaveCount(0)
-    await openShortcuts(page)
-    await expect(shortcutOption(page, 'Tenue Alice')).toHaveCount(0)
-    await expect(shortcutOption(page, 'Partout')).toBeVisible()
-  })
-
   test('un raccourci photo ou vidéo n’apparaît que pour ce type de média', async ({ app, page }) => {
     await createPreset(page, { label: 'Pour tout', text: 'all media', media: 'all' })
     await createPreset(page, { label: 'Photo iPhone', text: 'candid iPhone photo', media: 'image' })

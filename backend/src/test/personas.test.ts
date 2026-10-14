@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CONTEXT_BLOCK_STORED_MAX as CONTEXT_BLOCK_MAX, type Persona } from '@ai-fluence/shared';
+import { CONTEXT_BLOCK_STORED_MAX as CONTEXT_BLOCK_MAX, type Persona, type Thread } from '@ai-fluence/shared';
 import { call, signup, SEEDANCE_MINI, SEEDREAM_FLASH } from './helpers.js';
 
 const LORA = {
@@ -459,12 +459,14 @@ describe('PUT /personas/order', () => {
 });
 
 describe('DELETE /personas/:id', () => {
-  it('met le persona et ses fils à la corbeille, sans toucher aux autres fils', async () => {
+  it('met le persona à la corbeille, sans toucher aux fils', async () => {
     const me = await signup();
     const lea = await me.createPersona({ name: 'Léa' });
     const zoe = await me.createPersona({ name: 'Zoé' });
-    const { thread: leaThread } = await me.generate({ personaId: lea.id });
-    const { thread: zoeThread } = await me.generate({ personaId: zoe.id });
+    const leaRef = await me.uploadAsset({ personaId: lea.id, isReference: true });
+    const zoeRef = await me.uploadAsset({ personaId: zoe.id, isReference: true });
+    const { thread: leaThread } = await me.generate({ referenceAssetIds: [leaRef.id] });
+    const { thread: bothThread } = await me.generate({ referenceAssetIds: [leaRef.id, zoeRef.id] });
     const { thread: freeThread } = await me.generate();
 
     const res = await me.del(`/personas/${lea.id}`);
@@ -474,15 +476,17 @@ describe('DELETE /personas/:id', () => {
     const personas = (await me.get('/personas')).body.personas as Persona[];
     expect(personas.map(p => p.id)).toEqual([zoe.id]);
 
-    const threads = (await me.get('/threads')).body.threads as { id: string }[];
-    expect(threads.map(t => t.id).sort()).toEqual([zoeThread.id, freeThread.id].sort());
-    expect((await me.get(`/threads/${leaThread.id}`)).status).toBe(404);
-    expect((await me.get(`/threads?personaId=${lea.id}`)).body.threads).toEqual([]);
+    // Tous les fils restent, sans citer le persona supprimé.
+    const threads = (await me.get('/threads')).body.threads as Thread[];
+    expect(threads.map(t => t.id).sort()).toEqual([leaThread.id, bothThread.id, freeThread.id].sort());
+    const byId = new Map(threads.map(t => [t.id, t.personaIds]));
+    expect(byId.get(leaThread.id)).toEqual([]);
+    expect(byId.get(bothThread.id)).toEqual([zoe.id]);
+    expect((await me.get(`/threads/${leaThread.id}`)).status).toBe(200);
 
     const trash = (await me.get('/trash')).body;
     expect(trash.personas.map((p: { id: string }) => p.id)).toEqual([lea.id]);
-    expect(trash.personas[0].threadCount).toBe(1);
-    // Le fil est rangé sous son persona, pas listé à part.
+    expect(trash.personas[0].referenceCount).toBe(1);
     expect(trash.threads).toEqual([]);
   });
 

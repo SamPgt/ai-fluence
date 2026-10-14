@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EDIT_INSTRUCTION, assemblePrompt } from './prompt.js';
 
-const empty = { triggers: [], contexts: [], blocks: [] };
+const empty = { triggers: [], contexts: [] };
 
 describe('assemblePrompt', () => {
   it('prompt seul : envoyé tel quel, sans titre', () => {
@@ -13,7 +13,7 @@ describe('assemblePrompt', () => {
     expect(out).toBe(`# Prompt (important)\nchange le fond\n\n# Images\n${EDIT_INSTRUCTION}`);
   });
 
-  it('ordre : LoRA, demande, consigne, raccourcis, contexte du persona', () => {
+  it('ordre : LoRA, demande, consigne, raccourcis', () => {
     const out = assemblePrompt({
       prompt: 'portrait',
       triggers: ['ohwx', 'woman'],
@@ -22,10 +22,6 @@ describe('assemblePrompt', () => {
         { label: '', text: 'grain fin' },
         { label: 'Vide', text: '   ' },
       ],
-      blocks: [
-        { title: 'Visage', text: 'yeux verts' },
-        { title: '', text: 'cheveux roux' },
-      ],
       editFirstImage: true,
     });
     expect(out.split('\n\n').map(s => s.split('\n')[0])).toEqual([
@@ -33,12 +29,10 @@ describe('assemblePrompt', () => {
       '# Prompt (important)',
       '# Images',
       '# Détails',
-      '# Contexte général',
     ]);
     expect(out).toContain('# Lora\nohwx, woman');
     expect(out).toContain('# Détails\nLumière : douce et chaude\ngrain fin');
     expect(out).not.toContain('Vide');
-    expect(out).toContain('# Contexte général\n- Visage : yeux verts\n- cheveux roux');
   });
 
   it('sans édition : pas de section Images', () => {

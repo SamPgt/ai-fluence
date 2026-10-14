@@ -31,7 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { composer } from '@/lib/composer-store'
-import { catalogQuery, personasQuery, qk } from '@/lib/queries'
+import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import {
@@ -113,7 +113,6 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     delete params.seed
     return {
       threadId: g.threadId,
-      personaId: g.personaId,
       family,
       refMode: g.refMode,
       prompt: g.prompt,
@@ -129,7 +128,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
   }
   const { data: catalog } = useQuery(catalogQuery())
   const { data: personas = [] } = useQuery(personasQuery())
-  const persona = personas.find((p) => p.id === g.personaId) ?? null
+  const { data: settings } = useQuery(settingsQuery())
   const def = getFamily(g.family)
   const pending = generations.some(isPending)
   // Coût réel une fois connu, sinon l'estimation pendant la génération.
@@ -147,12 +146,18 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
         ? `≈ ${formatUsd(estimate)}`
         : null
 
+  // « Ajouter aux références » : d'un persona choisi dans le menu, ou de Général.
   const toReference = useMutation({
-    mutationFn: (asset: Asset) =>
-      assetsApi.setReference(asset.id, persona!.id, true),
-    onSuccess: () => {
-      toast.success(`Ajoutée aux références de ${persona!.name}`)
-      queryClient.invalidateQueries({ queryKey: qk.references(persona!.id) })
+    mutationFn: ({
+      asset,
+      owner,
+    }: {
+      asset: Asset
+      owner: { id: string; name: string }
+    }) => assetsApi.setReference(asset.id, owner.id, true),
+    onSuccess: (_, { owner }) => {
+      toast.success(`Ajoutée aux références : ${owner.name}`)
+      queryClient.invalidateQueries({ queryKey: ['references'] })
       queryClient.invalidateQueries({ queryKey: qk.personas })
     },
     onError: (e) => toast.error((e as Error).message),
@@ -162,7 +167,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
   /**
    * Modèle pour Éditer (image → image) ou Animer (image → vidéo) : le modèle de
    * cette génération s'il sait faire l'action (éditer = même demande, petite
-   * modification), sinon celui du persona, sinon celui de l'app.
+   * modification), sinon celui de Paramétrage, sinon celui de l'app.
    */
   const pickFamily = (
     media: 'image' | 'video',
@@ -174,8 +179,8 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       ok(g.family) ??
       ok(
         media === 'image'
-          ? persona?.defaultImageFamily
-          : persona?.defaultVideoFamily,
+          ? settings?.defaultImageFamily
+          : settings?.defaultVideoFamily,
       ) ??
       ok(APP_DEFAULT_FAMILY[media]) ??
       // Filet de sécurité : le modèle de l'app a été retiré du catalogue.
@@ -185,13 +190,13 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
 
   /**
    * LoRA de cette génération, avec les mots envoyés. Anciennes générations : les
-   * LoRA du persona pour ce modèle, sans mot (on ne réinjecte rien d'office).
+   * LoRA de leur persona d'origine pour ce modèle, sans mot (on ne réinjecte rien d'office).
    */
   const lorasOf = (family: string): Record<string, string[]> => {
     if (family !== g.family) return {}
     if (!g.loras.length && g.lorasApplied > 0) {
       return Object.fromEntries(
-        (persona?.loras ?? [])
+        (personas.find((p) => p.id === g.personaId)?.loras ?? [])
           .filter((l) => l.family === family)
           .map((l) => [l.id, []]),
       )
@@ -247,14 +252,29 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
           </ActionButton>
         </>
       )}
-      {persona && (
-        <ActionButton
-          onClick={() => toReference.mutate(asset)}
-          title={`Ajouter aux références de ${persona.name}`}
-        >
-          <BookmarkPlus className="h-3.5 w-3.5" />
-        </ActionButton>
-      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            title="Ajouter aux références"
+            aria-label="Ajouter aux références"
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition hover:bg-black/80"
+          >
+            <BookmarkPlus className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-44">
+          {[...personas, { id: 'general', name: 'Général' }].map((o) => (
+            <DropdownMenuItem
+              key={o.id}
+              onSelect={() => toReference.mutate({ asset, owner: o })}
+              className="text-xs"
+            >
+              {o.name}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <a
         href={`${asset.url}?download=1`}
         title="Télécharger"
@@ -387,7 +407,9 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                   className="h-3.5 w-px bg-muted-foreground/40"
                 />
               )}
-              {series && !removed && <span>Série · {generations.length} images</span>}
+              {series && !removed && (
+                <span>Série · {generations.length} images</span>
+              )}
               {hasResult && !removed && (
                 <ResultMenu series={series} onRemove={() => remove.mutate()} />
               )}

@@ -43,11 +43,19 @@ export interface Settings {
   /** Ex. `sk_••••1a2b`. Jamais la clé en clair. */
   elevenLabsKeyHint: string | null;
   enhanceModel: string;
+  /** Modèles proposés par défaut dans le composer (null : celui de l'app). */
+  defaultImageFamily: string | null;
+  defaultVideoFamily: string | null;
+  /** LoRA de Général (rangés dans aucun persona). */
+  loras: PersonaLora[];
 }
 
 export interface UpdateSettingsRequest {
   mediaDir?: string | null;
   enhanceModel?: string;
+  defaultImageFamily?: string | null;
+  defaultVideoFamily?: string | null;
+  loras?: PersonaLora[];
 }
 
 export interface SetApiKeyRequest {
@@ -310,11 +318,14 @@ export type PersonaInput = Omit<
 export interface Thread {
   id: string;
   title: string;
-  personaId: string | null;
+  /** Personas dont une référence a servi dans le fil (bulles à droite du titre). */
+  personaIds: string[];
   isPinned: boolean;
   totalCost: string;
   generationCount: number;
   coverUrl: string | null;
+  /** Les 3 dernières images du fil, de la plus récente à la plus ancienne (cartes de l'Accueil). */
+  previewUrls: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -382,7 +393,6 @@ export interface Generation {
 
 export interface GenerationRequest {
   threadId?: string | null;
-  personaId?: string | null;
   family: string;
   refMode?: VideoRefMode;
   prompt: string;
@@ -461,14 +471,11 @@ export interface PromptPreset {
   media: MediaKind | 'all';
   /** Affiché dans le composer. */
   enabled: boolean;
-  /** Persona propriétaire, ou `null` pour un raccourci disponible partout. */
-  personaId: string | null;
   position: number;
 }
 
 export interface EnhancePromptRequest {
   prompt: string;
-  personaId?: string | null;
   media: MediaKind;
 }
 
@@ -488,8 +495,8 @@ export interface TrashedPersona {
   name: string;
   color: string;
   avatarUrl: string | null;
-  /** Fils partis à la corbeille avec ce persona. */
-  threadCount: number;
+  /** Références parties à la corbeille avec ce persona. */
+  referenceCount: number;
   deletedAt: string;
   /** Date de suppression définitive. */
   purgeAt: string;
@@ -498,7 +505,6 @@ export interface TrashedPersona {
 export interface TrashedThread {
   id: string;
   title: string;
-  personaName: string | null;
   coverUrl: string | null;
   deletedAt: string;
   purgeAt: string;
@@ -594,8 +600,8 @@ export interface WorkflowRunRequest {
   expectedCost?: string;
   /** Valeurs des entrées « À fournir » (depuis un fil). */
   inputs?: Record<string, WorkflowInputValue>;
-  /** Lancement depuis un fil : ce fil, ou null pour en créer un (avec ce persona). */
-  thread?: { id: string | null; personaId: string | null };
+  /** Lancement depuis un fil : ce fil, ou null pour en créer un. */
+  thread?: { id: string | null };
 }
 
 export interface WorkflowRunStartResponse extends WorkflowStateResponse {

@@ -197,7 +197,7 @@ export function LibraryBrowser({
       {/* Fenêtre centrée (pas plein écran) : on pioche une image et on revient au composer. */}
       <DialogContent
         showCloseButton={false}
-        className="flex h-[min(780px,calc(100dvh-4rem))] w-[min(1120px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/60 bg-background p-0 sm:max-w-none"
+        className="flex h-[min(780px,calc(100dvh-4rem))] w-[min(1120px,calc(100vw-2rem-var(--sidebar-w,0px)))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/60 bg-background p-0 sm:max-w-none"
       >
         <DialogTitle className="sr-only">
           Choisir depuis une librairie

@@ -7,6 +7,7 @@ import { getFamily } from '@ai-fluence/shared'
 import { assetsApi } from '@/lib/api'
 import { personasQuery, qk } from '@/lib/queries'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
 import { MediaViewer } from '@/components/thread/MediaViewer'
 import { Button } from '@/components/ui/button'
 import {
@@ -57,14 +58,22 @@ function GalleryPage() {
               value={personaId ?? '__all'}
               onValueChange={(v) => setPersonaId(v === '__all' ? null : v)}
             >
-              <SelectTrigger size="sm" className="w-40">
+              <SelectTrigger size="sm" className="w-44">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all">Tous</SelectItem>
+                {/* Bulle du persona à gauche de son nom (aussi dans le bouton une fois choisi). */}
                 {personas.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.name}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <PersonaAvatar
+                        persona={p}
+                        size={18}
+                        className="rounded-md"
+                      />
+                      <span className="truncate">{p.name}</span>
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -145,8 +154,12 @@ function GalleryPage() {
                     search={{ g: generation.id }}
                     className={GALLERY_CAPTION}
                   >
-                    <span className="line-clamp-2">{generation.prompt || '(sans prompt)'}</span>
-                    <span className="text-white/60">{getFamily(generation.family)?.label}</span>
+                    <span className="line-clamp-2">
+                      {generation.prompt || '(sans prompt)'}
+                    </span>
+                    <span className="text-white/60">
+                      {getFamily(generation.family)?.label}
+                    </span>
                   </Link>
                 ) : generation.workflowId ? (
                   <Link
@@ -154,8 +167,13 @@ function GalleryPage() {
                     params={{ workflowId: generation.workflowId }}
                     className={GALLERY_CAPTION}
                   >
-                    <span className="line-clamp-2">{generation.prompt || '(sans prompt)'}</span>
-                    <span className="text-white/60">{getFamily(generation.family)?.label} · Voir dans le workflow</span>
+                    <span className="line-clamp-2">
+                      {generation.prompt || '(sans prompt)'}
+                    </span>
+                    <span className="text-white/60">
+                      {getFamily(generation.family)?.label} · Voir dans le
+                      workflow
+                    </span>
                   </Link>
                 ) : null)}
             </div>

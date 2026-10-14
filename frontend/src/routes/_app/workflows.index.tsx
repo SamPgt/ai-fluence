@@ -66,7 +66,7 @@ function WorkflowsPage() {
         right={
           <Button
             size="sm"
-            variant="outline"
+            variant="ghost"
             onClick={() => create.mutate()}
             disabled={create.isPending}
           >
