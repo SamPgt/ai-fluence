@@ -579,7 +579,8 @@ export async function speechFor(
   const ex = exaggeration ?? voice.exaggeration;
   const listened = await assetRow(listenedAssetId);
   if (listened && listened.kind === 'voice' && listened.personaId === personaId) {
-    if (listened.filePath.includes(speechKey(ref.id, ex, text))) {
+    const converted = listened.filePath.split(/[\\/]/).pop()!.startsWith(CONVERTED);
+    if (converted || listened.filePath.includes(speechKey(ref.id, ex, text))) {
       const data = new Uint8Array(await readFile(listened.filePath));
       return { data, seconds: wavSeconds(data) };
     }
@@ -592,6 +593,49 @@ export async function speechFor(
  * Écoute du texte dit depuis le composer, avant de lancer la vidéo : la piste est enregistrée (média `voice`)
  * pour être reprise telle quelle par la génération.
  */
+/** Préfixe des pistes faites par conversion de voix : reprises telles quelles par la vidéo, quel que soit le texte. */
+const CONVERTED = 'conversion-';
+
+/**
+ * Conversion de voix : la phrase enregistrée par l'utilisateur (WAV, préparé par le navigateur) est redite avec la voix
+ * du personnage ; rythme, pauses et émotion (rire, chuchotement…) viennent de l'enregistrement. La piste est gardée
+ * comme une piste écoutée (média `voice`) et reprise telle quelle par la vidéo.
+ */
+export async function convertSpeech(
+  user: SessionUser,
+  personaId: string,
+  recording: Uint8Array,
+): Promise<{ assetId: string; url: string; seconds: number }> {
+  const persona = await ownedPersona(user.id, personaId);
+  const { ref } = await speakerOf(persona.id);
+  if (recording.length < 44 || String.fromCharCode(...recording.slice(0, 4)) !== 'RIFF') {
+    throw new HTTPException(400, { message: 'Enregistrement illisible (WAV attendu).' });
+  }
+  const dir = await voiceDir(user, persona);
+  const stamp = Date.now();
+  const source = await saveFile(join(dir, `enregistrement-${stamp}.wav`), recording);
+  // ComfyUI garde ses modèles en VRAM : le décodeur de voix doit avoir sa place.
+  await freeComfyMemory().catch(() => undefined);
+  const res = await voicePost('/convert', { source: source.path, reference: ref.filePath }, TTS_TIMEOUT_MS);
+  const data = new Uint8Array(await res.arrayBuffer());
+  const seconds = wavSeconds(data);
+  const saved = await saveFile(join(dir, `${CONVERTED}${stamp}.wav`), data);
+  const [row] = await db
+    .insert(assets)
+    .values({
+      userId: user.id,
+      personaId: persona.id,
+      kind: 'voice',
+      mediaType: 'audio',
+      mime: 'audio/wav',
+      filePath: saved.path,
+      bytes: saved.bytes,
+      durationSeconds: seconds,
+    })
+    .returning({ id: assets.id });
+  return { assetId: row.id, url: mediaUrl(row.id), seconds };
+}
+
 export async function listenSpeech(
   user: SessionUser,
   personaId: string,

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Dice5, Film, Info, Loader2, MapPinned, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Volume2, X } from 'lucide-react'
+import { ArrowUp, Circle, Dice5, Film, Info, Loader2, MapPinned, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Square, Upload, Volume2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
@@ -35,6 +35,7 @@ import {
 } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { startRecording, toWav } from '@/lib/recording'
 import { Button } from '@/components/ui/button'
 import { ModelPicker } from './ModelPicker'
 import {
@@ -531,6 +532,46 @@ ${prompt}` : prompt)
   })
   const speechExaggeration =
     typeof params.speech_exaggeration === 'number' ? params.speech_exaggeration : (personaVoice?.exaggeration ?? null)
+  // Conversion de voix : la phrase dite par l'utilisateur (micro ou fichier) redite avec la voix du personnage. Son
+  // jeu (rythme, pauses, rire, chuchotement) est gardé : c'est elle qui sert de « Texte dit », telle quelle.
+  const [recorder, setRecorder] = useState<{ stop: () => Promise<Blob>; cancel: () => void; since: number } | null>(null)
+  const [converting, setConverting] = useState(false)
+  const voiceFileRef = useRef<HTMLInputElement>(null)
+  const convertVoice = async (wav: Blob) => {
+    if (!persona) return
+    setConverting(true)
+    try {
+      const info = await personasApi.convertSpeech(persona.id, wav)
+      setSpeechInfo(info)
+      setParam('speech', 'Voix enregistrée (convertie)')
+      setParam('speech_audio', info.assetId)
+      speechAudioRef.current?.pause()
+      const audio = new Audio(info.url)
+      speechAudioRef.current = audio
+      void audio.play()
+      toast.success(`Ta phrase, avec la voix de ${persona.name} : c’est elle qui sera utilisée.`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setConverting(false)
+    }
+  }
+  const toggleRecording = async () => {
+    if (recorder) {
+      setRecorder(null)
+      try {
+        await convertVoice(await recorder.stop())
+      } catch (e) {
+        toast.error((e as Error).message)
+      }
+      return
+    }
+    try {
+      setRecorder({ ...(await startRecording()), since: Date.now() })
+    } catch {
+      toast.error('Micro inaccessible : autorise-le dans le navigateur.')
+    }
+  }
   const listenSpeech = async () => {
     const text = typeof params.speech === 'string' ? params.speech.trim() : ''
     if (!persona || !text) return
@@ -869,6 +910,55 @@ ${prompt}` : prompt)
                 {listening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Volume2 className="h-3.5 w-3.5" />}
                 Écouter
               </button>
+              {/* Ma voix : dire la phrase soi-même (micro), avec l'émotion voulue ; elle est redite avec la voix du personnage. */}
+              <button
+                type="button"
+                onClick={toggleRecording}
+                disabled={!persona || converting}
+                className={cn(
+                  'flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs hover:bg-accent disabled:opacity-40',
+                  recorder ? 'text-red-400' : 'text-muted-foreground hover:text-foreground',
+                )}
+                title={
+                  recorder
+                    ? 'Arrêter : ta phrase est redite avec la voix du personnage'
+                    : 'Dire la phrase toi-même au micro, avec l’émotion voulue (rire, chuchotement…) : elle est redite avec la voix du personnage'
+                }
+              >
+                {converting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : recorder ? (
+                  <Square className="h-3 w-3 fill-current" />
+                ) : (
+                  <Circle className="h-3 w-3 fill-red-500 text-red-500" />
+                )}
+                {recorder ? <RecordingTime since={recorder.since} /> : 'Ma voix'}
+              </button>
+              <button
+                type="button"
+                onClick={() => voiceFileRef.current?.click()}
+                disabled={!persona || converting || Boolean(recorder)}
+                className="flex h-7 shrink-0 items-center rounded-full px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                title="Importer un enregistrement de ta phrase (MP3, WAV, M4A…) : il est redit avec la voix du personnage"
+              >
+                <Upload className="h-3.5 w-3.5" />
+              </button>
+              <input
+                ref={voiceFileRef}
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (!file) return
+                  try {
+                    await convertVoice(await toWav(file))
+                  } catch {
+                    toast.error('Fichier audio illisible.')
+                  }
+                }}
+              />
             </div>
           )}
           {schema?.properties?.speech && typeof params.speech === 'string' && params.speech.trim() && (
@@ -1175,4 +1265,15 @@ ${prompt}` : prompt)
       </div>
     </div>
   )
+}
+
+/** Durée de l'enregistrement en cours (m:ss). */
+function RecordingTime({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(t)
+  }, [])
+  const s = Math.floor((now - since) / 1000)
+  return <span className="tabular-nums">{`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`}</span>
 }

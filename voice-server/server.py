@@ -135,6 +135,8 @@ def convert(body: dict) -> bytes:
         ref_wav, _ = librosa.load(reference, sr=S3GEN_SR)
         ref_dict = m.s3gen.embed_ref(ref_wav[: 10 * S3GEN_SR], S3GEN_SR, device=m.device)
         src, _ = librosa.load(source, sr=S3_SR)
+        # Début et fin de l'enregistrement (clic du micro, silence) retirés ; les pauses à l'intérieur restent.
+        src, _ = librosa.effects.trim(src, top_db=40)
         with torch.inference_mode():
             tokens, _ = m.s3gen.tokenizer(torch.from_numpy(src).float().to(m.device)[None])
             wav, _ = m.s3gen.inference(speech_tokens=tokens, ref_dict=ref_dict)

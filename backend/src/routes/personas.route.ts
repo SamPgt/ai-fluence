@@ -9,7 +9,7 @@ import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { toPersona } from '../services/serialize.js';
 import { trashPersona } from '../services/trash.service.js';
-import { cancelCreation, copyVoice, createVoice, decideCandidate, importVoice, listVoices, getVoice, listenSpeech, previewVoice, updateVoice } from '../services/voice.service.js';
+import { cancelCreation, convertSpeech, copyVoice, createVoice, decideCandidate, importVoice, listVoices, getVoice, listenSpeech, previewVoice, updateVoice } from '../services/voice.service.js';
 import type { AppEnv } from '../types.js';
 
 const loraSchema = z.object({
@@ -152,6 +152,14 @@ const personasRoutes = new Hono<AppEnv>()
     return c.json({
       voice: await importVoice(c.get('user'), c.req.param('id'), { name: file.name, data: new Uint8Array(await file.arrayBuffer()) }),
     });
+  })
+  /** Conversion de voix : la phrase enregistrée (WAV) redite avec la voix du personnage, pour un « Texte dit ». */
+  .post('/:id/voice/convert', async c => {
+    const body = await c.req.parseBody();
+    const file = body.file;
+    if (!(file instanceof File)) return c.json({ error: 'Enregistrement manquant.' }, 400);
+    if (file.size > 25 * 1024 * 1024) return c.json({ error: 'Enregistrement trop long (25 Mo max).' }, 400);
+    return c.json(await convertSpeech(c.get('user'), c.req.param('id'), new Uint8Array(await file.arrayBuffer())));
   })
   .post('/:id/voice/copy', zValidator('json', z.object({ fromPersonaId: z.uuid() })), async c =>
     c.json({ voice: await copyVoice(c.get('user'), c.req.param('id'), c.req.valid('json').fromPersonaId) }),

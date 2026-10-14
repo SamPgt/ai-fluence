@@ -235,6 +235,12 @@ export const personasApi = {
       method: 'POST',
       body: { text, exaggeration },
     }),
+  /** Conversion de voix : la phrase enregistrée (WAV) redite avec la voix du personnage. */
+  convertSpeech: (id: string, wav: Blob) => {
+    const form = new FormData()
+    form.append('file', wav, 'enregistrement.wav')
+    return apiFetch<{ assetId: string; url: string; seconds: number }>(`/personas/${id}/voice/convert`, { method: 'POST', body: form })
+  },
   /** Essai de la voix : un WAV à écouter tout de suite (rien n'est enregistré). */
   previewVoice: async (id: string, body: { text: string; exaggeration?: number; candidate?: boolean }): Promise<Blob> => {
     const res = await fetch(`/api/personas/${id}/voice/preview`, {
