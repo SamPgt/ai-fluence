@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import app from './app.js';
 import { env } from './env.js';
 import { client, db } from './db/index.js';
+import { runMigrations } from './db/migrate.js';
 import { resumeWatchers } from './services/generation.service.js';
 import { schedulePurge } from './services/trash.service.js';
 import { resumeRuns } from './services/workflow-runner.service.js';
@@ -16,6 +17,8 @@ async function main() {
   await db.execute(sql`select 1`);
   const dbUrl = new URL(env.DATABASE_URL);
   console.log(`Connecté à PostgreSQL (${dbUrl.pathname.slice(1)}@${dbUrl.hostname})`);
+  // Avant tout le reste : le code qui suit peut compter sur les dernières tables.
+  await runMigrations();
 
   await mkdir(env.DATA_DIR, { recursive: true });
   console.log(`📁 Données locales : ${env.DATA_DIR}`);

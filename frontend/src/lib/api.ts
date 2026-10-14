@@ -34,9 +34,9 @@ import type {
   User,
   VoiceLibraryResponse,
   Workflow,
-  WorkflowGraph,
   WorkflowQuoteResponse,
   WorkflowRunRequest,
+  WorkflowRunStartResponse,
   WorkflowStateResponse,
   WorkflowSummary,
   UpdateWorkflowRequest,
@@ -245,10 +245,14 @@ export const workflowsApi = {
   update: (id: string, body: UpdateWorkflowRequest) =>
     apiFetch<{ workflow: Workflow }>(`/workflows/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/workflows/${id}`, { method: 'DELETE' }),
-  quote: (id: string, body: { graph: WorkflowGraph; nodeIds?: string[] }) =>
+  /** `template` : devis du formulaire d'un fil avant saisie (valeurs types, prix fixe). */
+  quote: (id: string, body: Pick<WorkflowRunRequest, 'graph' | 'nodeIds' | 'inputs'> & { template?: boolean }) =>
     apiFetch<WorkflowQuoteResponse>(`/workflows/${id}/quote`, { method: 'POST', body }),
   run: (id: string, body: WorkflowRunRequest) =>
-    apiFetch<WorkflowStateResponse>(`/workflows/${id}/runs`, { method: 'POST', body }),
+    apiFetch<WorkflowRunStartResponse>(`/workflows/${id}/runs`, { method: 'POST', body }),
   state: (id: string) => apiFetch<WorkflowStateResponse>(`/workflows/${id}/state`),
   stop: (id: string) => apiFetch<WorkflowStateResponse>(`/workflows/${id}/stop`, { method: 'POST' }),
+  /** Résultat d'une exécution lancée depuis un fil : le supprimer du fil, ou le remettre. */
+  removeRunResult: (runId: string) => apiFetch<{ ok: true }>(`/workflows/runs/${runId}/result`, { method: 'DELETE' }),
+  restoreRunResult: (runId: string) => apiFetch<{ ok: true }>(`/workflows/runs/${runId}/result/restore`, { method: 'POST' }),
 }

@@ -12,7 +12,16 @@ import { useDraft } from './useDraft'
 export interface MentionOption {
   n: number
   label: string
+  /** Image d'une entrée « À fournir » : connue seulement au lancement (affichée en jaune). */
+  pending?: boolean
 }
+
+/** Couleur d'une mention : image présente (bleu), fournie au lancement (jaune), inexistante (rouge). */
+const MENTION_CLASS = {
+  known: 'text-sky-400',
+  pending: 'text-amber-300',
+  unknown: 'text-red-400 underline decoration-dotted underline-offset-2',
+} as const
 
 const TOKEN = /(@image\d+)/gi
 /** « @ » puis le début d'une mention, juste avant le curseur. */
@@ -77,9 +86,10 @@ export function MentionTextarea({
     setMenu(null)
   }
 
-  const known = (token: string) => {
+  const stateOf = (token: string): keyof typeof MENTION_CLASS => {
     const n = Number(token.slice('@image'.length))
-    return Boolean(options?.some((o) => o.n === n))
+    const option = options?.find((o) => o.n === n)
+    return !option ? 'unknown' : option.pending ? 'pending' : 'known'
   }
 
   return (
@@ -90,8 +100,9 @@ export function MentionTextarea({
             <span
               key={i}
               data-testid="mention"
-              data-known={known(part) || undefined}
-              className={known(part) ? 'text-sky-400' : 'text-red-400 underline decoration-dotted underline-offset-2'}
+              data-known={stateOf(part) !== 'unknown' || undefined}
+              data-state={stateOf(part)}
+              className={MENTION_CLASS[stateOf(part)]}
             >
               {part}
             </span>
@@ -160,7 +171,7 @@ export function MentionTextarea({
                 i === active ? 'bg-accent' : 'hover:bg-accent/60',
               )}
             >
-              <span className="text-sky-400">@image{o.n}</span>
+              <span className={o.pending ? 'text-amber-300' : 'text-sky-400'}>@image{o.n}</span>
               <span className="truncate text-xs text-muted-foreground">{o.label}</span>
             </button>
           ))}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Generation } from '@ai-fluence/shared'
+import type { Generation, ThreadWorkflowRun } from '@ai-fluence/shared'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
@@ -12,6 +12,7 @@ import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
 import { Composer } from '@/components/composer/Composer'
 import { ThreadMediaProvider } from '@/components/thread/ThreadMedia'
 import { GenerationItem } from '@/components/thread/GenerationItem'
+import { WorkflowRunItem } from '@/components/thread/WorkflowRunItem'
 import { useRenameThread } from '@/components/thread/useRenameThread'
 import { InlineEdit } from '@/components/ui/inline-edit'
 
@@ -31,7 +32,7 @@ function ThreadPage() {
   const { data: personas = [] } = useQuery(personasQuery())
   const persona = personas.find((p) => p.id === data?.thread.personaId) ?? null
   const bottomRef = useRef<HTMLDivElement>(null)
-  const count = data?.generations.length ?? 0
+  const count = (data?.generations.length ?? 0) + (data?.workflowRuns.length ?? 0)
 
   // Une série (demande ×N) s'affiche en un seul bloc : ses générations sont regroupées.
   const groups = useMemo(() => {
@@ -43,6 +44,17 @@ function ThreadPage() {
     }
     return out
   }, [data?.generations])
+
+  const items = useMemo(() => {
+    const list: (
+      | { kind: 'group'; at: string; group: Generation[] }
+      | { kind: 'run'; at: string; run: ThreadWorkflowRun }
+    )[] = [
+      ...groups.map((group) => ({ kind: 'group' as const, at: group[0].createdAt, group })),
+      ...(data?.workflowRuns ?? []).map((run) => ({ kind: 'run' as const, at: run.createdAt, run })),
+    ]
+    return list.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+  }, [groups, data?.workflowRuns])
 
   // Défilement : tout en bas à l'ouverture du fil, et on y reste pendant que les
   // images se chargent (elles agrandissent la page). Si la personne remonte, on
@@ -214,9 +226,14 @@ function ThreadPage() {
             </p>
           )}
           <ThreadMediaProvider groups={groups}>
-            {groups.map((group) => (
-              <GenerationItem key={group[0].id} generations={group} />
-            ))}
+            {/* Demandes et workflows lancés depuis le fil, dans l'ordre chronologique. */}
+            {items.map((item) =>
+              item.kind === 'group' ? (
+                <GenerationItem key={item.group[0].id} generations={item.group} />
+              ) : (
+                <WorkflowRunItem key={item.run.id} run={item.run} threadId={threadId} />
+              ),
+            )}
           </ThreadMediaProvider>
           <div ref={bottomRef} />
         </div>

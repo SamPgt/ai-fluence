@@ -401,6 +401,8 @@ export interface ImageSlot {
   sourceId: string;
   /** Pour une sortie qui fournit plusieurs images (Image source) : rang de l'image. */
   index: number;
+  /** Image d'une entrée « À fournir » : connue seulement au lancement. */
+  pending?: boolean;
 }
 
 /**
@@ -420,7 +422,10 @@ export function imageSlots(graph: WorkflowGraph, nodeId: string): ImageSlot[] {
   for (const e of edges) {
     const source = byId.get(e.source);
     const count = imagesCarried(source);
-    for (let i = 0; i < count; i++) slots.push({ n: slots.length + 1, sourceId: e.source, index: i });
+    const pending = source ? isExposed(source) : false;
+    for (let i = 0; i < count; i++) {
+      slots.push({ n: slots.length + 1, sourceId: e.source, index: i, ...(pending ? { pending } : {}) });
+    }
   }
   return slots;
 }
@@ -431,9 +436,15 @@ export const MENTION_RE = /@image(\d+)/gi;
 /** Envoyé au modèle : « @image2 » devient « image 2 », la formulation que les modèles comprennent. */
 export const resolveMentions = (text: string) => text.replace(MENTION_RE, (_, n: string) => `image ${n}`);
 
-/** Nombre d'images portées par une sortie : celles d'un nœud Image source, sinon une. */
+/**
+ * Nombre d'images portées par une sortie : celles d'un nœud Image source (au moins une
+ * s'il est « À fournir » : on la donnera au lancement), sinon une.
+ */
 export function imagesCarried(source: WorkflowNode | undefined): number {
-  return source?.type === 'image-source' ? strings(source.data.assetIds).length : 1;
+  if (source?.type !== 'image-source') return 1;
+  // « À fournir » : le nombre maximum d'images réglé dans le nœud.
+  if (source.data.exposed === true) return maxImagesOf(source);
+  return strings(source.data.assetIds).length;
 }
 
 // ── Anciens graphes ───────────────────────────────────────────
@@ -497,4 +508,127 @@ export function textPlan(
   if (!source) return { ok: false, reason: 'Le texte à traiter est vide.' };
   if (!instruction) return { ok: false, reason: 'Écris une consigne.' };
   return { ok: true, plan: { kind: 'llm', model, text: `Consigne : ${instruction}\n\nTexte :\n${resolveMentions(source)}`, imageIds } };
+}
+
+// ── Entrées « À fournir » (workflow utilisé depuis un fil) ────
+
+/** Entrée d'un workflow à remplir au lancement (nœud Texte ou Image source « À fournir »). */
+export interface WorkflowInput {
+  nodeId: string;
+  kind: 'text' | 'image';
+  /** Libellé affiché dans le formulaire. */
+  label: string;
+  /** Valeur du nœud dans le workflow : proposée par défaut. */
+  defaultText: string;
+  defaultAssetIds: string[];
+  /** Images : nombre maximum fourni au lancement (fixe le prix, réserve les numéros @image). */
+  maxImages: number;
+}
+
+/** Bornes du nombre d'images d'une entrée « À fournir ». */
+export const INPUT_MAX_IMAGES = { min: 1, max: 10 } as const;
+
+/** Nombre maximum d'images d'une Image source « À fournir » (1 par défaut). */
+export function maxImagesOf(node: WorkflowNode): number {
+  const n = Math.round(Number(node.data.maxImages));
+  return Number.isFinite(n) && n >= INPUT_MAX_IMAGES.min ? Math.min(INPUT_MAX_IMAGES.max, n) : INPUT_MAX_IMAGES.min;
+}
+
+/** Valeur saisie pour une entrée. */
+export interface WorkflowInputValue {
+  text?: string;
+  assetIds?: string[];
+}
+
+export const isExposed = (node: WorkflowNode) =>
+  (node.type === 'text' || node.type === 'image-source') && node.data.exposed === true;
+
+/** Entrées à fournir, dans l'ordre du canvas (de haut en bas, puis de gauche à droite). */
+export function workflowInputs(graph: WorkflowGraph): WorkflowInput[] {
+  return graph.nodes
+    .filter(isExposed)
+    .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
+    .map(n => ({
+      nodeId: n.id,
+      kind: n.type === 'text' ? ('text' as const) : ('image' as const),
+      label: str(n.data.label).trim(),
+      defaultText: str(n.data.text),
+      defaultAssetIds: strings(n.data.assetIds),
+      maxImages: maxImagesOf(n),
+    }));
+}
+
+/** Pourquoi ce workflow ne peut pas encore servir dans un fil (null : il peut). */
+export function threadUsableError(graph: WorkflowGraph): string | null {
+  const inputs = workflowInputs(graph);
+  if (!inputs.length) return 'Aucune entrée « À fournir » : active-la sur un nœud Texte ou Image source.';
+  if (inputs.some(i => !i.label)) return 'Chaque entrée « À fournir » a besoin d’un libellé.';
+  return null;
+}
+
+/**
+ * Graphe à exécuter avec les valeurs saisies : chaque entrée prend la valeur donnée, ou sa
+ * valeur par défaut. Le workflow enregistré n'est pas modifié.
+ */
+export function applyInputs(
+  graph: WorkflowGraph,
+  values: Record<string, WorkflowInputValue>,
+): { ok: true; graph: WorkflowGraph } | { ok: false; reason: string } {
+  const inputs = new Map(workflowInputs(graph).map(i => [i.nodeId, i]));
+  for (const id of Object.keys(values)) {
+    if (!inputs.has(id)) return { ok: false, reason: 'Cette entrée n’existe pas dans le workflow.' };
+  }
+  const nodes = graph.nodes.map(n => {
+    const input = inputs.get(n.id);
+    if (!input) return n;
+    const v = values[n.id];
+    if (input.kind === 'text') {
+      const text = v?.text !== undefined ? v.text : input.defaultText;
+      return { ...n, data: { ...n.data, text } };
+    }
+    const assetIds = v?.assetIds !== undefined ? v.assetIds : input.defaultAssetIds;
+    return { ...n, data: { ...n.data, assetIds } };
+  });
+  const result = { ...graph, nodes };
+  for (const input of inputs.values()) {
+    const node = nodes.find(n => n.id === input.nodeId)!;
+    const empty = input.kind === 'text' ? !str(node.data.text).trim() : !strings(node.data.assetIds).length;
+    if (empty) return { ok: false, reason: `« ${input.label || 'Entrée'} » est vide.` };
+    if (input.kind === 'image' && strings(node.data.assetIds).length > input.maxImages) {
+      return {
+        ok: false,
+        reason: `« ${input.label} » : ${input.maxImages} image${input.maxImages > 1 ? 's' : ''} au maximum.`,
+      };
+    }
+  }
+  return { ok: true, graph: result };
+}
+
+/**
+ * Nœuds dont les résultats sont le résultat final : les sources des nœuds Résultat, sinon
+ * les nœuds payants qui ne mènent à rien.
+ */
+export function finalNodeIds(graph: WorkflowGraph): string[] {
+  const outputs = graph.nodes.filter(n => n.type === 'output').map(n => n.id);
+  if (outputs.length) {
+    return [...new Set(graph.edges.filter(e => outputs.includes(e.target)).map(e => e.source))];
+  }
+  const sources = new Set(graph.edges.map(e => e.source));
+  return graph.nodes.filter(n => isPaidNode(n) && !sources.has(n.id)).map(n => n.id);
+}
+
+/**
+ * Valeurs types d'un formulaire, pour chiffrer le workflow avant toute saisie : chaque
+ * texte (sa valeur par défaut, sinon un mot), chaque entrée image avec son nombre maximum
+ * d'images. Le prix ne dépend donc pas de ce que la personne remplit.
+ */
+export function templateInputs(graph: WorkflowGraph, standInImageId: string): Record<string, WorkflowInputValue> {
+  return Object.fromEntries(
+    workflowInputs(graph).map(i => [
+      i.nodeId,
+      i.kind === 'text'
+        ? { text: i.defaultText.trim() || 'texte' }
+        : { assetIds: Array.from({ length: i.maxImages }, () => standInImageId) },
+    ]),
+  );
 }

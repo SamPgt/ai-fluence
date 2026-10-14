@@ -4,7 +4,7 @@
  */
 import type { InputSchema, VideoRefMode } from './input';
 import type { MediaKind, ModelBadge, ProviderId, TaskKind } from './models';
-import type { WorkflowGraph } from './workflow';
+import type { WorkflowGraph, WorkflowInputValue } from './workflow';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -439,6 +439,8 @@ export interface PriceChangedResponse {
 export interface ThreadDetailResponse {
   thread: Thread;
   generations: Generation[];
+  /** Workflows lancés depuis ce fil (formulaire au-dessus du composer). */
+  workflowRuns: ThreadWorkflowRun[];
 }
 
 export interface SearchResult {
@@ -524,6 +526,9 @@ export interface WorkflowSummary {
   id: string;
   name: string;
   nodeCount: number;
+  /** Entrées « À fournir » : utilisable depuis un fil quand il y en a et que toutes ont un libellé. */
+  inputCount: number;
+  usableInThread: boolean;
   /** Couverture choisie (null : aucune, la liste montre alors la dernière image produite). */
   coverAssetId: string | null;
   /** Image affichée en couverture : celle choisie, sinon la dernière produite par le workflow. */
@@ -581,12 +586,46 @@ export interface WorkflowStateResponse {
 }
 
 export interface WorkflowRunRequest {
-  /** Graphe tel qu'affiché : enregistré avant le lancement. */
-  graph: WorkflowGraph;
+  /** Graphe tel qu'affiché (éditeur) : enregistré avant le lancement. Absent : le workflow enregistré. */
+  graph?: WorkflowGraph;
   /** Nœuds à lancer (absent : tous les nœuds payants). */
   nodeIds?: string[];
   /** Devis confirmé par l'utilisateur. */
   expectedCost?: string;
+  /** Valeurs des entrées « À fournir » (depuis un fil). */
+  inputs?: Record<string, WorkflowInputValue>;
+  /** Lancement depuis un fil : ce fil, ou null pour en créer un (avec ce persona). */
+  thread?: { id: string | null; personaId: string | null };
+}
+
+export interface WorkflowRunStartResponse extends WorkflowStateResponse {
+  /** Fil où s'affiche l'exécution (créé au besoin). */
+  threadId: string | null;
+}
+
+/** Valeur saisie au lancement depuis un fil, telle qu'affichée dans la bulle. */
+export interface WorkflowRunInput {
+  nodeId: string;
+  label: string;
+  text?: string;
+  assetIds?: string[];
+}
+
+/** Exécution lancée depuis un fil, affichée à sa place dans la conversation. */
+export interface ThreadWorkflowRun {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  coverUrl: string | null;
+  status: WorkflowRunStatus;
+  inputs: (WorkflowRunInput & { assets: Asset[] })[];
+  /** Résultat final : médias des nœuds finaux de cette exécution. */
+  outputs: Asset[];
+  /** Résultat supprimé du fil (réversible) : il est masqué partout. */
+  removed: boolean;
+  cost: string | null;
+  errorMessage: string | null;
+  createdAt: string;
 }
 
 export interface WorkflowQuoteResponse {

@@ -58,9 +58,12 @@ export const threadQuery = (id: string) =>
   queryOptions({
     queryKey: qk.thread(id),
     queryFn: () => threadsApi.get(id),
-    // Tant qu'une génération tourne, on rafraîchit le fil.
+    // Tant qu'une génération ou un workflow tourne, on rafraîchit le fil.
     refetchInterval: (q) =>
-      q.state.data?.generations.some((g) => g.status === 'queued' || g.status === 'running') ? 2500 : false,
+      q.state.data?.generations.some((g) => g.status === 'queued' || g.status === 'running') ||
+      q.state.data?.workflowRuns.some((r) => r.status === 'running')
+        ? 2500
+        : false,
   })
 
 export const workflowsQuery = () =>

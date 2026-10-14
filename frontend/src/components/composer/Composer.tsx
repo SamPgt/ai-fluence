@@ -65,6 +65,7 @@ import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 import { LibraryBrowser } from './LibraryBrowser'
 import { VoicePicker } from './VoicePicker'
+import { WorkflowForm, WorkflowPickerButton } from './WorkflowForm'
 import { VOICE_ENABLED } from '@/lib/features'
 import { MediaViewer } from '@/components/thread/MediaViewer'
 
@@ -237,6 +238,9 @@ export function Composer({
   // Réinitialiser : visible dès qu'il y a du contenu (texte ou image), pas pour un simple réglage.
   const defaultFamily = pickFamily(media, { memory: false })
   const canReset = !isEmptyDraft(state)
+  // Workflow lancé depuis le fil : son formulaire s'affiche au-dessus du composer.
+  const [workflowFormId, setWorkflowFormId] = useState<string | null>(null)
+  useEffect(() => setWorkflowFormId(null), [threadId])
   const [undoReset, setUndoReset] = useState<ReturnType<
     typeof composer.reset
   > | null>(null)
@@ -587,16 +591,26 @@ export function Composer({
           onFiles(e.dataTransfer.files)
         }}
       >
-        <ContextChips
-          media={family?.media ?? 'image'}
-          personaId={personaId}
-          activeIds={state.contextIds}
-          onToggle={composer.toggleContext}
-          loras={personaLoras}
-          activeLoras={state.loras}
-          onToggleLora={composer.toggleLora}
-          onToggleLoraWord={composer.toggleLoraWord}
-        />
+        {/* Workflow choisi : son formulaire prend la place de la rangée des raccourcis. */}
+        {workflowFormId ? (
+          <WorkflowForm
+            workflowId={workflowFormId}
+            threadId={threadId}
+            personaId={personaId}
+            onClose={() => setWorkflowFormId(null)}
+          />
+        ) : (
+          <ContextChips
+            media={family?.media ?? 'image'}
+            personaId={personaId}
+            activeIds={state.contextIds}
+            onToggle={composer.toggleContext}
+            loras={personaLoras}
+            activeLoras={state.loras}
+            onToggleLora={composer.toggleLora}
+            onToggleLoraWord={composer.toggleLoraWord}
+          />
+        )}
 
         <div
           className={cn(
@@ -927,6 +941,7 @@ export function Composer({
                   state.family && composer.resetParams(state.family)
                 }
               />
+              <WorkflowPickerButton onPick={setWorkflowFormId} active={Boolean(workflowFormId)} />
               {showRefToggle && (
                 <div className="flex h-8 items-center rounded-full border border-border/60 bg-background/40 p-0.5 text-[11px]">
                   {(['start-frame', 'reference'] as const).map((m) => (

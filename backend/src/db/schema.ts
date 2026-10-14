@@ -10,7 +10,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind, WorkflowGraph, WorkflowNodeStatus, WorkflowRunStatus } from '@ai-fluence/shared';
+import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind, WorkflowGraph, WorkflowNodeStatus, WorkflowRunInput, WorkflowRunStatus } from '@ai-fluence/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -259,6 +259,10 @@ export const workflowRuns = pgTable(
     nodeIds: jsonb('node_ids').$type<string[]>().notNull().default([]),
     /** Graphe au lancement (instantané : l'exécution ne suit pas les modifications faites pendant). */
     graph: jsonb('graph').$type<WorkflowGraph>().notNull(),
+    /** Lancée depuis un fil : affichée dans ce fil, à sa place dans la conversation. */
+    threadId: uuid('thread_id').references(() => threads.id, { onDelete: 'set null' }),
+    /** Valeurs saisies dans le formulaire du fil (instantané, pour la bulle). */
+    inputs: jsonb('inputs').$type<WorkflowRunInput[]>().notNull().default([]),
     /** Devis confirmé par l'utilisateur ; l'exécution s'arrête avant de le dépasser de plus de 20 %. */
     estimatedCost: text('estimated_cost'),
     errorMessage: text('error_message'),

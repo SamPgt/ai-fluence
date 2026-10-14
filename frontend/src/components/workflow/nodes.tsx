@@ -18,16 +18,20 @@ import {
   ChevronRight,
   Copy,
   ImagePlus,
+  Minus,
+  Plus,
   Loader2,
   SlidersHorizontal,
   TriangleAlert,
   Upload,
   X,
+  TextCursorInput,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   WORKFLOW_NODES,
   WORKFLOW_TEXT_MODEL_DEFAULT,
+  INPUT_MAX_IMAGES,
   imageSlots,
   imagesCarried,
   resolveTask,
@@ -68,6 +72,103 @@ const mediaUrl = (id: string) => `/api/media/${id}`
 const FIELD =
   'w-full resize-none rounded-lg border border-border/60 bg-background/60 px-2.5 py-2 text-[13px] leading-snug outline-none placeholder:text-muted-foreground/50 focus:border-border'
 
+/**
+ * Pastille « À fournir au lancement » : le nœud devient un champ du formulaire du fil,
+ * avec ce libellé ; son contenu actuel sert de valeur par défaut.
+ */
+function ExposedField({
+  id,
+  data,
+  images,
+}: {
+  id: string
+  data: Data
+  images?: boolean
+}) {
+  const set = useNodeData(id)
+  const exposed = data.exposed === true
+  const label = useDraft(str(data.label), (v) => set({ label: v }))
+  const max = Math.min(
+    INPUT_MAX_IMAGES.max,
+    Math.max(INPUT_MAX_IMAGES.min, Number(data.maxImages) || 1),
+  )
+  return (
+    <div className="space-y-2 border-t border-border/40 pt-2.5">
+      {/* Pastille à cocher : grise, puis bleue quand le nœud devient un champ du formulaire. */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={exposed}
+        aria-label="À fournir au lancement"
+        onClick={() => set({ exposed: !exposed })}
+        className={cn(
+          'flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] transition-colors',
+          exposed
+            ? 'border-sky-400/40 bg-sky-400/15 text-sky-300'
+            : 'border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground',
+        )}
+      >
+        <TextCursorInput className="h-3.5 w-3.5" />À fournir au lancement
+      </button>
+      {exposed && (
+        <label className="block space-y-1">
+          <span className="text-[11px] text-muted-foreground">
+            Libellé dans le formulaire
+          </span>
+          <input
+            aria-label="Libellé du champ"
+            value={label.value}
+            onChange={(e) => label.onChange(e.target.value)}
+            onFocus={label.onFocus}
+            onBlur={label.onBlur}
+            placeholder="Photo du produit, Ce que dit le personnage…"
+            className={cn(
+              FIELD,
+              'py-1.5',
+              !label.value.trim() && 'border-amber-500/60',
+            )}
+          />
+        </label>
+      )}
+      {/* Nombre d'images fourni au lancement (images seulement) : fixe le prix et les numéros @image. */}
+      {exposed && images && (
+        <div
+          className="flex items-center text-[11px] text-muted-foreground"
+          aria-label="Images max"
+        >
+          <span className="flex-1">Images max</span>
+          <div className="flex items-center rounded-lg border border-border/60">
+            <button
+              type="button"
+              aria-label="Une image de moins"
+              disabled={max <= INPUT_MAX_IMAGES.min}
+              onClick={() => set({ maxImages: max - 1 })}
+              className="grid h-6 w-6 place-items-center rounded-l-lg hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <Minus className="h-3 w-3" />
+            </button>
+            <span
+              data-testid="max-images"
+              className="w-5 text-center text-foreground tabular-nums"
+            >
+              {max}
+            </span>
+            <button
+              type="button"
+              aria-label="Une image de plus"
+              disabled={max >= INPUT_MAX_IMAGES.max}
+              onClick={() => set({ maxImages: max + 1 })}
+              className="grid h-6 w-6 place-items-center rounded-r-lg hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Champ de texte d'un nœud : son propre texte (cf. useDraft), transmis au nœud à chaque frappe. */
 function NodeTextarea({
   value,
@@ -94,7 +195,12 @@ function NodeTextarea({
       onBlur={draft.onBlur}
       placeholder={placeholder}
       rows={rows}
-      className={cn(FIELD, 'field-sizing-content', className, draft.focused && 'nowheel')}
+      className={cn(
+        FIELD,
+        'field-sizing-content',
+        className,
+        draft.focused && 'nowheel',
+      )}
     />
   )
 }
@@ -122,13 +228,15 @@ function useMentionOptions(id: string): MentionOption[] | null {
   return imageSlots(graph, target.target).map((slot) => {
     const source = nodes.find((n) => n.id === slot.sourceId)
     const type = source?.type as WorkflowNodeType | undefined
-    const label =
-      type === 'image-source'
+    // Entrée « À fournir » : son libellé, l'image arrivera au lancement.
+    const label = slot.pending
+      ? `${str(source?.data.label) || 'Image source'} · fournie au lancement`
+      : type === 'image-source'
         ? `Image source${imagesCarried(source as Parameters<typeof imagesCarried>[0]) > 1 ? ` · image ${slot.index + 1}` : ''}`
         : type
           ? WORKFLOW_NODES[type].label
           : 'Image'
-    return { n: slot.n, label }
+    return { n: slot.n, label, pending: slot.pending }
   })
 }
 
@@ -136,7 +244,12 @@ function TextNode({ id, data, selected }: NodeProps) {
   const set = useNodeData(id)
   const options = useMentionOptions(id)
   return (
-    <NodeShell id={id} type="text" selected={selected}>
+    <NodeShell
+      id={id}
+      type="text"
+      selected={selected}
+      exposed={data.exposed === true}
+    >
       <MentionTextarea
         ariaLabel="Texte du nœud"
         value={str(data.text)}
@@ -150,6 +263,7 @@ function TextNode({ id, data, selected }: NodeProps) {
           {options.length > 1 ? `1 à ${options.length}` : '1'}).
         </p>
       )}
+      <ExposedField id={id} data={data} />
     </NodeShell>
   )
 }
@@ -159,7 +273,9 @@ function ImageSourceNode({ id, data, selected }: NodeProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(0)
   const [libraryOpen, setLibraryOpen] = useState(false)
-  const assetIds = Array.isArray(data.assetIds) ? (data.assetIds as string[]) : []
+  const assetIds = Array.isArray(data.assetIds)
+    ? (data.assetIds as string[])
+    : []
   // Lecture fraîche à chaque ajout : plusieurs imports peuvent se terminer à la suite.
   const { getNode } = useReactFlow()
   const current = () => {
@@ -172,7 +288,11 @@ function ImageSourceNode({ id, data, selected }: NodeProps) {
   }
   const toggle = (asset: Asset) => {
     const ids = current()
-    set({ assetIds: ids.includes(asset.id) ? ids.filter((x) => x !== asset.id) : [...ids, asset.id] })
+    set({
+      assetIds: ids.includes(asset.id)
+        ? ids.filter((x) => x !== asset.id)
+        : [...ids, asset.id],
+    })
   }
   const upload = async (files: FileList | null) => {
     for (const file of Array.from(files ?? [])) {
@@ -188,7 +308,12 @@ function ImageSourceNode({ id, data, selected }: NodeProps) {
   }
 
   return (
-    <NodeShell id={id} type="image-source" selected={selected}>
+    <NodeShell
+      id={id}
+      type="image-source"
+      selected={selected}
+      exposed={data.exposed === true}
+    >
       <input
         ref={fileRef}
         type="file"
@@ -202,14 +327,28 @@ function ImageSourceNode({ id, data, selected }: NodeProps) {
         }}
       />
       {assetIds.length === 1 && !uploading ? (
-        <SourceThumb assetId={assetIds[0]} onRemove={() => set({ assetIds: [] })} large />
+        <SourceThumb
+          assetId={assetIds[0]}
+          onRemove={() => set({ assetIds: [] })}
+          large
+        />
       ) : assetIds.length || uploading ? (
         <div className="grid grid-cols-3 gap-1.5">
           {assetIds.map((assetId, i) => (
-            <SourceThumb key={assetId} assetId={assetId} number={i + 1} onRemove={() => set({ assetIds: assetIds.filter((x) => x !== assetId) })} />
+            <SourceThumb
+              key={assetId}
+              assetId={assetId}
+              number={i + 1}
+              onRemove={() =>
+                set({ assetIds: assetIds.filter((x) => x !== assetId) })
+              }
+            />
           ))}
           {Array.from({ length: uploading }).map((_, i) => (
-            <div key={`up-${i}`} className="grid aspect-square place-items-center rounded-md border border-dashed border-border/60">
+            <div
+              key={`up-${i}`}
+              className="grid aspect-square place-items-center rounded-md border border-dashed border-border/60"
+            >
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
           ))}
@@ -242,6 +381,7 @@ function ImageSourceNode({ id, data, selected }: NodeProps) {
         onImport={add}
         personal={{ selectedIds: assetIds, onToggle: toggle }}
       />
+      <ExposedField id={id} data={data} images />
     </NodeShell>
   )
 }
@@ -259,12 +399,21 @@ function SourceThumb({
   onRemove: () => void
 }) {
   return (
-    <div className={cn('group relative overflow-hidden rounded-md border border-border/40 bg-black/20', !large && 'aspect-square')}>
+    <div
+      className={cn(
+        'group relative overflow-hidden rounded-md border border-border/40 bg-black/20',
+        !large && 'aspect-square',
+      )}
+    >
       <img
         src={mediaUrl(assetId)}
         alt="Image source"
         draggable={false}
-        className={large ? 'max-h-56 w-full object-contain' : 'h-full w-full object-cover'}
+        className={
+          large
+            ? 'max-h-56 w-full object-contain'
+            : 'h-full w-full object-cover'
+        }
       />
       {number !== undefined && (
         <span className="absolute bottom-1 left-1 grid h-4 min-w-4 place-items-center rounded bg-black/70 px-1 text-[10px] font-medium text-white tabular-nums">
@@ -358,7 +507,7 @@ function DescribeNode({ id, data, selected }: NodeProps) {
         rows={2}
         className="max-h-40 min-h-12"
       />
-    <TextResults id={id} activeResultId={str(data.activeResultId)} />
+      <TextResults id={id} activeResultId={str(data.activeResultId)} />
     </NodeShell>
   )
 }
@@ -379,7 +528,7 @@ function LlmNode({ id, data, selected }: NodeProps) {
         rows={3}
         className="max-h-48 min-h-16"
       />
-    <TextResults id={id} activeResultId={str(data.activeResultId)} />
+      <TextResults id={id} activeResultId={str(data.activeResultId)} />
     </NodeShell>
   )
 }
@@ -653,7 +802,13 @@ function NodeResults({
  * Résultat d'un nœud de texte IA : état de la dernière exécution, texte actif (celui qui
  * part aux nœuds suivants, sélectionnable et copiable), puis les versions précédentes.
  */
-function TextResults({ id, activeResultId }: { id: string; activeResultId: string }) {
+function TextResults({
+  id,
+  activeResultId,
+}: {
+  id: string
+  activeResultId: string
+}) {
   const set = useNodeData(id)
   const results = useNodeResults(id)
   const latest = results[0]
@@ -662,16 +817,25 @@ function TextResults({ id, activeResultId }: { id: string; activeResultId: strin
   const [textFocused, setTextFocused] = useState(false)
   return (
     <div className="space-y-2" data-testid="node-results">
-      {latest && (latest.status === 'pending' || latest.status === 'running') && (
-        <p className="flex items-center gap-1.5 text-[11px] text-sky-300">
-          <Loader2 className="h-3 w-3 animate-spin" /> {latest.status === 'pending' ? 'En attente…' : 'Rédaction en cours…'}
-        </p>
-      )}
-      {latest && (latest.status === 'failed' || latest.status === 'skipped') && (
-        <p role="alert" className="flex items-start gap-1.5 text-[11px] text-red-300">
-          <TriangleAlert className="mt-px h-3 w-3 shrink-0" /> {latest.errorMessage ?? 'Échec.'}
-        </p>
-      )}
+      {latest &&
+        (latest.status === 'pending' || latest.status === 'running') && (
+          <p className="flex items-center gap-1.5 text-[11px] text-sky-300">
+            <Loader2 className="h-3 w-3 animate-spin" />{' '}
+            {latest.status === 'pending'
+              ? 'En attente…'
+              : 'Rédaction en cours…'}
+          </p>
+        )}
+      {latest &&
+        (latest.status === 'failed' || latest.status === 'skipped') && (
+          <p
+            role="alert"
+            className="flex items-start gap-1.5 text-[11px] text-red-300"
+          >
+            <TriangleAlert className="mt-px h-3 w-3 shrink-0" />{' '}
+            {latest.errorMessage ?? 'Échec.'}
+          </p>
+        )}
       {active?.text && (
         <div className="relative">
           <p
@@ -712,7 +876,9 @@ function TextResults({ id, activeResultId }: { id: string; activeResultId: strin
               onClick={() => set({ activeResultId: r.id })}
               className={cn(
                 'h-6 min-w-6 rounded-md px-1.5 text-[11px] tabular-nums transition',
-                r.id === active?.id ? 'bg-sky-400 text-black' : 'bg-muted text-muted-foreground hover:text-foreground',
+                r.id === active?.id
+                  ? 'bg-sky-400 text-black'
+                  : 'bg-muted text-muted-foreground hover:text-foreground',
               )}
             >
               v{i + 1}
@@ -720,7 +886,11 @@ function TextResults({ id, activeResultId }: { id: string; activeResultId: strin
           ))}
         </div>
       )}
-      {active?.cost && <p className="text-[11px] text-muted-foreground tabular-nums">{formatUsd(active.cost)}</p>}
+      {active?.cost && (
+        <p className="text-[11px] text-muted-foreground tabular-nums">
+          {formatUsd(active.cost)}
+        </p>
+      )}
     </div>
   )
 }
@@ -742,7 +912,12 @@ function useFinalMedia(id: string): Asset[] {
       const source = nodes.find((n) => n.id === e.source)
       if (!source) continue
       if (source.type === 'image-source') {
-        media.push(...(Array.isArray(source.data.assetIds) ? (source.data.assetIds as string[]) : []).map(asAsset))
+        media.push(
+          ...(Array.isArray(source.data.assetIds)
+            ? (source.data.assetIds as string[])
+            : []
+          ).map(asAsset),
+        )
       } else {
         const results =
           state?.results.filter((r) => r.nodeId === source.id) ?? []

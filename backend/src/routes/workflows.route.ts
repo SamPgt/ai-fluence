@@ -7,6 +7,8 @@ import {
   WORKFLOW_NODE_TYPES,
   graphErrors,
   normalizeGraph,
+  threadUsableError,
+  workflowInputs,
   type Workflow,
   type WorkflowGraph,
   type WorkflowSummary,
@@ -15,7 +17,7 @@ import { db } from '../db/index.js';
 import { assets, workflows } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { trashWorkflow } from '../services/trash.service.js';
-import { getState, quoteRun, startRun, stopRun } from '../services/workflow-runner.service.js';
+import { getState, quoteRun, resolveRunGraph, setRunResultRemoved, startRun, stopRun, templateRunGraph } from '../services/workflow-runner.service.js';
 import type { AppEnv } from '../types.js';
 
 type WorkflowRow = typeof workflows.$inferSelect;
@@ -45,6 +47,12 @@ const graphSchema = z.object({
 
 const name = z.string().trim().min(1).max(WORKFLOW_LIMITS.nameLength);
 
+/** Valeurs saisies dans le formulaire du fil, par nœud « À fournir ». */
+const inputsSchema = z.record(
+  id,
+  z.object({ text: z.string().max(5000).optional(), assetIds: z.array(z.uuid()).max(20).optional() }),
+);
+
 /** Dernière image produite par le workflow : sa couverture quand aucune n'est choisie. */
 const latestImage = sql<string | null>`(select a.id from assets a inner join generations g on g.id = a.generation_id where g.workflow_id = "workflows"."id" and g.removed_at is null and a.media_type = 'image' order by a.created_at desc limit 1)`;
 
@@ -56,6 +64,8 @@ const toSummary = ({ w, latest }: WithCover): WorkflowSummary => {
     id: w.id,
     name: w.name,
     nodeCount: w.graph.nodes.length,
+    inputCount: workflowInputs(normalizeGraph(w.graph)).length,
+    usableInThread: threadUsableError(normalizeGraph(w.graph)) === null,
     coverAssetId: w.coverAssetId,
     coverUrl: cover ? `/api/media/${cover}` : null,
     createdAt: w.createdAt.toISOString(),
@@ -138,10 +148,29 @@ const workflowsRoutes = new Hono<AppEnv>()
   /** Devis d'une exécution (tous les nœuds payants, ou ceux donnés). */
   .post(
     '/:id/quote',
-    zValidator('json', z.object({ graph: graphSchema, nodeIds: z.array(id).max(WORKFLOW_LIMITS.nodes).optional() })),
+    zValidator(
+      'json',
+      z.object({
+        graph: graphSchema.optional(),
+        nodeIds: z.array(id).max(WORKFLOW_LIMITS.nodes).optional(),
+        inputs: inputsSchema.optional(),
+        /** Devis du formulaire d'un fil, avant saisie (valeurs types). */
+        template: z.boolean().optional(),
+      }),
+    ),
     async c => {
       const body = c.req.valid('json');
-      return c.json(await quoteRun(c.get('user'), c.req.param('id'), body.graph as WorkflowGraph, body.nodeIds));
+      const found = await findOwned(c.get('user').id, c.req.param('id'));
+      if (!found) return c.json({ error: 'Workflow introuvable.' }, 404);
+      // Formulaire d'un fil : valeurs types ; avec valeurs saisies : le workflow enregistré ;
+      // sinon le graphe de l'éditeur.
+      const graph = body.template
+        ? await templateRunGraph(c.get('user').id, found.w.graph)
+        : await resolveRunGraph(c.get('user').id, found.w.graph, {
+            graph: body.graph as WorkflowGraph | undefined,
+            inputs: body.inputs,
+          });
+      return c.json(await quoteRun(c.get('user'), c.req.param('id'), graph, body.nodeIds));
     },
   )
   /** Lancement : le graphe affiché est enregistré, puis exécuté en arrière-plan. */
@@ -150,20 +179,31 @@ const workflowsRoutes = new Hono<AppEnv>()
     zValidator(
       'json',
       z.object({
-        graph: graphSchema,
+        graph: graphSchema.optional(),
         nodeIds: z.array(id).max(WORKFLOW_LIMITS.nodes).optional(),
         expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+        inputs: inputsSchema.optional(),
+        thread: z.object({ id: z.uuid().nullable(), personaId: z.uuid().nullable() }).optional(),
       }),
     ),
     async c => {
       const body = c.req.valid('json');
-      if (JSON.stringify(body.graph).length > MAX_GRAPH_CHARS) return c.json({ error: 'Workflow trop volumineux.' }, 400);
-      const state = await startRun(c.get('user'), c.req.param('id'), { ...body, graph: body.graph as WorkflowGraph });
+      if (body.graph && JSON.stringify(body.graph).length > MAX_GRAPH_CHARS) return c.json({ error: 'Workflow trop volumineux.' }, 400);
+      const state = await startRun(c.get('user'), c.req.param('id'), { ...body, graph: body.graph as WorkflowGraph | undefined });
       return c.json(state, 201);
     },
   )
   /** Arrêter l'exécution en cours : les étapes en attente ne partent pas. */
   .post('/:id/stop', async c => c.json(await stopRun(c.get('user').id, c.req.param('id'))))
+  /** Supprimer du fil le résultat final d'une exécution (réversible avec restore). */
+  .delete('/runs/:runId/result', async c => {
+    if (!(await setRunResultRemoved(c.get('user').id, c.req.param('runId'), new Date()))) return c.json({ error: 'Résultat introuvable.' }, 404);
+    return c.json({ ok: true as const });
+  })
+  .post('/runs/:runId/result/restore', async c => {
+    if (!(await setRunResultRemoved(c.get('user').id, c.req.param('runId'), null))) return c.json({ error: 'Résultat introuvable.' }, 404);
+    return c.json({ ok: true as const });
+  })
   /** Dernière exécution et résultats des nœuds. */
   .get('/:id/state', async c => c.json(await getState(c.get('user').id, c.req.param('id'))))
   /** Mise à la corbeille (7 jours). */

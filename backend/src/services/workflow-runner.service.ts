@@ -11,8 +11,13 @@ import {
   WORKFLOW_NODES,
   generationPlan,
   graphErrors,
+  applyInputs,
+  finalNodeIds,
   normalizeGraph,
+  templateInputs,
   paidSources,
+  threadUsableError,
+  workflowInputs,
   runOrder,
   staticOutput,
   textPlan,
@@ -22,15 +27,19 @@ import {
   type WorkflowNodeResult,
   type WorkflowQuoteResponse,
   type WorkflowRun,
+  type WorkflowRunInput,
   type WorkflowRunRequest,
+  type WorkflowRunStartResponse,
+  type ThreadWorkflowRun,
   type WorkflowStateResponse,
 } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { assets, generations, users, workflowNodeResults, workflowRuns, workflows } from '../db/schema.js';
+import { assets, generations, personas, threads, users, workflowNodeResults, workflowRuns, workflows } from '../db/schema.js';
 import { env } from '../env.js';
 import type { SessionUser } from '../types.js';
 import { createWorkflowGeneration, loadGenerations, quoteWorkflowGeneration } from './generation.service.js';
 import { estimateChat, runChat, SYSTEM_PROMPTS } from './chat.service.js';
+import { toAsset } from './serialize.js';
 
 type ResultRow = typeof workflowNodeResults.$inferSelect;
 type RunRow = typeof workflowRuns.$inferSelect;
@@ -169,9 +178,50 @@ export async function quoteRun(user: SessionUser, workflowId: string, graph: Wor
 
 // ── Lancement ─────────────────────────────────────────────────
 
-export async function startRun(user: SessionUser, workflowId: string, req: WorkflowRunRequest): Promise<WorkflowStateResponse> {
+/**
+ * Graphe à exécuter : celui de l'éditeur (`graph`), ou, depuis un fil, le workflow
+ * enregistré avec les valeurs saisies (`inputs`), sans le modifier.
+ */
+export async function resolveRunGraph(
+  userId: string,
+  saved: WorkflowGraph,
+  req: Pick<WorkflowRunRequest, 'graph' | 'inputs' | 'thread'>,
+): Promise<WorkflowGraph> {
+  if (req.inputs === undefined && !req.thread) {
+    if (!req.graph) throw new HTTPException(400, { message: 'Graphe manquant.' });
+    assertValidGraph(req.graph);
+    return req.graph;
+  }
+  const base = normalizeGraph(saved);
+  const unusable = threadUsableError(base);
+  if (unusable) throw new HTTPException(400, { message: unusable });
+  const applied = applyInputs(base, req.inputs ?? {});
+  if (!applied.ok) throw new HTTPException(400, { message: applied.reason });
+  // Images saisies : seulement celles du compte.
+  const ids = [...new Set(Object.values(req.inputs ?? {}).flatMap(v => v.assetIds ?? []))];
+  if (ids.length) {
+    const owned = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.userId, userId), inArray(assets.id, ids)));
+    if (owned.length !== ids.length) throw new HTTPException(400, { message: 'Image introuvable.' });
+  }
+  return applied.graph;
+}
+
+/**
+ * Graphe chiffré pour le formulaire d'un fil, avant toute saisie : valeurs types (cf.
+ * templateInputs). Le prix est le même quelles que soient les valeurs remplies.
+ */
+export async function templateRunGraph(userId: string, saved: WorkflowGraph): Promise<WorkflowGraph> {
+  const base = normalizeGraph(saved);
+  const unusable = threadUsableError(base);
+  if (unusable) throw new HTTPException(400, { message: unusable });
+  const applied = applyInputs(base, templateInputs(base, await standInImage(userId)));
+  if (!applied.ok) throw new HTTPException(400, { message: applied.reason });
+  return applied.graph;
+}
+
+export async function startRun(user: SessionUser, workflowId: string, req: WorkflowRunRequest): Promise<WorkflowRunStartResponse> {
   const workflow = await findWorkflow(user.id, workflowId);
-  assertValidGraph(req.graph);
+  const graph = await resolveRunGraph(user.id, workflow.graph, req);
   const [running] = await db
     .select({ id: workflowRuns.id })
     .from(workflowRuns)
@@ -179,19 +229,56 @@ export async function startRun(user: SessionUser, workflowId: string, req: Workf
     .limit(1);
   if (running) throw new HTTPException(409, { message: 'Une exécution est déjà en cours.' });
 
-  // Le graphe affiché fait foi : enregistré avant le lancement.
-  await db.update(workflows).set({ graph: req.graph, updatedAt: new Date() }).where(eq(workflows.id, workflow.id));
-  const quote = await quoteRun(user, workflowId, req.graph, req.nodeIds);
+  // Depuis l'éditeur, le graphe affiché fait foi : enregistré avant le lancement.
+  if (req.graph && !req.thread) {
+    await db.update(workflows).set({ graph: req.graph, updatedAt: new Date() }).where(eq(workflows.id, workflow.id));
+  }
+  const quote = await quoteRun(user, workflowId, graph, req.nodeIds);
   const confirmed = req.expectedCost !== undefined ? Number(req.expectedCost) : Number(quote.estimatedCost);
+
+  // Depuis un fil : ce fil (vérifié), ou un nouveau fil au nom du workflow.
+  let threadId: string | null = null;
+  if (req.thread) {
+    if (req.thread.id) {
+      const [t] = await db
+        .select({ id: threads.id })
+        .from(threads)
+        .where(and(eq(threads.id, req.thread.id), eq(threads.userId, user.id), isNull(threads.deletedAt)))
+        .limit(1);
+      if (!t) throw new HTTPException(404, { message: 'Fil introuvable.' });
+      threadId = t.id;
+    } else {
+      const personaId = req.thread.personaId
+        ? ((
+            await db
+              .select({ id: personas.id })
+              .from(personas)
+              .where(and(eq(personas.id, req.thread.personaId), eq(personas.userId, user.id), isNull(personas.deletedAt)))
+              .limit(1)
+          )[0]?.id ?? null)
+        : null;
+      const [t] = await db.insert(threads).values({ userId: user.id, personaId, title: workflow.name }).returning({ id: threads.id });
+      threadId = t.id;
+    }
+    await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, threadId));
+  }
+  // Valeurs saisies, pour la bulle du fil.
+  const inputs: WorkflowRunInput[] = req.thread
+    ? workflowInputs(graph).map(i => ({
+        nodeId: i.nodeId,
+        label: i.label,
+        ...(i.kind === 'text' ? { text: i.defaultText } : { assetIds: i.defaultAssetIds }),
+      }))
+    : [];
 
   const order = quote.nodes.map(n => n.nodeId);
   const [run] = await db
     .insert(workflowRuns)
-    .values({ workflowId, userId: user.id, nodeIds: order, graph: req.graph, estimatedCost: String(confirmed) })
+    .values({ workflowId, userId: user.id, nodeIds: order, graph, estimatedCost: String(confirmed), threadId, inputs })
     .returning();
   await db.insert(workflowNodeResults).values(order.map(nodeId => ({ runId: run.id, workflowId, nodeId })));
   void executeRun(run.id);
-  return getState(user.id, workflowId);
+  return { ...(await getState(user.id, workflowId)), threadId };
 }
 
 /** Attend la fin d'une génération (suivie en arrière-plan par le service de génération). */
@@ -330,6 +417,8 @@ export async function executeRun(runId: string): Promise<void> {
       .update(workflowRuns)
       .set({ status: failed ? 'failed' : 'succeeded', completedAt: new Date() })
       .where(and(eq(workflowRuns.id, runId), eq(workflowRuns.status, 'running')));
+    // Lancée depuis un fil : le fil remonte dans la liste avec son résultat.
+    if (run.threadId) await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, run.threadId));
   } catch (err) {
     if (env.NODE_ENV !== 'test') console.error(`[workflow] ${runId}:`, (err as Error).message);
     await db
@@ -414,3 +503,80 @@ export async function getState(userId: string, workflowId: string): Promise<Work
   return { run: run ? toRun(run) : null, results };
 }
 
+
+// ── Exécutions affichées dans un fil ──────────────────────────
+
+/** Exécutions lancées depuis ce fil, avec leurs valeurs saisies et leur résultat final. */
+export async function loadThreadRuns(userId: string, threadId: string): Promise<ThreadWorkflowRun[]> {
+  const rows = await db
+    .select({ run: workflowRuns, name: workflows.name, coverAssetId: workflows.coverAssetId })
+    .from(workflowRuns)
+    .innerJoin(workflows, eq(workflows.id, workflowRuns.workflowId))
+    .where(and(eq(workflowRuns.threadId, threadId), eq(workflowRuns.userId, userId)))
+    .orderBy(workflowRuns.createdAt);
+  if (!rows.length) return [];
+
+  const results = await db
+    .select()
+    .from(workflowNodeResults)
+    .where(inArray(workflowNodeResults.runId, rows.map(r => r.run.id)));
+  const genIds = results.map(r => r.generationId).filter((id): id is string => Boolean(id));
+  const gens = new Map((genIds.length ? await loadGenerations(userId, { ids: genIds }) : []).map(g => [g.id, g]));
+  const inputIds = [...new Set(rows.flatMap(r => r.run.inputs.flatMap(i => i.assetIds ?? [])))];
+  const inputAssets = new Map(
+    (inputIds.length ? await db.select().from(assets).where(and(eq(assets.userId, userId), inArray(assets.id, inputIds))) : []).map(a => [
+      a.id,
+      toAsset(a),
+    ]),
+  );
+
+  return rows.map(({ run, name, coverAssetId }) => {
+    const mine = results.filter(r => r.runId === run.id);
+    const finals = new Set(finalNodeIds(normalizeGraph(run.graph)));
+    const finalGens = mine
+      .filter(r => finals.has(r.nodeId) && r.status === 'succeeded' && r.generationId)
+      .map(r => gens.get(r.generationId!))
+      .filter((g): g is NonNullable<typeof g> => Boolean(g));
+    const outputs = finalGens.flatMap(g => g.outputs);
+    const removed = finalGens.length > 0 && finalGens.every(g => g.removedAt);
+    const cost = mine.reduce((s, r) => s + Number(r.cost ?? 0), 0);
+    return {
+      id: run.id,
+      workflowId: run.workflowId,
+      workflowName: name,
+      coverUrl: coverAssetId ? `/api/media/${coverAssetId}` : null,
+      status: run.status,
+      inputs: run.inputs.map(i => ({ ...i, assets: (i.assetIds ?? []).map(id => inputAssets.get(id)).filter((a): a is NonNullable<typeof a> => Boolean(a)) })),
+      outputs,
+      removed,
+      cost: cost ? String(Number(cost.toFixed(6))) : null,
+      errorMessage: run.errorMessage ?? mine.find(r => r.status === 'failed')?.errorMessage ?? null,
+      createdAt: run.createdAt.toISOString(),
+    };
+  });
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Supprimer (ou remettre avec `removedAt` à null) le résultat final d'une exécution lancée
+ * depuis un fil : ses générations finales sont marquées, comme « Supprimer le résultat ».
+ */
+export async function setRunResultRemoved(userId: string, runId: string, removedAt: Date | null): Promise<boolean> {
+  if (!UUID_RE.test(runId)) return false;
+  const [run] = await db
+    .select()
+    .from(workflowRuns)
+    .where(and(eq(workflowRuns.id, runId), eq(workflowRuns.userId, userId)))
+    .limit(1);
+  if (!run?.threadId) return false;
+  const finals = finalNodeIds(normalizeGraph(run.graph));
+  const rows = await db
+    .select({ generationId: workflowNodeResults.generationId })
+    .from(workflowNodeResults)
+    .where(and(eq(workflowNodeResults.runId, run.id), inArray(workflowNodeResults.nodeId, finals.length ? finals : [''])));
+  const ids = rows.map(r => r.generationId).filter((id): id is string => Boolean(id));
+  if (!ids.length) return false;
+  await db.update(generations).set({ removedAt }).where(and(eq(generations.userId, userId), inArray(generations.id, ids)));
+  return true;
+}

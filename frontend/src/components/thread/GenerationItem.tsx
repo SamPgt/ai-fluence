@@ -707,8 +707,8 @@ function TagsChip<T extends { key: string }>({
   )
 }
 
-/** Menu « … » à droite du coût d'un résultat. */
-function ResultMenu({
+/** Menu « … » à droite du coût d'un résultat (aussi pour un résultat de workflow). */
+export function ResultMenu({
   series,
   onRemove,
 }: {

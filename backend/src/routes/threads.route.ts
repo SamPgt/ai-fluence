@@ -9,11 +9,13 @@ import { auth } from '../middleware/auth.js';
 import { loadGenerations } from '../services/generation.service.js';
 import { toThread } from '../services/serialize.js';
 import { trashThread } from '../services/trash.service.js';
+import { loadThreadRuns } from '../services/workflow-runner.service.js';
 import type { AppEnv } from '../types.js';
 
 // Sous-requêtes avec noms qualifiés : Drizzle ne préfixe pas les colonnes dans `sql```.
 const aggregates = {
-  totalCost: sql<string>`(select coalesce(sum(g.cost::numeric) filter (where g.status = 'succeeded'), 0)::text from generations g where g.thread_id = "threads"."id")`,
+  // Générations du fil, plus les workflows lancés depuis ce fil.
+  totalCost: sql<string>`((select coalesce(sum(g.cost::numeric) filter (where g.status = 'succeeded'), 0) from generations g where g.thread_id = "threads"."id") + (select coalesce(sum(r.cost::numeric), 0) from workflow_node_results r inner join workflow_runs wr on wr.id = r.run_id where wr.thread_id = "threads"."id"))::text`,
   generationCount: sql<number>`(select count(*)::int from generations g where g.thread_id = "threads"."id")`,
   coverAssetId: sql<string | null>`(select a.id from assets a inner join generations g on g.id = a.generation_id where g.thread_id = "threads"."id" and g.removed_at is null and a.media_type = 'image' order by a.created_at desc limit 1)`,
 };
@@ -68,8 +70,11 @@ const threadsRoutes = new Hono<AppEnv>()
       .where(and(eq(threads.id, c.req.param('id')), eq(threads.userId, user.id), isNull(threads.deletedAt)))
       .limit(1);
     if (!row) return c.json({ error: 'Fil introuvable.' }, 404);
-    const gens = await loadGenerations(user.id, { threadId: row.t.id });
-    return c.json({ thread: toThread(row.t, row), generations: gens } satisfies ThreadDetailResponse);
+    const [gens, workflowRuns] = await Promise.all([
+      loadGenerations(user.id, { threadId: row.t.id }),
+      loadThreadRuns(user.id, row.t.id),
+    ]);
+    return c.json({ thread: toThread(row.t, row), generations: gens, workflowRuns } satisfies ThreadDetailResponse);
   })
   .patch(
     '/:id',

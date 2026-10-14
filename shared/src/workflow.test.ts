@@ -4,8 +4,13 @@ import {
   WORKFLOW_NODE_GROUPS,
   connect,
   connectionError,
+  applyInputs,
+  finalNodeIds,
+  templateInputs,
   generationPlan,
   graphErrors,
+  threadUsableError,
+  workflowInputs,
   normalizeGraph,
   imageSlots,
   resolveMentions,
@@ -273,6 +278,21 @@ describe('mentions « @image2 »', () => {
     expect(imageSlots(g, 'vid').map(x => x.sourceId)).toEqual(['img', 's']);
   });
 
+  it('entrée « À fournir » sans image : compte pour une image, marquée « à fournir »', () => {
+    const g: WorkflowGraph = {
+      nodes: [
+        { ...node('s', 'image-source'), data: { assetIds: [], exposed: true, label: 'Logo' } },
+        { ...node('f', 'image-source'), data: { assetIds: ['a1'] } },
+        node('img', 'image-gen'),
+      ],
+      edges: [edge('s', 'image', 'img', 'references'), edge('f', 'image', 'img', 'references')],
+    };
+    expect(imageSlots(g, 'img')).toEqual([
+      { n: 1, sourceId: 's', index: 0, pending: true },
+      { n: 2, sourceId: 'f', index: 0 },
+    ]);
+  });
+
   it('« @image2 » part au modèle comme « image 2 »', () => {
     expect(resolveMentions('colle @image1 sur @Image2, pas image3')).toBe('colle image 1 sur image 2, pas image3');
     const g: WorkflowGraph = {
@@ -308,5 +328,64 @@ describe('anciens graphes', () => {
     expect(graphErrors(g)).toEqual([]);
     // Graphe déjà à jour : inchangé.
     expect(normalizeGraph(g)).toEqual(g);
+  });
+});
+
+describe('entrées « À fournir »', () => {
+  const g = (): WorkflowGraph => ({
+    nodes: [
+      { ...node('t', 'text'), position: { x: 0, y: 200 }, data: { text: 'défaut', exposed: true, label: 'Ce que dit le personnage' } },
+      { ...node('s', 'image-source'), position: { x: 0, y: 0 }, data: { assetIds: ['a1'], exposed: true, label: 'Photo' } },
+      { ...node('fixe', 'text'), data: { text: 'fixe' } },
+      { ...node('img', 'image-gen'), data: { family: 'f' } },
+      { ...node('vid', 'video-gen'), data: { family: 'v' } },
+    ],
+    edges: [edge('t', 'text', 'img', 'prompt'), edge('s', 'image', 'img', 'references'), edge('img', 'image', 'vid', 'start')],
+  });
+
+  it('liste les entrées de haut en bas, avec leur valeur par défaut', () => {
+    expect(workflowInputs(g())).toEqual([
+      { nodeId: 's', kind: 'image', label: 'Photo', defaultText: '', defaultAssetIds: ['a1'], maxImages: 1 },
+      { nodeId: 't', kind: 'text', label: 'Ce que dit le personnage', defaultText: 'défaut', defaultAssetIds: [], maxImages: 1 },
+    ]);
+    expect(threadUsableError(g())).toBeNull();
+  });
+
+  it('utilisable dans un fil : au moins une entrée, chacune avec un libellé', () => {
+    const none = g();
+    none.nodes.forEach(n => (n.data.exposed = false));
+    expect(threadUsableError(none)).toMatch(/Aucune entrée/);
+    const noLabel = g();
+    noLabel.nodes[0].data.label = '  ';
+    expect(threadUsableError(noLabel)).toMatch(/libellé/);
+  });
+
+  it('valeurs saisies appliquées, défauts sinon ; refus d’une entrée inconnue ou vide', () => {
+    const r = applyInputs(g(), { t: { text: 'bonjour' } });
+    expect(r.ok && r.graph.nodes.find(n => n.id === 't')!.data.text).toBe('bonjour');
+    expect(r.ok && r.graph.nodes.find(n => n.id === 's')!.data.assetIds).toEqual(['a1']);
+    expect(applyInputs(g(), { fixe: { text: 'x' } })).toMatchObject({ ok: false });
+    expect(applyInputs(g(), { s: { assetIds: [] } })).toEqual({ ok: false, reason: '« Photo » est vide.' });
+    // Le graphe d'origine n'est pas modifié.
+    const original = g();
+    applyInputs(original, { t: { text: 'autre' } });
+    expect(original.nodes[0].data.text).toBe('défaut');
+  });
+
+  it('images max : refus au-delà, numéros réservés, devis type avec ce nombre d’images', () => {
+    const two = g();
+    two.nodes[1].data.maxImages = 2;
+    expect(applyInputs(two, { s: { assetIds: ['a', 'b'] } }).ok).toBe(true);
+    expect(applyInputs(two, { s: { assetIds: ['a', 'b', 'c'] } })).toEqual({ ok: false, reason: '« Photo » : 2 images au maximum.' });
+    expect(imageSlots(two, 'img').map(x => x.n)).toEqual([1, 2]);
+    expect(templateInputs(two, 'stand')).toEqual({ s: { assetIds: ['stand', 'stand'] }, t: { text: 'défaut' } });
+  });
+
+  it('résultat final : sources des nœuds Résultat, sinon les nœuds payants qui ne mènent à rien', () => {
+    expect(finalNodeIds(g())).toEqual(['vid']);
+    const withOutput = g();
+    withOutput.nodes.push(node('out', 'output'));
+    withOutput.edges.push(edge('img', 'image', 'out', 'images'));
+    expect(finalNodeIds(withOutput)).toEqual(['img']);
   });
 });

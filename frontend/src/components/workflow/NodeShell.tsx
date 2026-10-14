@@ -79,6 +79,7 @@ export function NodeShell({
   type,
   selected,
   wide,
+  exposed,
   children,
 }: {
   id: string
@@ -86,6 +87,8 @@ export function NodeShell({
   selected?: boolean
   /** Nœud plus large (aperçu du résultat final). */
   wide?: boolean
+  /** Entrée « À fournir » : demandée dans le formulaire du fil. */
+  exposed?: boolean
   children?: React.ReactNode
 }) {
   const def = WORKFLOW_NODES[type]
@@ -122,12 +125,23 @@ export function NodeShell({
         'rounded-2xl border bg-card text-card-foreground shadow-[0_4px_16px_rgba(0,0,0,0.35)] transition-colors',
         selected ? 'border-foreground/40' : 'border-border/70',
         busy && 'border-sky-400/60',
-        (latest?.status === 'failed' || latest?.status === 'skipped') && 'border-red-500/60',
+        (latest?.status === 'failed' || latest?.status === 'skipped') &&
+          'border-red-500/60',
       )}
     >
       <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="flex-1 truncate text-[13px] font-medium">{def.label}</span>
+        <span className="flex-1 truncate text-[13px] font-medium">
+          {def.label}
+        </span>
+        {exposed && (
+          <span
+            title="À fournir"
+            className="rounded-full bg-sky-400/15 px-2 py-0.5 text-[11px] font-medium text-sky-300"
+          >
+            Entrée
+          </span>
+        )}
         {def.paid && (
           <button
             type="button"
@@ -139,7 +153,11 @@ export function NodeShell({
             title="Lancer ce nœud"
             className="nodrag grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
           </button>
         )}
         <button
@@ -154,7 +172,11 @@ export function NodeShell({
       </div>
 
       {/* La molette déplace le canvas, sauf dans un champ en cours d'édition (classe nowheel posée au focus). */}
-      {children && <div className="nodrag cursor-default space-y-2 px-3 pt-3">{children}</div>}
+      {children && (
+        <div className="nodrag cursor-default space-y-2 px-3 pt-3">
+          {children}
+        </div>
+      )}
 
       {/* Connecteurs : une ligne par entrée (gauche) et par sortie (droite). */}
       <div className="relative py-2" style={{ height: rows * PORT_ROW + 16 }}>
@@ -163,13 +185,18 @@ export function NodeShell({
           return (
             <div
               key={port.id}
-              className={cn('absolute left-0 flex items-center pl-3 text-[11px] transition-opacity', !ok && 'opacity-25')}
+              className={cn(
+                'absolute left-0 flex items-center pl-3 text-[11px] transition-opacity',
+                !ok && 'opacity-25',
+              )}
               style={{ top: 8 + i * PORT_ROW, height: PORT_ROW }}
             >
               <PortHandle port={port} kind="target" />
               <span className="text-muted-foreground">
                 {port.label}
-                {port.required && <span className="text-foreground/60"> *</span>}
+                {port.required && (
+                  <span className="text-foreground/60"> *</span>
+                )}
               </span>
             </div>
           )
@@ -190,7 +217,13 @@ export function NodeShell({
 }
 
 /** Connecteur, de la couleur de son type. Un lien se retire par la croix au milieu du câble. */
-function PortHandle({ port, kind }: { port: PortDef; kind: 'source' | 'target' }) {
+function PortHandle({
+  port,
+  kind,
+}: {
+  port: PortDef
+  kind: 'source' | 'target'
+}) {
   return (
     <Handle
       type={kind}
