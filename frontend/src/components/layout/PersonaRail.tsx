@@ -20,6 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  CircleHelp,
   Images,
   LayoutGrid,
   Library,
@@ -295,6 +296,20 @@ export function PersonaRail({ user }: { user: User }) {
           </Link>
         </TooltipTrigger>
         <TooltipContent side="right">Galerie</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/aide"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            activeProps={{ className: 'bg-accent text-foreground' }}
+            aria-label="Aide"
+          >
+            <CircleHelp className="h-5 w-5" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">Aide : temps et comparatifs des modèles</TooltipContent>
       </Tooltip>
 
       {/* Menu utilisateur : Paramétrage puis Déconnexion */}
