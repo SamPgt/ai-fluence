@@ -19,7 +19,7 @@ import { db } from '../db/index.js';
 import { assets, personas, type PersonaVoiceRow } from '../db/schema.js';
 import { env } from '../env.js';
 import { buildLtx } from './comfy-builders.js';
-import { LTX_FILES, resolveRequirements } from './comfy-workflows.js';
+import { LTX_FILES, resolveRequirements, preferredModel } from './comfy-workflows.js';
 import { cancelPrompt, deleteOutputFile, downloadFile, freeComfyMemory, getPromptState, isComfyRunning, queuePrompt, uploadImage } from './comfy.service.js';
 import { mediaUrl } from './serialize.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
@@ -284,7 +284,11 @@ export async function createVoice(
     throw new HTTPException(400, { message: 'Il faut d’abord une image de référence (avatar) pour ce personnage.' });
   }
   if (!(await isComfyRunning())) throw new HTTPException(503, { message: 'Démarre ComfyUI pour créer une voix.' });
-  const { files, missing } = await resolveRequirements({ requires: LTX_FILES } as Parameters<typeof resolveRequirements>[0]);
+  const unet = await preferredModel('local/ltx-2.3');
+  const { files, missing } = await resolveRequirements(
+    { requires: LTX_FILES } as Parameters<typeof resolveRequirements>[0],
+    unet ? { unet } : {},
+  );
   if (missing.length) throw new HTTPException(400, { message: `Fichiers LTX-2.3 manquants dans ComfyUI : ${missing.join(', ')}.` });
 
   const image = await uploadImage(await readFile(avatar.filePath), `ai-fluence-${avatar.id}.${extFor(avatar.mime)}`, avatar.mime);

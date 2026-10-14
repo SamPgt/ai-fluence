@@ -238,9 +238,10 @@ const QWEN_IMAGE_COMMON: InputSchema['properties'] = {
   negative_prompt: { type: 'string', description: 'Ce qu’on ne veut pas voir (vitesse normale seulement : CFG > 1).' },
   vitesse: {
     type: 'string',
-    enum: ['normale', 'rapide (8 étapes)', 'très rapide (4 étapes)'],
-    default: 'normale',
-    description: 'Rapide : LoRA Lightning (8 ou 4 étapes, CFG 1), plusieurs fois plus vite, sans prompt négatif.',
+    enum: ['rapide (8 étapes)', 'très rapide (4 étapes)', 'normale'],
+    // Rapide par défaut : en normale (25 étapes), ~8 min par image pour un rendu pas meilleur (testé le 2026-10-14).
+    default: 'rapide (8 étapes)',
+    description: 'Rapide : LoRA Lightning (8 ou 4 étapes, CFG 1), ~1 min 30–2 min, sans prompt négatif. Normale : 25 étapes, ~8 min.',
   },
   steps: { type: 'integer', default: 25, minimum: 10, maximum: 50, description: 'Vitesse normale. 50 : réglage officiel, 2 fois plus long.' },
   cfg: { type: 'number', default: 4, minimum: 1, maximum: 8, description: 'Vitesse normale seulement.' },
@@ -631,7 +632,8 @@ const MAIN_MODEL: Record<string, { match: RegExp; preferred?: string }> = {
   'local/qwen-image-edit-2511': { match: /qwen[-_]image[-_]edit[-_]2511/i },
   'local/qwen-image-2512': { match: /qwen[-_]image[-_]2512/i },
   // « ltx-2.3-22b-distilled… » (Unsloth) comme « ltx23DISTILLED… » (Civitai).
-  'local/ltx-2.3': { match: /ltx[-_ ]?2[._]?3.*distilled/i },
+  // Q5_K_M par défaut (choix de Kevin, 2026-10-14) ; les autres versions restent dans le menu « Modèle ».
+  'local/ltx-2.3': { match: /ltx[-_ ]?2[._]?3.*distilled/i, preferred: 'ltx-2.3-22b-distilled-1.1-Q5_K_M.gguf' },
 };
 /** Wan : une paire de fichiers (bruit fort, bruit faible), reconnue par son nom ; on peut seulement la cacher. */
 const FIXED_MODEL: Record<string, RegExp> = { 'local/wan-2.2-i2v': /wan2\.2-i2v/i };
@@ -645,6 +647,12 @@ export async function diffusionFiles(): Promise<string[]> {
     [getNodeOptions('UNETLoader', 'unet_name'), getNodeOptions('UnetLoaderGGUF', 'unet_name')].map(p => p.catch(() => [] as string[])),
   );
   return [...new Set(lists.flat())].sort((a, b) => a.localeCompare(b));
+}
+
+/** Fichier préféré d'une famille s'il est installé (la création de voix prend ainsi la même version de LTX). */
+export async function preferredModel(familyId: string): Promise<string | undefined> {
+  const preferred = MAIN_MODEL[familyId]?.preferred;
+  return preferred && (await diffusionFiles()).includes(preferred) ? preferred : undefined;
 }
 
 /** Famille déduite du nom du fichier (null : non reconnu). */

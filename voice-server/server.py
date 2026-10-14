@@ -116,6 +116,35 @@ def drop_stray_tail(wav: np.ndarray, sr: int) -> np.ndarray:
     return wav[: min(len(wav), end + int(0.15 * sr))]
 
 
+def convert(body: dict) -> bytes:
+    """
+    Conversion de voix : la phrase enregistrée (`source`) redite avec le timbre de la voix du personnage
+    (`reference`). Le rythme, les pauses et l'intonation viennent de l'enregistrement : on y met l'émotion qu'on
+    veut (rire, chuchotement, colère), ce que la synthèse depuis un texte ne sait pas faire. Réutilise le décodeur
+    S3Gen du modèle multilingue déjà chargé (même principe que `chatterbox.vc.ChatterboxVC`).
+    """
+    global last_used
+    from chatterbox.models.s3gen import S3GEN_SR
+    from chatterbox.models.s3tokenizer import S3_SR
+
+    source, reference = body.get('source'), body.get('reference')
+    if not source or not reference:
+        raise ValueError('Il faut un enregistrement et une voix de référence.')
+    with model_lock:
+        m = get_model()
+        ref_wav, _ = librosa.load(reference, sr=S3GEN_SR)
+        ref_dict = m.s3gen.embed_ref(ref_wav[: 10 * S3GEN_SR], S3GEN_SR, device=m.device)
+        src, _ = librosa.load(source, sr=S3_SR)
+        with torch.inference_mode():
+            tokens, _ = m.s3gen.tokenizer(torch.from_numpy(src).float().to(m.device)[None])
+            wav, _ = m.s3gen.inference(speech_tokens=tokens, ref_dict=ref_dict)
+        samples = wav.squeeze(0).detach().cpu().numpy()
+        last_used = time.time()
+    out = io.BytesIO()
+    sf.write(out, samples, S3GEN_SR, format='WAV', subtype='PCM_16')
+    return out.getvalue()
+
+
 def tts(body: dict) -> bytes:
     global last_used
     text = str(body.get('text', '')).strip()
@@ -177,6 +206,8 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length) or b'{}')
             if self.path == '/tts':
                 return self.reply(200, tts(body), 'audio/wav')
+            if self.path == '/convert':
+                return self.reply(200, convert(body), 'audio/wav')
             if self.path == '/reference':
                 return self.json(200, reference(body))
             if self.path == '/unload':
