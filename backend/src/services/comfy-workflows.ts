@@ -22,7 +22,7 @@ import {
 import { env } from '../env.js';
 import { getNodeOptions, hasNodes, isComfyRunning, modelFileSize } from './comfy.service.js';
 import { getSettingsRow } from './settings.service.js';
-import { buildKlein, buildKrea, buildLtx, buildQwenEdit, buildQwenImage, buildWanI2V, type BuildContext, type Graph, type RetouchBox } from './comfy-builders.js';
+import { autofixRegions, buildKlein, buildKrea, buildLtx, buildQwenEdit, buildQwenImage, buildWanI2V, type BuildContext, type Graph, type RetouchBox } from './comfy-builders.js';
 
 /** Entrée d'un nœud du workflow : [id du nœud, nom de l'entrée]. */
 type Slot = [node: string, input: string];
@@ -186,6 +186,8 @@ function kleinEndpoints(family: string, requires: LocalEndpoint['requires']): Pa
           // Retouche locale (pinceau de la visionneuse) : { mask: 'asset:<id>', box: { x, y, width, height } }.
           // Objet : jamais affiché dans les réglages du composer.
           retouch: { type: 'object', description: 'Zone peinte à refaire dans l’image 1.' },
+          // Correction automatique : { parts: [{ kind: 'face' | 'hand' | 'foot', x, y, width, height }] }.
+          autofix: { type: 'object', description: 'Visages, mains et pieds détectés, refaits l’un après l’autre.' },
         },
       },
     },
@@ -540,6 +542,8 @@ export async function buildGraph(
       files: models,
       audio: files.audio,
       mask: files.mask,
+      // Correction automatique (visages, mains, pieds détectés).
+      regions: autofixRegions(values.autofix),
     });
   }
 

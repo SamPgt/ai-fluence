@@ -4,6 +4,7 @@
  * dans le fil de l'image d'origine. Le reste de l'image ne change pas (cf. `buildKleinRetouch`).
  */
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { and, eq } from 'drizzle-orm';
 import { HTTPException } from 'hono/http-exception';
 import type { CreateGenerationResponse } from '@ai-fluence/shared';
@@ -11,10 +12,11 @@ import { db } from '../db/index.js';
 import { assets, generations } from '../db/schema.js';
 import type { SessionUser } from '../types.js';
 import { getCatalog } from './spicy.service.js';
-import type { RetouchBox } from './comfy-builders.js';
+import type { AutofixKind, RetouchBox } from './comfy-builders.js';
+import { hasNodes, queuePrompt, uploadImage, waitForText } from './comfy.service.js';
 import { createGeneration } from './generation.service.js';
 import { getSettingsRow, mediaDirOf } from './settings.service.js';
-import { join, saveFile } from './storage.service.js';
+import { extFor, join, saveFile } from './storage.service.js';
 
 /** klein 9B suit mieux la consigne ; 4B en repli. */
 const FAMILIES = ['local/flux2-klein-9b', 'local/flux2-klein-4b'];
@@ -36,8 +38,16 @@ export async function retouchImage(
     .where(and(eq(assets.id, input.assetId), eq(assets.userId, user.id)))
     .limit(1);
   if (!asset || asset.mediaType !== 'image') throw new HTTPException(404, { message: 'Image introuvable.' });
-  if (!asset.width || !asset.height) throw new HTTPException(400, { message: 'Taille de l’image inconnue.' });
   if (input.mask.type !== 'image/png') throw new HTTPException(400, { message: 'Le masque doit être un PNG.' });
+  const maskData = new Uint8Array(await input.mask.arrayBuffer());
+  // Image importée : sa taille n'était pas connue ; le masque est à la taille de l'image (en-tête PNG).
+  if (!asset.width || !asset.height) {
+    const view = new DataView(maskData.buffer, maskData.byteOffset, maskData.byteLength);
+    if (maskData.length < 24 || maskData[1] !== 0x50) throw new HTTPException(400, { message: 'Masque illisible.' });
+    asset.width = view.getUint32(16);
+    asset.height = view.getUint32(20);
+    await db.update(assets).set({ width: asset.width, height: asset.height }).where(eq(assets.id, asset.id));
+  }
   const family = await retouchFamily(user.id);
   if (!family) throw new HTTPException(400, { message: 'Retouche : il faut FLUX.2 klein en local (ComfyUI démarré).' });
 
@@ -52,7 +62,7 @@ export async function retouchImage(
 
   const saved = await saveFile(
     join(mediaDirOf(user, await getSettingsRow(user.id)), 'retouches', `masque-${randomUUID().slice(0, 12)}.png`),
-    new Uint8Array(await input.mask.arrayBuffer()),
+    maskData,
   );
   const [mask] = await db
     .insert(assets)
@@ -78,4 +88,107 @@ export async function retouchImage(
     referenceAssetIds: [asset.id],
     count: 1,
   });
+}
+
+// ── Correction automatique : visages, mains, pieds ─────────────────────────────
+
+/** Nœud de détection d'AI Fluence (`comfyui-nodes/ai_fluence`, à copier dans `ComfyUI/custom_nodes`). */
+const DETECT_NODE = 'AIFluenceDetectParts';
+const LABELS: Record<AutofixKind, [string, string]> = { face: ['visage', 'visages'], hand: ['main', 'mains'], foot: ['pied', 'pieds'] };
+
+export interface Part extends RetouchBox {
+  kind: AutofixKind;
+}
+
+/** Cadres d'une même partie qui se chevauchent (deux pieds collés, un visage vu deux fois) : fusionnés. */
+function mergeOverlaps(parts: Part[]): Part[] {
+  const out: Part[] = [];
+  for (const p of parts) {
+    const hit = out.find(
+      o => o.kind === p.kind && p.x < o.x + o.width && o.x < p.x + p.width && p.y < o.y + o.height && o.y < p.y + p.height,
+    );
+    if (!hit) {
+      out.push({ ...p });
+      continue;
+    }
+    const x1 = Math.max(hit.x + hit.width, p.x + p.width);
+    const y1 = Math.max(hit.y + hit.height, p.y + p.height);
+    hit.x = Math.min(hit.x, p.x);
+    hit.y = Math.min(hit.y, p.y);
+    hit.width = x1 - hit.x;
+    hit.height = y1 - hit.y;
+  }
+  return out;
+}
+
+async function ownedImage(userId: string, assetId: string) {
+  const [asset] = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.userId, userId)))
+    .limit(1);
+  if (!asset || asset.mediaType !== 'image') throw new HTTPException(404, { message: 'Image introuvable.' });
+  return asset;
+}
+
+/**
+ * Étape 1 : repère les visages, mains et pieds (nœud AI Fluence dans ComfyUI, sur le processeur, ~1 s). Les zones
+ * sont montrées à l'utilisateur, qui décoche les fausses (un sac en cuir vu comme une main) avant la correction.
+ */
+export async function detectParts(
+  user: SessionUser,
+  input: { assetId: string; kinds: AutofixKind[] },
+): Promise<{ width: number; height: number; parts: (Part & { conf: number })[] }> {
+  const asset = await ownedImage(user.id, input.assetId);
+  if (!(await hasNodes([DETECT_NODE]))) {
+    throw new HTTPException(400, {
+      message: 'Nœud de détection absent de ComfyUI : copie comfyui-nodes/ai_fluence dans ComfyUI/custom_nodes, puis redémarre ComfyUI.',
+    });
+  }
+  const image = await uploadImage(await readFile(asset.filePath), `ai-fluence-${asset.id}.${extFor(asset.mime)}`, asset.mime);
+  const promptId = await queuePrompt({
+    '1': { class_type: 'LoadImage', inputs: { image } },
+    '2': { class_type: DETECT_NODE, inputs: { image: ['1', 0], parts: input.kinds.join(','), confidence: 0.3 } },
+    '3': { class_type: 'PreviewAny', inputs: { source: ['2', 0] } },
+  });
+  const detected = JSON.parse(await waitForText(promptId, '3')) as { width: number; height: number; parts: (Part & { conf: number })[] };
+  // Image importée : sa taille n'était pas connue, la détection la donne (la retouche en a besoin).
+  if (!asset.width || !asset.height) {
+    await db.update(assets).set({ width: detected.width, height: detected.height }).where(eq(assets.id, asset.id));
+  }
+  const parts = mergeOverlaps(detected.parts.filter(p => input.kinds.includes(p.kind))) as (Part & { conf: number })[];
+  return { width: detected.width, height: detected.height, parts };
+}
+
+/** Étape 2 : les zones gardées sont refaites par klein l'une après l'autre ; une nouvelle génération dans le fil. */
+export async function autofixImage(
+  user: SessionUser,
+  input: { assetId: string; parts: Part[] },
+): Promise<CreateGenerationResponse & { found: string }> {
+  const asset = await ownedImage(user.id, input.assetId);
+  const family = await retouchFamily(user.id);
+  if (!family) throw new HTTPException(400, { message: 'Correction : il faut FLUX.2 klein en local (ComfyUI démarré).' });
+  if (!input.parts.length) throw new HTTPException(400, { message: 'Aucune zone à corriger.' });
+
+  const [source] = asset.generationId
+    ? await db
+        .select({ threadId: generations.threadId, personaId: generations.personaId })
+        .from(generations)
+        .where(eq(generations.id, asset.generationId))
+        .limit(1)
+    : [];
+  const counts = (Object.keys(LABELS) as AutofixKind[])
+    .map(kind => [kind, input.parts.filter(p => p.kind === kind).length] as const)
+    .filter(([, n]) => n > 0);
+  const found = counts.map(([kind, n]) => `${n} ${LABELS[kind][n > 1 ? 1 : 0]}`).join(', ');
+  const res = await createGeneration(user, {
+    family,
+    threadId: source?.threadId ?? null,
+    personaId: source?.personaId ?? asset.personaId,
+    prompt: `Correction automatique : ${found}`,
+    params: { autofix: { parts: input.parts.map(({ kind, x, y, width, height }) => ({ kind, x, y, width, height })) } },
+    referenceAssetIds: [asset.id],
+    count: 1,
+  });
+  return { ...res, found };
 }

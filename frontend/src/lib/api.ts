@@ -301,6 +301,17 @@ export const threadsApi = {
   search: (q: string) => apiFetch<{ results: SearchResult[] }>('/threads/search', { query: { q } }),
 }
 
+export type AutofixKind = 'face' | 'hand' | 'foot'
+/** Zone repérée par la correction automatique, en pixels de l'image. */
+export interface AutofixPart {
+  kind: AutofixKind
+  x: number
+  y: number
+  width: number
+  height: number
+  conf?: number
+}
+
 export const generationsApi = {
   quote: (body: GenerationRequest) =>
     apiFetch<{ quote: QuoteResponse }>('/generations/quote', { method: 'POST', body }),
@@ -312,6 +323,12 @@ export const generationsApi = {
     apiFetch<{ quote: QuoteResponse }>('/generations/upscale/quote', { method: 'POST', body }),
   upscale: (body: UpscaleRequest) =>
     apiFetch<CreateGenerationResponse>('/generations/upscale', { method: 'POST', body }),
+  /** Correction automatique (local), étape 1 : zones repérées (visages, mains, pieds), à confirmer. */
+  detectParts: (assetId: string, kinds: AutofixKind[]) =>
+    apiFetch<{ width: number; height: number; parts: AutofixPart[] }>('/generations/autofix/detect', { method: 'POST', body: { assetId, kinds } }),
+  /** Étape 2 : les zones gardées sont refaites par klein. */
+  autofix: (assetId: string, parts: AutofixPart[]) =>
+    apiFetch<CreateGenerationResponse & { found: string }>('/generations/autofix', { method: 'POST', body: { assetId, parts } }),
   /** Retouche au pinceau (local) : masque PNG à la taille de l'image, blanc = zone à refaire. */
   retouch: (assetId: string, prompt: string, mask: Blob, box: { x: number; y: number; width: number; height: number }) => {
     const form = new FormData()

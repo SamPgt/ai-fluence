@@ -76,6 +76,7 @@ export function labelOf(key: string): string {
 export function formatOption(key: string, v: unknown): string {
   if (key === 'duration_seconds') return v === -1 ? 'Auto' : `${v} s`
   if (key === 'retouch') return 'Retouche au pinceau'
+  if (key === 'autofix') return 'Correction auto'
   // Fichiers ComfyUI (modèles, LoRA) : sans l'extension.
   if (key === 'face_restore' && v === 'none') return 'Aucune'
   if (key === 'precision') return v === 'fp8_e4m3fn' ? 'fp8 (économe en VRAM)' : 'Pleine précision'

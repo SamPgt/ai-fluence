@@ -1,11 +1,12 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Brush, ChevronLeft, ChevronRight, Download, X } from 'lucide-react'
+import { Brush, ChevronLeft, ChevronRight, Download, Wand2, X } from 'lucide-react'
 import type { Asset } from '@ai-fluence/shared'
 
 import { catalogQuery } from '@/lib/queries'
 import { Dialog, DialogOverlay, DialogPortal } from '@/components/ui/dialog'
+import { AutofixEditor } from './AutofixEditor'
 import { RetouchEditor } from './RetouchEditor'
 
 /** Modèles qui savent retoucher au pinceau (cf. `retouch.service.ts` côté backend). */
@@ -32,8 +33,10 @@ export function MediaViewer({
   // Retouche au pinceau : possible si klein tourne en local.
   const { data: catalog } = useQuery(catalogQuery())
   const canRetouch = RETOUCH_FAMILIES.some((id) => catalog?.families.find((f) => f.id === id)?.available)
-  const [retouching, setRetouching] = useState(false)
-  useEffect(() => setRetouching(false), [asset?.id])
+  // Mode d'édition : retouche au pinceau ou correction automatique (visages, mains, pieds).
+  const [editing, setEditing] = useState<'brush' | 'autofix' | null>(null)
+  const retouching = editing !== null
+  useEffect(() => setEditing(null), [asset?.id])
 
   // Flèches du clavier pour passer d'un média à l'autre (pas pendant la retouche).
   useEffect(() => {
@@ -58,9 +61,8 @@ export function MediaViewer({
           <DialogPrimitive.Title className="sr-only">
             Aperçu
           </DialogPrimitive.Title>
-          {asset && retouching && (
-            <RetouchEditor asset={asset} onDone={onClose} onCancel={() => setRetouching(false)} />
-          )}
+          {asset && editing === 'brush' && <RetouchEditor asset={asset} onDone={onClose} onCancel={() => setEditing(null)} />}
+          {asset && editing === 'autofix' && <AutofixEditor asset={asset} onDone={onClose} onCancel={() => setEditing(null)} />}
           {asset && !retouching && (
             <>
               <div
@@ -70,7 +72,17 @@ export function MediaViewer({
                 {canRetouch && asset.mediaType === 'image' && (
                   <button
                     type="button"
-                    onClick={() => setRetouching(true)}
+                    onClick={() => setEditing('autofix')}
+                    className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/20"
+                    title="Repérer les visages, mains et pieds et refaire ceux qui sont ratés"
+                  >
+                    <Wand2 className="h-4 w-4" /> Corriger
+                  </button>
+                )}
+                {canRetouch && asset.mediaType === 'image' && (
+                  <button
+                    type="button"
+                    onClick={() => setEditing('brush')}
                     className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/20"
                     title="Peindre une zone ratée (une main…) et la faire refaire"
                   >

@@ -238,6 +238,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     if (!keepSeed) delete params.seed
     // Retouche au pinceau : son masque ne vaut que pour « Relancer », pas pour une nouvelle demande du composer.
     delete params.retouch
+    delete params.autofix
     composer.load({
       family,
       prompt: g.prompt.trim(),

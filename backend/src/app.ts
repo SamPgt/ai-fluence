@@ -39,7 +39,7 @@ const app = new Hono<AppEnv>()
     const segments = c.req.path.split('/');
     const idx = segments.findIndex(s => ['media', 'threads', 'generations', 'personas', 'places', 'scenes', 'assets', 'presets'].includes(s));
     const id = idx >= 0 ? segments[idx + 1] : undefined;
-    if (id && !['search', 'references', 'gallery', 'quote', 'upscale', 'order', 'voices', 'retouch'].includes(id) && !UUID_RE.test(id)) {
+    if (id && !['search', 'references', 'gallery', 'quote', 'upscale', 'order', 'voices', 'retouch', 'autofix'].includes(id) && !UUID_RE.test(id)) {
       return c.json({ error: 'Introuvable.' }, 404);
     }
     await next();

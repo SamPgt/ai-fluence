@@ -12,7 +12,7 @@ import {
   quoteGeneration,
   quoteUpscale,
 } from '../services/generation.service.js';
-import { retouchImage } from '../services/retouch.service.js';
+import { autofixImage, detectParts, retouchImage } from '../services/retouch.service.js';
 import type { AppEnv } from '../types.js';
 
 const generationSchema = z.object({
@@ -93,6 +93,35 @@ const generationsRoutes = new Hono<AppEnv>()
     const prompt = typeof body.prompt === 'string' ? body.prompt.slice(0, 1000) : '';
     return c.json(await retouchImage(c.get('user'), { assetId: assetId.data, prompt, box: box.data, mask: body.mask }), 201);
   })
+  /** Correction automatique (local), étape 1 : visages, mains et/ou pieds repérés, montrés avant correction. */
+  .post(
+    '/autofix/detect',
+    zValidator('json', z.object({ assetId: z.uuid(), kinds: z.array(z.enum(['face', 'hand', 'foot'])).min(1).max(3) })),
+    async c => c.json(await detectParts(c.get('user'), c.req.valid('json'))),
+  )
+  /** Étape 2 : les zones gardées par l'utilisateur sont refaites par klein. */
+  .post(
+    '/autofix',
+    zValidator(
+      'json',
+      z.object({
+        assetId: z.uuid(),
+        parts: z
+          .array(
+            z.object({
+              kind: z.enum(['face', 'hand', 'foot']),
+              x: z.number().min(0),
+              y: z.number().min(0),
+              width: z.number().positive(),
+              height: z.number().positive(),
+            }),
+          )
+          .min(1)
+          .max(12),
+      }),
+    ),
+    async c => c.json(await autofixImage(c.get('user'), c.req.valid('json')), 201),
+  )
   .get('/:id', async c => {
     const [generation] = await loadGenerations(c.get('user').id, { ids: [c.req.param('id')] });
     if (!generation) return c.json({ error: 'Génération introuvable.' }, 404);
