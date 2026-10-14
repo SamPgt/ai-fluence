@@ -256,14 +256,24 @@ async function freeRamIfNeeded(graph: unknown): Promise<void> {
   const sizes = await modelSizes();
   const needed = [...models].filter(f => !previous.has(f)).reduce((sum, f) => sum + (sizes.get(f) ?? 0), 0);
   if (!needed) return;
-  const stats = (await probe()) as { system?: { ram_free?: number } } | null;
+  const stats = (await probe()) as { system?: { ram_free?: number }; devices?: { vram_free?: number }[] } | null;
   const free = stats?.system?.ram_free;
-  if (free == null || free >= needed + RAM_MARGIN) return;
-  console.info(`[comfy] RAM libre ${(free / GB).toFixed(1)} Go < ${((needed + RAM_MARGIN) / GB).toFixed(1)} Go nécessaires : déchargement des modèles.`);
+  const ramShort = free != null && free < needed + RAM_MARGIN;
+  // VRAM : les modèles du workflow précédent peuvent y rester (vu le 2026-10-14 : LTX n'a trouvé que 3,4 Go libres
+  // après des images, contre 5,2, et a mis 2 min 20 de plus à se charger). S'ils occupent la place que demandent les
+  // nouveaux fichiers, on les sort de la carte ; sans `free_memory`, ils restent en RAM et se rechargent vite.
+  const vramFree = stats?.devices?.[0]?.vram_free;
+  const vramShort = vramFree != null && vramFree < needed;
+  if (!ramShort && !vramShort) return;
+  console.info(
+    ramShort
+      ? `[comfy] RAM libre ${(free! / GB).toFixed(1)} Go < ${((needed + RAM_MARGIN) / GB).toFixed(1)} Go nécessaires : déchargement des modèles.`
+      : `[comfy] VRAM libre ${(vramFree! / GB).toFixed(1)} Go < ${(needed / GB).toFixed(1)} Go à charger : modèles sortis de la carte.`,
+  );
   await comfyFetch('/free', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ unload_models: true, free_memory: true }),
+    body: JSON.stringify({ unload_models: true, free_memory: ramShort }),
   });
 }
 
