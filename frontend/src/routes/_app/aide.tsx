@@ -162,7 +162,7 @@ function HelpPage() {
                 défaut oublié. Sans référence : pied et main géants. Le détecteur se trompe parfois (un sac vu comme une main, même
                 avec une forte confiance) : on décoche la zone avant de corriger.
               </Verdict>
-              <Figure src="/aide/correction-resultat.jpg" caption="Correction automatique : visage affiné, pied décroché réparé." />
+              <Figure src="/aide/correction-resultat.jpg" caption="Correction automatique, sac décoché : la vraie main refaite, les pieds rattachés avec leurs sandales en cuir brun (~2 min 30 pour 3 zones)." />
             </Section>
 
             <Section id="planche" title="Planche de références" date="13 octobre 2026">
