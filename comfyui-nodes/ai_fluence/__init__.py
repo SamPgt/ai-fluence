@@ -91,5 +91,52 @@ class AIFluenceDetectParts:
         return (json.dumps({'width': pil.width, 'height': pil.height, 'parts': found}),)
 
 
-NODE_CLASS_MAPPINGS = {'AIFluenceDetectParts': AIFluenceDetectParts}
-NODE_DISPLAY_NAME_MAPPINGS = {'AIFluenceDetectParts': 'AI Fluence · Détecter visages, mains, pieds'}
+class AIFluenceColorMatch:
+    """
+    Ramène les couleurs d'une zone refaite à celles de la zone d'origine (moyenne et écart-type par canal, mesurés
+    dans le masque) : klein repeint la peau avec sa propre teinte, d'où deux tons de peau visibles au raccord
+    (vu le 2026-10-14 sur des pieds refaits). Les formes ne bougent pas, seule la dérive de couleur est corrigée.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            'required': {
+                'image': ('IMAGE',),
+                'reference': ('IMAGE',),
+                'mask': ('MASK',),
+                'strength': ('FLOAT', {'default': 1.0, 'min': 0.0, 'max': 1.0, 'step': 0.05}),
+            }
+        }
+
+    RETURN_TYPES = ('IMAGE',)
+    FUNCTION = 'match'
+    CATEGORY = 'AI Fluence'
+
+    def match(self, image, reference, mask, strength):
+        import torch
+
+        m = mask.reshape(-1, mask.shape[-2], mask.shape[-1])[0].to(image.device)
+        if m.shape != image.shape[1:3]:
+            m = torch.nn.functional.interpolate(m[None, None], size=image.shape[1:3], mode='bilinear')[0, 0]
+        w = (m > 0.5).float()[..., None]
+        n = w.sum()
+        if n < 16:
+            return (image,)
+        out = image.clone()
+        for b in range(image.shape[0]):
+            src, ref = image[b], reference[min(b, reference.shape[0] - 1)]
+            mean_s = (src * w).sum((0, 1)) / n
+            mean_r = (ref * w).sum((0, 1)) / n
+            std_s = (((src - mean_s) ** 2 * w).sum((0, 1)) / n).sqrt().clamp(min=1e-4)
+            std_r = (((ref - mean_r) ** 2 * w).sum((0, 1)) / n).sqrt()
+            matched = ((src - mean_s) / std_s * std_r + mean_r).clamp(0, 1)
+            out[b] = src + (matched - src) * w * strength
+        return (out,)
+
+
+NODE_CLASS_MAPPINGS = {'AIFluenceDetectParts': AIFluenceDetectParts, 'AIFluenceColorMatch': AIFluenceColorMatch}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    'AIFluenceDetectParts': 'AI Fluence · Détecter visages, mains, pieds',
+    'AIFluenceColorMatch': 'AI Fluence · Raccorder les couleurs',
+}

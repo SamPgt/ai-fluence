@@ -126,6 +126,12 @@ export interface RetouchRegion {
   reference: 'gray' | 'blur' | 'keep';
   /** 1 : zone entièrement refaite ; plus bas, retravaillée. */
   denoise: number;
+  /**
+   * Couleurs de la zone refaite ramenées à celles d'origine (nœud AI Fluence) : sans, la peau refaite prenait une
+   * autre teinte que le reste (deux tons de peau au raccord). Testé le 2026-10-14 : à force 1, des pieds bien
+   * formés mais plus clairs ; baisser la force gardait au contraire le pied raté (« botte », moignon).
+   */
+  colorMatch?: boolean;
 }
 
 /** Une zone : découpe, repeinte par klein, recollage. Renvoie l'image recollée. */
@@ -202,9 +208,17 @@ function retouchRegion(
       inputs: { samples: [`${p}38`, 0], vae: ['22', 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 },
     },
     // Recollage : à la taille de la découpe, masque élargi puis adouci.
+    ...(region.colorMatch
+      ? {
+          [`${p}40`]: {
+            class_type: 'AIFluenceColorMatch',
+            inputs: { image: [`${p}39`, 0], reference: [`${p}5`, 0], mask: [`${p}12`, 0], strength: 1 },
+          },
+        }
+      : {}),
     [`${p}80`]: { class_type: 'GrowMask', inputs: { mask: [`${p}4`, 0], expand: 6, tapered_corners: true } },
     [`${p}81`]: { class_type: 'FeatherMask', inputs: { mask: [`${p}80`, 0], left: 12, top: 12, right: 12, bottom: 12 } },
-    [`${p}82`]: { class_type: 'ImageScale', inputs: { image: [`${p}39`, 0], upscale_method: 'lanczos', width: bw, height: bh, crop: 'disabled' } },
+    [`${p}82`]: { class_type: 'ImageScale', inputs: { image: [region.colorMatch ? `${p}40` : `${p}39`, 0], upscale_method: 'lanczos', width: bw, height: bh, crop: 'disabled' } },
     [`${p}83`]: {
       class_type: 'ImageCompositeMasked',
       inputs: { destination: image, source: [`${p}82`, 0], x: bx, y: by, resize_source: false, mask: [`${p}81`, 0] },
@@ -229,13 +243,15 @@ const AUTOFIX: Record<AutofixKind, { prompt: string; reference: RetouchRegion['r
     grow: 0.2,
   },
   hand: {
-    prompt: 'a natural hand with five well-formed fingers and correct anatomy, matching the pose, the lighting and the rest of the photo',
+    prompt:
+      'a natural hand with five well-formed fingers and correct anatomy, exactly the same skin tone as the arm and the rest of the body, matching the pose and the lighting',
     reference: 'blur',
     denoise: 1,
     grow: 0.35,
   },
   foot: {
-    prompt: 'a natural foot with correct anatomy and five toes, wearing the same footwear as in the rest of the photo, matching the lighting',
+    prompt:
+      'a natural foot with correct anatomy and five toes, exactly the same skin tone as the legs, wearing the same footwear as in the rest of the photo, matching the lighting',
     reference: 'blur',
     denoise: 1,
     grow: 0.1,
@@ -255,7 +271,7 @@ export function autofixRegions(value: unknown): RetouchRegion[] {
     // Cadre détecté au plus près : élargi pour couvrir toute la partie (doigts écartés, mèches, orteils).
     const dx = width * spec.grow;
     const dy = height * spec.grow;
-    return [{ box: { x: Math.max(0, x - dx), y: Math.max(0, y - dy), width: width + 2 * dx, height: height + 2 * dy }, prompt: spec.prompt, reference: spec.reference, denoise: spec.denoise }];
+    return [{ box: { x: Math.max(0, x - dx), y: Math.max(0, y - dy), width: width + 2 * dx, height: height + 2 * dy }, prompt: spec.prompt, reference: spec.reference, denoise: spec.denoise, colorMatch: true }];
   });
 }
 

@@ -169,6 +169,11 @@ export async function autofixImage(
   const family = await retouchFamily(user.id);
   if (!family) throw new HTTPException(400, { message: 'Correction : il faut FLUX.2 klein en local (ComfyUI démarré).' });
   if (!input.parts.length) throw new HTTPException(400, { message: 'Aucune zone à corriger.' });
+  if (!(await hasNodes([DETECT_NODE, 'AIFluenceColorMatch']))) {
+    throw new HTTPException(400, {
+      message: 'Nœuds AI Fluence absents ou anciens dans ComfyUI : recopie comfyui-nodes/ai_fluence dans ComfyUI/custom_nodes, puis redémarre ComfyUI.',
+    });
+  }
 
   const [source] = asset.generationId
     ? await db

@@ -1,15 +1,17 @@
 /**
  * Correction automatique (outil local, FLUX.2 klein) : les visages, mains et pieds de l'image sont repérés, montrés
- * en cadres colorés ; on décoche ceux qui sont faux (un sac pris pour une main), puis klein refait les zones gardées.
+ * en cadres colorés ; on décoche ceux qui sont faux (un sac pris pour une main), on déplace ou agrandit ceux qui
+ * couvrent mal la partie (ce qui dépasse du cadre reste tel quel : un talon raté resterait visible), on en ajoute au
+ * besoin, puis klein refait les zones gardées.
  * Le résultat arrive dans le fil de l'image (~1 min par zone) ; le reste de l'image ne change pas.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Wand2, X } from 'lucide-react'
+import { Loader2, Plus, Wand2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Asset } from '@ai-fluence/shared'
 
-import { generationsApi, type AutofixKind } from '@/lib/api'
+import { generationsApi, type AutofixKind, type AutofixPart } from '@/lib/api'
 import { qk } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -31,8 +33,10 @@ export function AutofixEditor({ asset, onDone, onCancel }: { asset: Asset; onDon
     staleTime: Infinity,
     retry: false,
   })
-  // Zones cochées (par index) : toutes au départ.
+  // Zones modifiables (déplacées, redimensionnées, ajoutées), en pixels de l'image ; décochées par index.
+  const [edited, setEdited] = useState<AutofixPart[] | null>(null)
   const [off, setOff] = useState<Set<number>>(new Set())
+  const drag = useRef<{ i: number; mode: 'move' | 'resize'; x0: number; y0: number; box: AutofixPart; moved: boolean } | null>(null)
 
   useEffect(() => {
     const img = imgRef.current
@@ -48,8 +52,43 @@ export function AutofixEditor({ asset, onDone, onCancel }: { asset: Asset; onDon
     }
   }, [])
 
-  const parts = data?.parts ?? []
+  const parts = edited ?? data?.parts ?? []
   const kept = parts.filter((_, i) => !off.has(i))
+  const W = data?.width ?? 1
+  const H = data?.height ?? 1
+  const clamp = (b: AutofixPart): AutofixPart => {
+    const width = Math.max(16, Math.min(W, b.width))
+    const height = Math.max(16, Math.min(H, b.height))
+    return { ...b, width, height, x: Math.max(0, Math.min(W - width, b.x)), y: Math.max(0, Math.min(H - height, b.y)) }
+  }
+  const update = (i: number, box: AutofixPart) => setEdited(parts.map((p, j) => (j === i ? clamp(box) : p)))
+  const addZone = (kind: AutofixKind) => {
+    const size = Math.round(Math.min(W, H) * 0.18)
+    setEdited([...parts, { kind, x: (W - size) / 2, y: (H - size) / 2, width: size, height: size }])
+  }
+  const startDrag = (e: React.PointerEvent, i: number, mode: 'move' | 'resize') => {
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { i, mode, x0: e.clientX, y0: e.clientY, box: parts[i], moved: false }
+  }
+  const onDrag = (e: React.PointerEvent) => {
+    const d = drag.current
+    if (!d || !scale) return
+    const dx = (e.clientX - d.x0) / scale
+    const dy = (e.clientY - d.y0) / scale
+    if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true
+    if (!d.moved) return
+    update(
+      d.i,
+      d.mode === 'move' ? { ...d.box, x: d.box.x + dx, y: d.box.y + dy } : { ...d.box, width: d.box.width + dx, height: d.box.height + dy },
+    )
+  }
+  const endDrag = (i: number) => {
+    const d = drag.current
+    drag.current = null
+    // Un simple clic (sans glisser) coche ou décoche la zone.
+    if (d && !d.moved && d.mode === 'move') toggle(i)
+  }
   const toggle = (i: number) =>
     setOff((s) => {
       const next = new Set(s)
@@ -67,6 +106,8 @@ export function AutofixEditor({ asset, onDone, onCancel }: { asset: Asset; onDon
     })
   }
 
+  const scale = data && display ? display.w / data.width : 0
+
   const fix = useMutation({
     mutationFn: () => generationsApi.autofix(asset.id, kept.map(({ kind, x, y, width, height }) => ({ kind, x, y, width, height }))),
     onSuccess: ({ thread, found }) => {
@@ -78,7 +119,6 @@ export function AutofixEditor({ asset, onDone, onCancel }: { asset: Asset; onDon
     onError: (e) => toast.error((e as Error).message),
   })
 
-  const scale = data && display ? display.w / data.width : 0
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-3" onClick={(e) => e.stopPropagation()}>
@@ -89,12 +129,14 @@ export function AutofixEditor({ asset, onDone, onCancel }: { asset: Asset; onDon
             {parts.map((p, i) => {
               const on = !off.has(i)
               return (
-                <button
+                <div
                   key={i}
-                  type="button"
-                  onClick={() => toggle(i)}
-                  title={on ? 'Clic : ne pas corriger cette zone' : 'Clic : corriger cette zone'}
-                  className={cn('absolute rounded-md border-2 transition', on ? 'bg-white/5' : 'border-dashed opacity-50')}
+                  role="button"
+                  onPointerDown={(e) => startDrag(e, i, 'move')}
+                  onPointerMove={onDrag}
+                  onPointerUp={() => endDrag(i)}
+                  title={on ? 'Glisser : déplacer · clic : ignorer cette zone' : 'Clic : corriger cette zone'}
+                  className={cn('absolute cursor-move touch-none rounded-md border-2', on ? 'bg-white/5' : 'border-dashed opacity-50')}
                   style={{
                     left: p.x * scale,
                     top: p.y * scale,
@@ -109,7 +151,17 @@ export function AutofixEditor({ asset, onDone, onCancel }: { asset: Asset; onDon
                   >
                     {KINDS.find((k) => k.id === p.kind)!.label.slice(0, -1).toLowerCase()} {on ? '' : '· ignoré'}
                   </span>
-                </button>
+                  {on && (
+                    <span
+                      onPointerDown={(e) => startDrag(e, i, 'resize')}
+                      onPointerMove={onDrag}
+                      onPointerUp={() => endDrag(i)}
+                      className="absolute -right-1.5 -bottom-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border-2 border-white"
+                      style={{ background: colorOf(p.kind) }}
+                      title="Glisser : redimensionner"
+                    />
+                  )}
+                </div>
               )
             })}
           </div>
@@ -142,6 +194,18 @@ export function AutofixEditor({ asset, onDone, onCancel }: { asset: Asset; onDon
                 </button>
               )
             })}
+            <span className="mx-1 h-5 w-px bg-white/15" />
+            {KINDS.map((k) => (
+              <button
+                key={`add-${k.id}`}
+                type="button"
+                onClick={() => addZone(k.id)}
+                className="flex h-8 items-center gap-0.5 rounded-full px-2 text-xs text-white/70 hover:bg-white/10 hover:text-white"
+                title={`Ajouter une zone « ${k.label.slice(0, -1).toLowerCase()} », à placer sur l'image`}
+              >
+                <Plus className="h-3 w-3" /> {k.label.slice(0, -1)}
+              </button>
+            ))}
             <span className="mr-auto" />
             <Button size="sm" className="rounded-full" disabled={!kept.length || fix.isPending} onClick={() => fix.mutate()}>
               {fix.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
@@ -153,8 +217,8 @@ export function AutofixEditor({ asset, onDone, onCancel }: { asset: Asset; onDon
           <X className="h-4 w-4" />
         </button>
         <p className="w-full px-1 text-[11px] text-white/50">
-          Clic sur un cadre pour l'ignorer (un sac pris pour une main…). Visages retravaillés en gardant les traits ; mains et
-          pieds refaits entièrement. ~1 min par zone ; le reste de l'image ne change pas.
+          Clic sur un cadre : l'ignorer (un sac pris pour une main…). Glisser : le déplacer ; coin : le redimensionner. Le cadre
+          doit couvrir toute la partie ratée : ce qui dépasse reste tel quel. ~1 min par zone ; le reste de l'image ne change pas.
         </p>
       </div>
     </div>
