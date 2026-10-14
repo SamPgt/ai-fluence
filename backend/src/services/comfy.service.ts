@@ -373,7 +373,11 @@ export async function getPromptState(promptId: string, outputNode: string): Prom
   if (queue.queue_running?.some(item => item[1] === promptId)) return { state: 'running' };
   if (queue.queue_pending?.some(item => item[1] === promptId)) return { state: 'queued' };
   // Entre la fin d'exécution et l'écriture de l'historique, le prompt peut n'être nulle part un court instant.
-  return entry ? { state: 'running' } : { state: 'lost' };
+  if (entry) return { state: 'running' };
+  // Le prompt a pu se terminer entre la lecture de l'historique et celle de la file (vu le 2026-10-14 : une vidéo
+  // de 24 min réussie, marquée perdue) : on relit l'historique avant de conclure.
+  const again = (await (await comfyFetch(`/history/${promptId}`)).json()) as Record<string, HistoryEntry>;
+  return again[promptId] ? { state: 'running' } : { state: 'lost' };
 }
 
 /**
