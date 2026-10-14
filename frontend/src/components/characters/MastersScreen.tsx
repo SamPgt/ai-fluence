@@ -71,8 +71,12 @@ export function MastersScreen({
   // Modèle : celui du persona ou du lieu, sinon le premier modèle local.
   const families = (catalog?.families ?? []).filter((f) => f.media === 'image' && f.available && f.tasks['text-to-image'])
   const [familyId, setFamilyId] = useState<string | null>(null)
+  // Personnage : un modèle à références d'abord (klein 9B), qui garde le visage sous tous les angles ; Z-Image et
+  // ReActor décrochaient sur les profils et trois-quarts (inswapper 128 px faible sur un visage tourné).
+  const preferRef = kind === 'character' && owner.avatarAssetId ? ['local/flux2-klein-9b', 'local/flux2-klein-4b'] : []
   const family =
     families.find((f) => f.id === familyId) ??
+    preferRef.map((id) => families.find((f) => f.id === id && f.available)).find(Boolean) ??
     families.find((f) => f.id === owner.defaultImageFamily) ??
     families.find((f) => f.runtime === 'comfy') ??
     families[0]
