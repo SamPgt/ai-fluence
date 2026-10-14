@@ -505,13 +505,29 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
     return id;
   };
 
+  // Tous les passages sont encodés avant le premier clip. Sinon ComfyUI encodait le passage suivant entre deux
+  // clips, avec LTX déjà en mémoire : Gemma devait cohabiter avec lui et l'encodage passait de ~15 s à 3 min 30
+  // (vu le 2026-10-14 sur une vidéo de 15 s en 720p). Pour forcer cet ordre, les autres passages sont rattachés au
+  // premier clip avec une plage de temps vide (1,0 → 1,0 : bruit nul, jamais échantillonné) : ils sont calculés
+  // d'abord, mais n'agissent pas sur l'image.
+  const allPassages = [...new Set(passages)].map(conditioningOf);
+  const earlyEncode = (positive: [string, number]): [string, number] => {
+    let out = positive;
+    for (const id of allPassages.slice(1)) {
+      g[`${id}_idle`] = { class_type: 'ConditioningSetTimestepRange', inputs: { conditioning: [id, 0], start: 1.0, end: 1.0 } };
+      g[`${id}_pre`] = { class_type: 'ConditioningCombine', inputs: { conditioning_1: out, conditioning_2: [`${id}_idle`, 0] } };
+      out = [`${id}_pre`, 0];
+    }
+    return out;
+  };
+
   let images: [string, number] | null = null; // images recollées jusqu'ici
   let previous: [string, number] | null = null; // images décodées du clip précédent
   let audio: [string, number] | null = null; // son généré recollé (sans voix imposée)
   for (let c = 0; c < plan.clips; c++) {
     const p = `k${c}_`;
     const cond = conditioningOf(passages[c]);
-    let positive: [string, number] = [cond, 0];
+    let positive: [string, number] = c === 0 ? earlyEncode([cond, 0]) : [cond, 0];
     let negative: [string, number] = [cond, 1];
     let video: [string, number];
     g[`${p}lat`] = { class_type: 'EmptyLTXVLatentVideo', inputs: { ...size, length: L, batch_size: 1 } };
