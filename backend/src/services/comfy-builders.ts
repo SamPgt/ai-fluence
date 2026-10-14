@@ -31,6 +31,8 @@ export interface BuildContext {
   mask?: { file: string; box: RetouchBox };
   /** Correction automatique : zones détectées (visages, mains, pieds), retouchées l'une après l'autre. */
   regions?: RetouchRegion[];
+  /** Vidéo de mouvement (dossier `input` de ComfyUI) : LTX en reprend les mouvements (squelettes, IC-LoRA). */
+  motion?: { file: string };
 }
 
 export interface RetouchBox {
@@ -609,6 +611,9 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
   const seed = seedOf(values.seed);
   const L = plan.clipFrames;
   const K = plan.overlap;
+  if (ctx.motion && plan.clips > 1) {
+    throw new Error(`Avec un mouvement repris, une seule passe : ${resolution === '720p' ? '9' : '15'} s au plus en ${resolution}.`);
+  }
 
   const g: Graph = {
     '1': unetLoader(ctx.files.unet),
@@ -631,6 +636,24 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
   if (ctx.audio) {
     g['30'] = { class_type: 'LoadAudio', inputs: { audio: ctx.audio.file } };
     g['32'] = { class_type: 'SolidMask', inputs: { value: 0, ...size } };
+  }
+  // Mouvement repris d'une vidéo (l'utilisateur se filme) : squelettes OpenPose de la vidéo, au rythme et au cadrage
+  // de LTX, posés en guide avec la LoRA « Union Control » (in-context) de Lightricks. Le squelette ne transporte que
+  // les mouvements, pas la silhouette de la personne filmée (une carte de profondeur la recopierait).
+  let model: [string, number] = ['1', 0];
+  if (ctx.motion) {
+    if (!ctx.files.icLora) throw new Error('LoRA « IC-LoRA Union Control » de LTX 2.3 absente du dossier loras de ComfyUI.');
+    Object.assign(g, {
+      m1: { class_type: 'LoadVideo', inputs: { file: ctx.motion.file } },
+      m2: { class_type: 'GetVideoComponents', inputs: { video: ['m1', 0] } },
+      m3: {
+        class_type: 'AIFluencePoseVideo',
+        inputs: { images: ['m2', 0], fps: ['m2', 2], target_fps: LTX_FPS, frames: L, width: size.width, height: size.height },
+      },
+      m4: { class_type: 'LoraLoaderModelOnly', inputs: { model: ['1', 0], lora_name: ctx.files.icLora, strength_model: 1 } },
+      m5: { class_type: 'GetICLoRAParameters', inputs: { iclora_model: ['m4', 0] } },
+    });
+    model = ['m4', 0];
   }
 
   // Un passage = un encodage du texte (les clips du même passage le partagent).
@@ -678,6 +701,15 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
         inputs: { vae: ['3', 0], image: ['7', 0], latent: [`${p}lat`, 0], strength: 1, bypass: false },
       };
       video = [`${p}img`, 0];
+      if (ctx.motion) {
+        g[`${p}ctl`] = {
+          class_type: 'LTXVAddGuide',
+          inputs: { positive, negative, vae: ['3', 0], latent: video, image: ['m3', 0], frame_idx: 0, strength: 1, iclora_parameters: ['m5', 0] },
+        };
+        positive = [`${p}ctl`, 0];
+        negative = [`${p}ctl`, 1];
+        video = [`${p}ctl`, 2];
+      }
     } else {
       // Guide : les K dernières images du clip précédent, au début de celui-ci.
       g[`${p}tail`] = { class_type: 'ImageFromBatch', inputs: { image: previous, batch_index: L - K, length: K } };
@@ -689,7 +721,7 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
       negative = [`${p}guide`, 1];
       video = [`${p}guide`, 2];
     }
-    let guided = c > 0;
+    let guided = c > 0 || Boolean(ctx.motion);
     if (ctx.images[1] && c === plan.clips - 1) {
       g[`${p}end`] = {
         class_type: 'LTXVAddGuide',
@@ -713,7 +745,7 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
     }
     g[`${p}av`] = { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: video, audio_latent: [`${p}alat`, 0] } };
     g[`${p}noise`] = { class_type: 'RandomNoise', inputs: { noise_seed: (seed + c) % 2 ** 31 } };
-    g[`${p}cfg`] = { class_type: 'CFGGuider', inputs: { model: ['1', 0], positive, negative, cfg: 1 } };
+    g[`${p}cfg`] = { class_type: 'CFGGuider', inputs: { model, positive, negative, cfg: 1 } };
     g[`${p}smp`] = {
       class_type: 'SamplerCustomAdvanced',
       inputs: { noise: [`${p}noise`, 0], guider: [`${p}cfg`, 0], sampler: ['16', 0], sigmas: ['17', 0], latent_image: [`${p}av`, 0] },

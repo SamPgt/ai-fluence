@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Circle, Dice5, Film, Info, Loader2, MapPinned, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Square, Upload, Volume2, X } from 'lucide-react'
+import { ArrowUp, Circle, Dice5, Film, Footprints, Info, Loader2, MapPinned, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Square, Upload, Volume2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
@@ -695,6 +695,21 @@ ${prompt}` : prompt)
                   {a.mediaType === 'video' && (
                     <Film className="absolute top-1 left-1 h-3.5 w-3.5 text-white drop-shadow" />
                   )}
+                  {/* LTX : une vidéo jointe (soi-même filmé) peut donner le mouvement, repris par le personnage. */}
+                  {a.mediaType === 'video' && schema?.properties?.mouvement && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setParam('mouvement', { video: `asset:${a.id}` })
+                        composer.removeAttachment(a.id)
+                      }}
+                      className="absolute right-1 bottom-1 flex items-center gap-0.5 rounded bg-black/70 px-1 py-0.5 text-[10px] font-semibold text-white/90 hover:text-white"
+                      title="Reprendre les mouvements de cette vidéo (squelettes) : le personnage de l’image de départ les refait"
+                    >
+                      <Footprints className="h-2.5 w-2.5" />
+                      Mouvement
+                    </button>
+                  )}
                   {/* Modèle local avec ReActor : clic pour passer l'image en « Visage » (appliqué au résultat) ou en entrée. */}
                   {family?.supportsFace && a.mediaType === 'image' && (
                     <button
@@ -847,6 +862,32 @@ ${prompt}` : prompt)
             rows={1}
           />
 
+          {/* Mouvement repris d'une vidéo (LTX) : aperçu et retrait. */}
+          {schema?.properties?.mouvement && typeof (params.mouvement as { video?: string } | undefined)?.video === 'string' && (
+            <div className="mx-3 mb-1 flex items-center gap-2 rounded-xl border border-border/50 bg-background/40 px-3 py-1.5 text-xs">
+              <Footprints className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <video
+                src={`/api/media/${(params.mouvement as { video: string }).video.slice('asset:'.length)}`}
+                muted
+                loop
+                autoPlay
+                playsInline
+                className="h-10 w-8 rounded object-cover"
+              />
+              <span className="min-w-0 flex-1 text-muted-foreground">
+                Mouvement repris de cette vidéo. Dans le prompt, décris plutôt la scène et l’apparence : les gestes viennent de la vidéo.
+                Une seule passe : 15 s au plus en 512p, 9 s en 720p.
+              </span>
+              <button
+                type="button"
+                onClick={() => setParam('mouvement', undefined)}
+                className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label="Retirer le mouvement"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
           {/* Vidéo parlée (LTX local) : le personnage dit ce texte avec sa voix, les lèvres suivent. */}
           {schema?.properties?.speech && (
             <div className="mx-3 mb-1 flex items-center gap-2 rounded-xl border border-border/50 bg-background/40 px-3 py-1.5">

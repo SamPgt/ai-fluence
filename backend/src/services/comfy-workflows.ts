@@ -255,6 +255,8 @@ export const LTX_FILES: LocalEndpoint['requires'] = {
   connectors: { loader: 'DualCLIPLoaderGGUF', input: 'clip_name2', match: /ltx-2\.3.*embeddings_connectors/i },
   vae: { loader: 'VAELoader', input: 'vae_name', match: /ltx-2\.3.*video_vae/i },
   audioVae: { loader: 'VAELoader', input: 'vae_name', match: /ltx-2\.3.*audio_vae/i },
+  // Mouvement repris d'une vidéo (facultatif) : LoRA in-context de Lightricks (pose, profondeur, contours).
+  icLora: { loader: 'LoraLoaderModelOnly', input: 'lora_name', match: /ltx-2\.3.*ic-lora-union-control/i, optional: true },
 };
 
 export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpoint>>> = {
@@ -409,6 +411,8 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
           },
           /** Piste du « Texte dit » écoutée dans le composer (média `voice`), reprise telle quelle si elle correspond. */
           speech_audio: { type: 'string' },
+          // Mouvement repris d'une vidéo : { video: 'asset:<id>' }. Objet : jamais affiché dans les réglages.
+          mouvement: { type: 'object', description: 'Vidéo dont LTX reprend les mouvements (squelettes).' },
           /** Expressivité du « Texte dit » pour cette vidéo (0,2 calme → 1,2 très expressive) ; sinon celle de la voix. */
           speech_exaggeration: { type: 'number', minimum: 0.2, maximum: 1.2 },
           duration_seconds: {
@@ -507,7 +511,28 @@ export async function resolveRequirements(
  * `files` : noms des fichiers déjà envoyés dans le dossier `input` de ComfyUI
  * (`image` : image de départ, `face` : visage à appliquer, `images` : références, dans l'ordre).
  */
+/** Rendu « photo de téléphone » (nœud AI Fluence) : force appliquée. */
+const PHONE_LOOK_STRENGTH = 0.6;
+
+/**
+ * Workflow d'un endpoint local, avec le post-traitement demandé : « Rendu téléphone » (grain, vignetage, compression
+ * JPEG) inséré juste avant l'enregistrement de l'image.
+ */
 export async function buildGraph(
+  endpoint: LocalEndpoint,
+  input: Record<string, unknown>,
+  files: Parameters<typeof buildBaseGraph>[2] = {},
+): Promise<Graph> {
+  const graph = await buildBaseGraph(endpoint, input, files);
+  const save = graph[endpoint.outputNode];
+  if (input.rendu_telephone === true && save?.class_type === 'SaveImage') {
+    graph.phone = { class_type: 'AIFluencePhoneLook', inputs: { image: save.inputs.images, strength: PHONE_LOOK_STRENGTH } };
+    save.inputs.images = ['phone', 0];
+  }
+  return graph;
+}
+
+async function buildBaseGraph(
   endpoint: LocalEndpoint,
   input: Record<string, unknown>,
   files: {
@@ -519,6 +544,8 @@ export async function buildGraph(
     audio?: { file: string; seconds: number };
     /** Retouche : masque peint (fichier dans `input`) et son cadre. */
     mask?: { file: string; box: RetouchBox };
+    /** Vidéo de mouvement (fichier dans `input`). */
+    motion?: { file: string };
   } = {},
 ): Promise<Graph> {
   const values: Record<string, unknown> = { ...input, image: files.image };
@@ -545,6 +572,7 @@ export async function buildGraph(
       mask: files.mask,
       // Correction automatique (visages, mains, pieds détectés).
       regions: autofixRegions(values.autofix),
+      motion: files.motion,
     });
   }
 
@@ -606,6 +634,25 @@ async function liveSchema(endpoint: LocalEndpoint, faces: boolean, models: strin
         enum: models,
         default: models.includes('none') ? 'none' : models[0],
         description: 'Avec une image « Visage » : affine le visage après le swap.',
+      };
+    }
+  }
+  // Options AI Fluence des images (nœuds `comfyui-nodes/ai_fluence`) : rendu téléphone, correction automatique.
+  if (endpoint.task === 'text-to-image' || endpoint.task === 'image-to-image') {
+    if (await hasNodes(['AIFluencePhoneLook']).catch(() => false)) {
+      properties.rendu_telephone = {
+        type: 'boolean',
+        default: false,
+        description: 'Grain de capteur, léger vignetage et compression JPEG : une image moins « parfaite », comme prise au téléphone.',
+      };
+    }
+    if (await hasNodes(['AIFluenceDetectParts', 'AIFluenceColorMatch']).catch(() => false)) {
+      properties.correction_auto = {
+        type: 'boolean',
+        default: false,
+        description:
+          'Après chaque image : visages et pieds repérés puis refaits par klein (mains seulement si la détection est sûre). ' +
+          'Le résultat corrigé arrive en plus dans le fil (~1 min par zone).',
       };
     }
   }

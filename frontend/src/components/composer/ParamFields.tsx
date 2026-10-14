@@ -31,6 +31,8 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
 const LABELS: Record<string, string> = {
+  rendu_telephone: 'Rendu téléphone',
+  correction_auto: 'Correction auto (visages, pieds)',
   aspect_ratio: 'Proportions',
   resolution: 'Résolution',
   duration_seconds: 'Durée',
@@ -77,6 +79,9 @@ export function formatOption(key: string, v: unknown): string {
   if (key === 'duration_seconds') return v === -1 ? 'Auto' : `${v} s`
   if (key === 'retouch') return 'Retouche au pinceau'
   if (key === 'autofix') return 'Correction auto'
+  if (key === 'mouvement') return 'Mouvement repris'
+  if (key === 'rendu_telephone') return v ? 'Rendu téléphone' : 'Rendu net'
+  if (key === 'correction_auto') return v ? 'Correction auto' : 'Sans correction'
   // Fichiers ComfyUI (modèles, LoRA) : sans l'extension.
   if (key === 'face_restore' && v === 'none') return 'Aucune'
   if (key === 'precision') return v === 'fp8_e4m3fn' ? 'fp8 (économe en VRAM)' : 'Pleine précision'

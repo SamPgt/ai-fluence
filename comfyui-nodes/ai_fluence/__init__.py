@@ -135,8 +135,156 @@ class AIFluenceColorMatch:
         return (out,)
 
 
-NODE_CLASS_MAPPINGS = {'AIFluenceDetectParts': AIFluenceDetectParts, 'AIFluenceColorMatch': AIFluenceColorMatch}
+# Squelette au format OpenPose (18 points, couleurs standard) : ce que la LoRA « Union Control » de LTX 2.3 sait lire.
+# COCO 17 (Ultralytics) → OpenPose 18 : le cou (1) est le milieu des épaules.
+_COCO_TO_OPENPOSE = [0, None, 6, 8, 10, 5, 7, 9, 12, 14, 16, 11, 13, 15, 2, 1, 4, 3]
+_LIMBS = [(1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7), (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13), (1, 0), (0, 14), (14, 16), (0, 15), (15, 17)]
+_COLORS = [(255, 0, 0), (255, 85, 0), (255, 170, 0), (255, 255, 0), (170, 255, 0), (85, 255, 0), (0, 255, 0), (0, 255, 85), (0, 255, 170),
+           (0, 255, 255), (0, 170, 255), (0, 85, 255), (0, 0, 255), (85, 0, 255), (170, 0, 255), (255, 0, 255), (255, 0, 170), (255, 0, 85)]
+
+
+def _openpose_points(kp):
+    """Points OpenPose (x, y) ou None, depuis les 17 points COCO (x, y, confiance)."""
+    pts = []
+    for src in _COCO_TO_OPENPOSE:
+        if src is None:
+            a, b = kp[5], kp[6]
+            pts.append(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) if a[2] > 0.3 and b[2] > 0.3 else None)
+        else:
+            x, y, c = kp[src]
+            pts.append((x, y) if c > 0.3 else None)
+    return pts
+
+
+def _draw_pose(canvas, pts, scale):
+    import cv2
+    import math
+
+    stick = max(2, int(4 * scale))
+    for i, (a, b) in enumerate(_LIMBS):
+        if pts[a] is None or pts[b] is None:
+            continue
+        (x0, y0), (x1, y1) = pts[a], pts[b]
+        length = math.hypot(x1 - x0, y1 - y0)
+        angle = math.degrees(math.atan2(y1 - y0, x1 - x0))
+        poly = cv2.ellipse2Poly((int((x0 + x1) / 2), int((y0 + y1) / 2)), (int(length / 2), stick), int(angle), 0, 360, 1)
+        layer = canvas.copy()
+        cv2.fillConvexPoly(layer, poly, [int(v * 0.6) for v in _COLORS[i]])
+        canvas[:] = cv2.addWeighted(canvas, 0.4, layer, 0.6, 0)
+    for i, p in enumerate(pts):
+        if p is not None:
+            cv2.circle(canvas, (int(p[0]), int(p[1])), max(3, int(4 * scale)), _COLORS[i], -1)
+
+
+class AIFluencePoseVideo:
+    """
+    Vidéo de mouvement (l'utilisateur se filme) → squelettes OpenPose, au rythme et au cadrage de la vidéo LTX. Guide la
+    LoRA « Union Control » de LTX 2.3 : le personnage reprend les mouvements, sans la silhouette de la personne filmée
+    (contrairement à une carte de profondeur). Pose : modèle officiel d'Ultralytics (`models/ultralytics/pose`).
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            'required': {
+                'images': ('IMAGE',),
+                'fps': ('FLOAT', {'default': 30.0, 'min': 1.0, 'max': 240.0}),
+                'target_fps': ('FLOAT', {'default': 25.0, 'min': 1.0, 'max': 120.0}),
+                'frames': ('INT', {'default': 121, 'min': 1, 'max': 2000}),
+                'width': ('INT', {'default': 704, 'min': 64, 'max': 4096}),
+                'height': ('INT', {'default': 1248, 'min': 64, 'max': 4096}),
+            }
+        }
+
+    RETURN_TYPES = ('IMAGE',)
+    FUNCTION = 'pose'
+    CATEGORY = 'AI Fluence'
+
+    def pose(self, images, fps, target_fps, frames, width, height):
+        import torch
+
+        model = _model(os.path.join(folder_paths.models_dir, 'ultralytics', 'pose', 'yolov8s-pose.pt'))
+        device = 0 if torch.cuda.is_available() else 'cpu'
+        total = images.shape[0]
+        out = []
+        last = None
+        for i in range(frames):
+            src = int(round(i * fps / target_fps))
+            if src >= total:
+                out.append(last if last is not None else np.zeros((height, width, 3), np.uint8))
+                continue
+            frame = Image.fromarray(np.clip(images[src].cpu().numpy() * 255.0, 0, 255).astype(np.uint8))
+            # Recadrage au centre aux proportions de la vidéo LTX, puis mise à la taille.
+            scale = max(width / frame.width, height / frame.height)
+            frame = frame.resize((round(frame.width * scale), round(frame.height * scale)), Image.LANCZOS)
+            left, top = (frame.width - width) // 2, (frame.height - height) // 2
+            frame = frame.crop((left, top, left + width, top + height))
+            canvas = np.zeros((height, width, 3), np.uint8)
+            result = model(frame, conf=0.3, device=device, verbose=False)[0]
+            if result.keypoints is not None:
+                for kp in result.keypoints.data.tolist():
+                    _draw_pose(canvas, _openpose_points(kp), width / 704)
+            last = canvas
+            out.append(canvas)
+        return (torch.from_numpy(np.stack(out).astype(np.float32) / 255.0),)
+
+
+class AIFluencePhoneLook:
+    """
+    Rendu « photo de téléphone » : les images générées sont trop propres. Ajoute un grain de capteur fin (plus fort dans
+    les ombres, comme un vrai capteur), un léger vignetage et une compression JPEG de téléphone. `strength` de 0 à 1.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            'required': {
+                'image': ('IMAGE',),
+                'strength': ('FLOAT', {'default': 0.6, 'min': 0.0, 'max': 1.0, 'step': 0.05}),
+            }
+        }
+
+    RETURN_TYPES = ('IMAGE',)
+    FUNCTION = 'apply'
+    CATEGORY = 'AI Fluence'
+
+    def apply(self, image, strength):
+        import io
+
+        import torch
+
+        out = []
+        for b in range(image.shape[0]):
+            img = image[b].cpu().numpy().astype(np.float32)
+            h, w, _ = img.shape
+            rng = np.random.default_rng()
+            luma = img.mean(axis=2, keepdims=True)
+            # Grain : bruit de luminance, plus fort dans les ombres, un soupçon de bruit de couleur.
+            grain = rng.normal(0, 0.035 * strength, (h, w, 1)) * (1.25 - luma)
+            chroma = rng.normal(0, 0.008 * strength, (h, w, 3))
+            img = img + grain + chroma
+            # Vignetage léger.
+            yy, xx = np.mgrid[0:h, 0:w]
+            r = np.sqrt(((xx - w / 2) / (w / 2)) ** 2 + ((yy - h / 2) / (h / 2)) ** 2) / np.sqrt(2)
+            img = img * (1 - 0.18 * strength * r[..., None] ** 2)
+            pil = Image.fromarray(np.clip(img * 255.0, 0, 255).astype(np.uint8))
+            # Compression JPEG de téléphone (qualité ~85 → ~70 selon la force).
+            buf = io.BytesIO()
+            pil.save(buf, format='JPEG', quality=int(round(88 - 18 * strength)), subsampling=2)
+            pil = Image.open(io.BytesIO(buf.getvalue())).convert('RGB')
+            out.append(np.asarray(pil).astype(np.float32) / 255.0)
+        return (torch.from_numpy(np.stack(out)),)
+
+
+NODE_CLASS_MAPPINGS = {
+    'AIFluenceDetectParts': AIFluenceDetectParts,
+    'AIFluenceColorMatch': AIFluenceColorMatch,
+    'AIFluencePoseVideo': AIFluencePoseVideo,
+    'AIFluencePhoneLook': AIFluencePhoneLook,
+}
 NODE_DISPLAY_NAME_MAPPINGS = {
     'AIFluenceDetectParts': 'AI Fluence · Détecter visages, mains, pieds',
     'AIFluenceColorMatch': 'AI Fluence · Raccorder les couleurs',
+    'AIFluencePoseVideo': 'AI Fluence · Squelettes d’une vidéo (mouvement)',
+    'AIFluencePhoneLook': 'AI Fluence · Rendu photo de téléphone',
 }

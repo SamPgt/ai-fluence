@@ -9,7 +9,7 @@ import { and, eq } from 'drizzle-orm';
 import { HTTPException } from 'hono/http-exception';
 import type { CreateGenerationResponse } from '@ai-fluence/shared';
 import { db } from '../db/index.js';
-import { assets, generations } from '../db/schema.js';
+import { assets, generations, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';
 import { getCatalog } from './spicy.service.js';
 import type { AutofixKind, RetouchBox } from './comfy-builders.js';
@@ -158,6 +158,20 @@ export async function detectParts(
   }
   const parts = mergeOverlaps(detected.parts.filter(p => input.kinds.includes(p.kind))) as (Part & { conf: number })[];
   return { width: detected.width, height: detected.height, parts };
+}
+
+/**
+ * Correction automatique après une génération (option « Correction auto ») : sans confirmation possible, on ne garde
+ * que les détections fiables. Visages et pieds (pose) le sont ; une main seulement à partir de 0,8 (un sac en cuir
+ * avait été vu comme une main à 0,70).
+ */
+export async function autoCorrect(userId: string, assetId: string): Promise<void> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) return;
+  const session = { id: user.id, email: user.email, name: user.name, avatarAssetId: user.avatarAssetId, createdAt: user.createdAt };
+  const detected = await detectParts(session, { assetId, kinds: ['face', 'hand', 'foot'] });
+  const parts = detected.parts.filter(p => p.kind !== 'hand' || p.conf >= 0.8);
+  if (parts.length) await autofixImage(session, { assetId, parts });
 }
 
 /** Étape 2 : les zones gardées sont refaites par klein l'une après l'autre ; une nouvelle génération dans le fil. */

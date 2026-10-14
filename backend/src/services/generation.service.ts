@@ -208,6 +208,17 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     contexts = req.contextIds.map(id => byId.get(id)).filter((c): c is GenerationContext => Boolean(c));
   }
 
+  // Mouvement repris (LTX) : la vidéo doit être à l'utilisateur.
+  const motionId = motionOf(req.params);
+  if (motionId) {
+    const [video] = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(and(eq(assets.id, motionId), eq(assets.userId, user.id), eq(assets.mediaType, 'video')))
+      .limit(1);
+    if (!video) throw new HTTPException(400, { message: 'Vidéo de mouvement introuvable.' });
+  }
+
   // Retouche (pinceau) : le masque doit être à l'utilisateur ; le prompt décrit seulement la zone à refaire,
   // sans le contexte du persona ni les raccourcis.
   const retouch = retouchOf(req.params);
@@ -300,6 +311,12 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     dropped: built.dropped,
     lorasApplied: built.lorasApplied,
   };
+}
+
+/** Vidéo de mouvement demandée (`mouvement: { video: 'asset:<id>' }`) : son id. */
+function motionOf(params: Record<string, unknown> | undefined): string | null {
+  const v = (params?.mouvement as { video?: unknown } | undefined)?.video;
+  return typeof v === 'string' && v.startsWith('asset:') ? v.slice('asset:'.length) : null;
 }
 
 /** Retouche demandée dans les réglages (`retouch: { mask: 'asset:<id>', box }`), validée. */
@@ -591,9 +608,17 @@ async function submitToComfy(p: Prepared): Promise<string> {
     if (!row) throw new Error('Masque de retouche introuvable.');
     mask = { file: await upload(row), box: retouch.box };
   }
+  // Mouvement repris : la vidéo part dans le dossier `input` de ComfyUI.
+  let motion: { file: string } | undefined;
+  const motionId = motionOf(p.input);
+  if (motionId) {
+    const [row] = await db.select().from(assets).where(eq(assets.id, motionId)).limit(1);
+    if (!row) throw new Error('Vidéo de mouvement introuvable.');
+    motion = { file: await upload(row) };
+  }
   // Le serveur de voix rend sa VRAM avant le modèle vidéo.
   if (endpoint.task.endsWith('video')) await unloadVoice();
-  return queuePrompt(await buildGraph(endpoint, p.input, { image, face, images, imageSizes, audio, mask }));
+  return queuePrompt(await buildGraph(endpoint, p.input, { image, face, images, imageSizes, audio, mask, motion }));
 }
 
 /** Largeur et hauteur lues dans l'en-tête PNG (ComfyUI enregistre en PNG). */
@@ -632,11 +657,20 @@ async function watchComfy(row: GenerationRow, promptId: string): Promise<void> {
     if (state.state === 'succeeded') {
       const dir = await outputDirOf(row);
       let index = 0;
+      const stored: { id: string; mediaType: string }[] = [];
       for (const file of state.files) {
         const { data, mime } = await downloadFile(file);
-        await storeOutput(row, dir, index++, data, mime, pngSize(data) ?? {});
+        stored.push(await storeOutput(row, dir, index++, data, mime, pngSize(data) ?? {}));
         // Rapatriée dans les médias de l'app : la copie de ComfyUI n'est plus utile.
         await deleteOutputFile(file);
+      }
+      // Correction automatique demandée : chaque image est repérée puis corrigée (une génération de plus dans le fil).
+      // Jamais sur une retouche ou une correction elle-même.
+      if (row.input.correction_auto === true && !row.input.autofix && !row.input.retouch) {
+        const { autoCorrect } = await import('./retouch.service.js');
+        for (const asset of stored.filter(a => a.mediaType === 'image')) {
+          void autoCorrect(row.userId, asset.id).catch(err => console.warn('[correction auto]', (err as Error).message));
+        }
       }
       const seed = typeof row.input.seed === 'number' ? row.input.seed : null;
       await db
@@ -973,7 +1007,7 @@ async function storeOutput(
 ) {
   const filePath = join(dir, `${row.id.slice(0, 8)}-${index}.${extFor(mime)}`);
   const saved = await saveFile(filePath, data);
-  await db.insert(assets).values({
+  const [asset] = await db.insert(assets).values({
     userId: row.userId,
     personaId: row.personaId,
     generationId: row.id,
@@ -985,7 +1019,8 @@ async function storeOutput(
     width: meta.width ?? null,
     height: meta.height ?? null,
     durationSeconds: meta.durationSeconds ?? null,
-  });
+  }).returning({ id: assets.id, mediaType: assets.mediaType });
+  return asset;
 }
 
 async function handleSuccess(row: GenerationRow, record: TaskRecord) {

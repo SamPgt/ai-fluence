@@ -18,6 +18,33 @@ function list(items: string[]): string {
   return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
+/** Mots qui désignent le lieu lui-même (une pièce, un endroit), placés en tête de la phrase du lieu. */
+const PLACE_HEAD =
+  /\b(room|bedroom|kitchen|bathroom|living room|office|studio|loft|apartment|house|caf[eé]|coffee shop|restaurant|bar|pub|club|street|alley|avenue|square|beach|park|garden|terrace|balcony|rooftop|pool|gym|shop|store|boutique|library|hotel|forest|mountain|lake|city|subway|station|airport|car|market)\b/i;
+
+/**
+ * Phrase du lieu : la pièce ou l'endroit d'abord, le reste en « with » (« a sunny kitchen with a wooden desk »), au
+ * lieu de « a wooden desk and a sunny kitchen ».
+ */
+export function placePhrase(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  const head = items.findIndex(t => PLACE_HEAD.test(t));
+  if (head < 0) return list(items);
+  const rest = items.filter((_, i) => i !== head);
+  return `${items[head]} with ${list(rest)}`;
+}
+
+/**
+ * Bloc « Photo » : nommer l'appareil (« smartphone photo », « shot on an iPhone ») fait apparaître un téléphone dans
+ * l'image (2 images sur 3 avec Z-Image, vu en test). On décrit l'effet à la place.
+ */
+export function withoutDevice(text: string): string {
+  return text
+    .replace(/\bshot on an? (?:iphone|smartphone|phone)\b/gi, 'casual handheld shot')
+    .replace(/\b(?:iphone|smartphone|phone)(?: front)?(?: camera)? (photo|picture|snapshot|selfie|video)\b/gi, 'handheld $1')
+    .replace(/\b(?:iphone|smartphone|phone)[- ]camera look\b/gi, 'casual handheld look');
+}
+
 /** Phrase des traits : personnage (avec ses traits), tenue, pose, lieu, photo. */
 export function assembleTraits(items: { zone: LibraryZone; text: string }[], gender: Gender | null): string {
   const by = (zone: LibraryZone) => items.filter(i => i.zone === zone).map(i => i.text);
@@ -30,8 +57,8 @@ export function assembleTraits(items: { zone: LibraryZone; text: string }[], gen
   }
   if (outfit.length) pieces.push(`wearing ${list(outfit)}`);
   if (action.length) pieces.push(list(action));
-  if (place.length) pieces.push(list(place));
-  if (photo.length) pieces.push(list(photo));
+  if (place.length) pieces.push(placePhrase(place));
+  if (photo.length) pieces.push(list(photo.map(withoutDevice)));
   const sentence = pieces.join(', ');
   return sentence ? `${sentence[0].toUpperCase()}${sentence.slice(1)}` : '';
 }
