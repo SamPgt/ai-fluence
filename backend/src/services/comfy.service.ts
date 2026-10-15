@@ -3,6 +3,7 @@ import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { ComfyStatus } from '@ai-fluence/shared';
 import { env } from '../env.js';
+import { unloadLlm } from './llm.service.js';
 
 /**
  * Pilotage du ComfyUI local. Outil local uniquement : actif seulement si `COMFYUI_URL` est renseigné.
@@ -279,7 +280,8 @@ async function freeRamIfNeeded(graph: unknown): Promise<void> {
 
 /** Met un workflow (format API) dans la file de ComfyUI et renvoie son `prompt_id`. */
 export async function queuePrompt(graph: unknown): Promise<string> {
-  // Ne bloque jamais une génération : au pire, elle sera lente.
+  // Ne bloque jamais une génération : au pire, elle sera lente. Le LLM local (aide aux prompts) rend la carte avant.
+  await unloadLlm().catch(() => undefined);
   await freeRamIfNeeded(graph).catch(() => undefined);
   const res = await comfyFetch('/prompt', {
     method: 'POST',
@@ -391,18 +393,34 @@ export async function getPromptState(promptId: string, outputNode: string): Prom
 }
 
 /**
- * Libère la VRAM de ComfyUI (modèles gardés en mémoire) pour un autre outil local (le serveur de voix),
- * seulement si sa file est vide : une génération en cours n'est jamais gênée.
+ * Libère la VRAM de ComfyUI (modèles gardés en mémoire) pour un autre outil local (serveur de voix, Ollama),
+ * seulement si sa file est vide : une génération en cours n'est jamais gênée. `ram: false` : les modèles sortent de
+ * la carte mais restent en RAM, pour se recharger vite.
  */
-export async function freeComfyMemory(): Promise<void> {
+export async function freeComfyMemory({ ram = true }: { ram?: boolean } = {}): Promise<void> {
   if (!env.COMFYUI_URL || !(await probe())) return;
   const queue = (await (await comfyFetch('/queue')).json()) as { queue_running?: unknown[]; queue_pending?: unknown[] };
   if (queue.queue_running?.length || queue.queue_pending?.length) return;
   await comfyFetch('/free', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ unload_models: true, free_memory: true }),
+    body: JSON.stringify({ unload_models: true, free_memory: ram }),
   });
+}
+
+/**
+ * Attend que la carte ait au moins `bytes` de libre (au plus `timeoutMs`) : `/free` n'est appliqué par ComfyUI
+ * qu'entre deux tours de sa boucle. Un outil qui charge son modèle trop tôt le coupe en deux (carte et processeur),
+ * et devient très lent (vu le 2026-10-15 : 3 min pour une reformulation par Ollama, contre 7 s).
+ */
+export async function waitForVram(bytes: number, timeoutMs = 10_000): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const stats = (await probe()) as { devices?: { vram_free?: number }[] } | null;
+    const free = stats?.devices?.[0]?.vram_free;
+    if (free == null || free >= bytes) return;
+    await new Promise(r => setTimeout(r, 500));
+  }
 }
 
 /**

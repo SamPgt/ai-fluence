@@ -741,3 +741,33 @@ export interface LocalModelsResponse {
   /** Familles locales auxquelles on peut rattacher un fichier. */
   families: { id: string; label: string; assignable: boolean }[];
 }
+
+// ── Aide à l'écriture (local : dictée Whisper, reformulation Ollama) ──
+
+export interface AssistStatus {
+  /** Dictée possible (serveur de voix configuré). */
+  dictation: boolean;
+  /** Reformulation possible (Ollama répond, avec un modèle). */
+  rewrite: boolean;
+  /** Modèle Ollama utilisé. */
+  model: string | null;
+}
+
+export interface RewritePromptRequest {
+  text: string;
+  media: MediaKind;
+  /** Famille de modèle visée (`local/ltx-2.3`…) : ses règles d'écriture. */
+  familyId?: string | null;
+  modelLabel?: string | null;
+  /** Images jointes (image de départ d'une vidéo, références d'une retouche). */
+  attachments: number;
+  gender?: string | null;
+}
+
+export interface RewritePromptResponse {
+  /** Prompt envoyé au modèle. */
+  en: string;
+  /** Le même, en français, pour le relire. */
+  fr: string;
+  model: string;
+}

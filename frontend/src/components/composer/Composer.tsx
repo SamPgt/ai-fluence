@@ -20,12 +20,14 @@ import {
   type JsonSchemaProp,
   type MediaKind,
   type PriceChangedResponse,
+  type RewritePromptResponse,
   type TaskKind,
 } from '@ai-fluence/shared'
 
-import { ApiError, assetsApi, generationsApi, personasApi } from '@/lib/api'
+import { ApiError, assetsApi, assistApi, generationsApi, personasApi } from '@/lib/api'
 import { composer, composerStore, isEmptyDraft } from '@/lib/composer-store'
 import {
+  assistStatusQuery,
   catalogQuery,
   comfyStatusQuery,
   personasQuery,
@@ -35,7 +37,7 @@ import {
 } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { startRecording, toWav } from '@/lib/recording'
+import { startRecording, toWav, type Recording } from '@/lib/recording'
 import { Button } from '@/components/ui/button'
 import { ModelPicker } from './ModelPicker'
 import {
@@ -572,6 +574,76 @@ ${prompt}` : prompt)
       toast.error('Micro inaccessible : autorise-le dans le navigateur.')
     }
   }
+  // Dictée du prompt (Whisper, local) : le texte s'écrit pendant qu'on parle, à la suite de ce qui est déjà écrit.
+  // Toutes les 1,5 s, tout l'audio déjà dit est retranscrit (la suite corrige le début) ; à l'arrêt, une dernière fois.
+  const { data: assist } = useQuery(assistStatusQuery())
+  const [dictation, setDictation] = useState<{ rec: Recording; base: string; since: number } | null>(null)
+  const [transcribing, setTranscribing] = useState(false)
+  const dictationRef = useRef(dictation)
+  dictationRef.current = dictation
+  const withDictated = (base: string, text: string) => (base.trim() && text ? `${base.trimEnd()} ${text}` : base + text)
+  useEffect(() => {
+    if (!dictation) return
+    let busy = false
+    const timer = setInterval(async () => {
+      if (busy) return
+      busy = true
+      try {
+        const { text } = await assistApi.transcribe(await dictation.rec.snapshot())
+        if (dictationRef.current === dictation) composer.setPrompt(withDictated(dictation.base, text))
+      } catch {
+        // Morceau illisible ou serveur lent : le passage suivant rattrape.
+      } finally {
+        busy = false
+      }
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [dictation])
+  const toggleDictation = async () => {
+    if (dictation) {
+      setDictation(null)
+      setTranscribing(true)
+      try {
+        const { text } = await assistApi.transcribe(await dictation.rec.stop())
+        composer.setPrompt(withDictated(dictation.base, text))
+      } catch (e) {
+        toast.error((e as Error).message)
+      } finally {
+        setTranscribing(false)
+      }
+      return
+    }
+    try {
+      const rec = await startRecording({ sampleRate: 16000, timeslice: 500 })
+      setRewrite(null)
+      setDictation({ rec, base: composerStore.state.prompt, since: Date.now() })
+    } catch {
+      toast.error('Micro inaccessible : autorise-le dans le navigateur.')
+    }
+  }
+  // Reformulation (Ollama, local) : l'idée réécrite pour le modèle choisi, en anglais (envoyée) et en français (à relire).
+  const [rewrite, setRewrite] = useState<(RewritePromptResponse & { original: string }) | null>(null)
+  const [rewriting, setRewriting] = useState(false)
+  const rewritePrompt = async () => {
+    const text = state.prompt.trim()
+    if (!text) return
+    setRewriting(true)
+    try {
+      const res = await assistApi.rewrite({
+        text,
+        media,
+        familyId: family?.id ?? null,
+        modelLabel: family?.label ?? null,
+        attachments: imageAttachments.length,
+        gender: persona?.gender ?? null,
+      })
+      setRewrite({ ...res, original: text })
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setRewriting(false)
+    }
+  }
   const listenSpeech = async () => {
     const text = typeof params.speech === 'string' ? params.speech.trim() : ''
     if (!persona || !text) return
@@ -838,6 +910,35 @@ ${prompt}` : prompt)
             </div>
           )}
 
+          {rewrite && (
+            <div className="mx-3 mt-3 rounded-2xl border border-brand/40 bg-brand/5 p-3 text-sm">
+              <p className="leading-relaxed">{rewrite.fr || rewrite.en}</p>
+              <details className="mt-1.5 text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none">Texte envoyé au modèle (anglais)</summary>
+                <p className="mt-1 leading-relaxed">{rewrite.en}</p>
+              </details>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 rounded-full text-xs"
+                  onClick={() => {
+                    composer.setPrompt(rewrite.en)
+                    setRewrite(null)
+                  }}
+                >
+                  Utiliser
+                </Button>
+                <Button type="button" size="sm" variant="ghost" className="h-7 rounded-full text-xs" onClick={rewritePrompt} disabled={rewriting}>
+                  {rewriting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Autre version'}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" className="h-7 rounded-full text-xs" onClick={() => setRewrite(null)}>
+                  Garder mon texte
+                </Button>
+                <span className="ml-auto text-[11px] text-muted-foreground/70">{rewrite.model.split('/').pop()}</span>
+              </div>
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             value={state.prompt}
@@ -1210,6 +1311,41 @@ ${prompt}` : prompt)
 
             {/* Générer : prix à gauche du bouton, sans infobulle. */}
             <div className="flex shrink-0 items-center gap-2">
+              {assist?.dictation && (
+                <button
+                  type="button"
+                  onClick={toggleDictation}
+                  disabled={transcribing}
+                  className={cn(
+                    'flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs hover:bg-accent disabled:opacity-40',
+                    dictation ? 'text-red-400' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                  title={dictation ? 'Arrêter la dictée' : 'Dicter le prompt au micro (Whisper, en local)'}
+                >
+                  {transcribing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : dictation ? (
+                    <>
+                      <Square className="h-3 w-3 fill-current" />
+                      <RecordingTime since={dictation.since} />
+                    </>
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </button>
+              )}
+              {assist?.rewrite && (
+                <button
+                  type="button"
+                  onClick={rewritePrompt}
+                  disabled={rewriting || Boolean(dictation) || !state.prompt.trim()}
+                  className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                  title={`Reformuler pour ${family?.label ?? 'ce modèle'} : l'idée détaillée selon ses règles d'écriture, en anglais (envoyé) et en français (à relire). En local, par ${assist.model?.split('/').pop() ?? 'Ollama'} ; le premier appel charge le modèle (~20 s).`}
+                >
+                  {rewriting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Reformuler
+                </button>
+              )}
               <span className="text-xs text-foreground/80 tabular-nums">
                 {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
                   <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />

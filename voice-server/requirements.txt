@@ -5,3 +5,5 @@ chatterbox-tts
 # Le filigrane de Chatterbox (perth) importe encore pkg_resources.
 setuptools<81
 soundfile
+# Dictée du prompt (Whisper large-v3-turbo, sur le processeur).
+faster-whisper

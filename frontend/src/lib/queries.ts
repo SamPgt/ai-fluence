@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { catalogApi, comfyApi, libraryApi, personasApi, placesApi, presetsApi, scenesApi, settingsApi, threadsApi } from './api'
+import { assistApi, catalogApi, comfyApi, libraryApi, personasApi, placesApi, presetsApi, scenesApi, settingsApi, threadsApi } from './api'
 
 export const qk = {
   catalog: ['catalog'] as const,
@@ -7,6 +7,7 @@ export const qk = {
   balance: ['balance'] as const,
   credits: ['credits'] as const,
   comfy: ['comfy'] as const,
+  assist: ['assist'] as const,
   libraryCategories: ['library', 'categories'] as const,
   libraryOptions: (categoryId: string) => ['library', 'options', categoryId] as const,
   libraryThumbnails: (categoryId: string) => ['library', 'thumbnails', categoryId] as const,
@@ -56,6 +57,15 @@ export const comfyStatusQuery = () =>
       if (!s?.enabled) return false
       return s.state === 'starting' || s.state === 'stopping' ? 1500 : 15_000
     },
+    retry: false,
+  })
+
+/** Dictée et reformulation locales disponibles (serveur de voix, Ollama). */
+export const assistStatusQuery = () =>
+  queryOptions({
+    queryKey: qk.assist,
+    queryFn: () => assistApi.status().then((r) => r.status),
+    staleTime: 60_000,
     retry: false,
   })
 

@@ -20,6 +20,7 @@ import placesRoutes from './routes/places.route.js';
 import scenesRoutes from './routes/scenes.route.js';
 import civitaiRoutes from './routes/civitai.route.js';
 import trashRoutes from './routes/trash.route.js';
+import assistRoutes from './routes/assist.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -63,7 +64,8 @@ const app = new Hono<AppEnv>()
   .route('/library', libraryRoutes)
   .route('/characters', charactersRoutes)
   .route('/civitai', civitaiRoutes)
-  .route('/trash', trashRoutes);
+  .route('/trash', trashRoutes)
+  .route('/assist', assistRoutes);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {

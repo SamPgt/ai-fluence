@@ -14,6 +14,9 @@ import type {
   CivitaiSort,
   CreateGenerationResponse,
   CreditsResponse,
+  AssistStatus,
+  RewritePromptRequest,
+  RewritePromptResponse,
   EnhancePromptRequest,
   EnhancePromptResponse,
   Generation,
@@ -73,7 +76,8 @@ async function apiFetch<T>(
           .map(([k, v]) => [k, String(v)]),
       ).toString()
     : ''
-  const isForm = body instanceof FormData
+  // FormData ou Blob (audio) : envoyés tels quels, avec leur propre type.
+  const isForm = body instanceof FormData || body instanceof Blob
   const res = await fetch(`/api${path}${qs ? `?${qs}` : ''}`, {
     credentials: 'include',
     ...rest,
@@ -353,6 +357,15 @@ export const presetsApi = {
   update: (id: string, body: Partial<Pick<PromptPreset, 'label' | 'text' | 'media' | 'enabled'>>) =>
     apiFetch<{ preset: PromptPreset }>(`/presets/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/presets/${id}`, { method: 'DELETE' }),
+}
+
+/** Aide à l'écriture, en local : dictée (Whisper) et reformulation (Ollama). */
+export const assistApi = {
+  status: () => apiFetch<{ status: AssistStatus }>('/assist/status'),
+  transcribe: (wav: Blob, language?: string) =>
+    apiFetch<{ text: string }>('/assist/transcribe', { method: 'POST', body: wav, query: { language } }),
+  rewrite: (body: RewritePromptRequest) =>
+    apiFetch<RewritePromptResponse>('/assist/rewrite', { method: 'POST', body }),
 }
 
 export const promptsApi = {

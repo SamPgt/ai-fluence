@@ -13,6 +13,7 @@ Les chemins de fichiers reçus sont ceux du disque local, partagé avec le backe
   GET  /health      → {"ok": true, "loaded": bool}
   POST /tts         {text, reference, exaggeration?, cfg_weight?, seed?, language?} → audio/wav
   POST /reference   {source, output, max_seconds?} → {"duration": float}
+  POST /transcribe  corps audio/wav, ?language=fr → {"text": str}   (dictée du prompt, Whisper sur le processeur)
   POST /unload      → {"ok": true}
 """
 import argparse
@@ -77,6 +78,71 @@ def idle_watcher():
         time.sleep(30)
         if model is not None and time.time() - last_used > args.idle:
             unload()
+        if whisper is not None and time.time() - whisper_used > args.idle:
+            unload_whisper()
+
+
+# ── Dictée (parole → texte) ──────────────────────────────────
+#
+# Whisper large-v3-turbo (faster-whisper) sur la carte : ~1 Go de VRAM, 0,5 s pour 13 s de parole (RTX 3060). Sur le
+# processeur (4 cœurs), 9,5 s : trop lent pour un texte affiché en direct, gardé seulement en secours (pas de CUDA).
+# Libéré comme Chatterbox : après quelques minutes sans dictée, ou avant une vidéo (`/unload`). Son propre verrou :
+# une dictée n'attend pas la fin d'une synthèse de voix.
+# Pendant l'enregistrement, le navigateur renvoie tout l'audio déjà dit toutes les ~1,5 s : le texte s'affiche au fil
+# de la parole et se corrige quand la suite précise le sens.
+WHISPER_MODEL = 'mobiuslabsgmbh/faster-whisper-large-v3-turbo'
+whisper = None
+whisper_lock = threading.Lock()
+whisper_used = time.time()
+
+
+def load_whisper():
+    import huggingface_hub.constants as hf_constants
+    from faster_whisper import WhisperModel
+    if torch.cuda.is_available():
+        # CTranslate2 cherche cuBLAS et cuDNN : ceux livrés avec torch suffisent.
+        os.add_dll_directory(os.path.join(os.path.dirname(torch.__file__), 'lib'))
+    options = [('cuda', 'int8_float16'), ('cpu', 'int8')] if torch.cuda.is_available() else [('cpu', 'int8')]
+    last = None
+    for offline in (True, False):  # hors ligne d'abord, comme Chatterbox
+        hf_constants.HF_HUB_OFFLINE = offline
+        for device, compute in options:
+            try:
+                return WhisperModel(WHISPER_MODEL, device=device, compute_type=compute, cpu_threads=os.cpu_count() or 4)
+            except Exception as err:  # noqa: BLE001
+                last = err
+    raise last
+
+
+def unload_whisper():
+    global whisper
+    with whisper_lock:
+        if whisper is not None:
+            whisper = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+
+def transcribe(data: bytes, language: str | None) -> dict:
+    global whisper, whisper_used
+    wav, _ = librosa.load(io.BytesIO(data), sr=16000, mono=True)
+    if len(wav) < 16000 * 0.3:
+        return {'text': ''}
+    with whisper_lock:
+        if whisper is None:
+            whisper = load_whisper()
+        segments, _ = whisper.transcribe(
+            wav,
+            language=language or None,
+            beam_size=1,
+            vad_filter=True,
+            # Une dictée courte : pas de reprise du texte précédent (évite les répétitions en boucle de Whisper).
+            condition_on_previous_text=False,
+        )
+        text = ' '.join(seg.text.strip() for seg in segments).strip()
+        whisper_used = time.time()
+    return {'text': text}
 
 
 def voiced_ratio(seg: np.ndarray, sr: int) -> float:
@@ -199,13 +265,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/health':
-            return self.json(200, {'ok': True, 'loaded': model is not None})
+            return self.json(200, {'ok': True, 'loaded': model is not None, 'dictation': True})
         self.json(404, {'error': 'Introuvable.'})
 
     def do_POST(self):
         try:
             length = int(self.headers.get('Content-Length') or 0)
-            body = json.loads(self.rfile.read(length) or b'{}')
+            raw = self.rfile.read(length)
+            if self.path.startswith('/transcribe'):
+                from urllib.parse import parse_qs, urlparse
+                language = parse_qs(urlparse(self.path).query).get('language', [None])[0]
+                return self.json(200, transcribe(raw, language))
+            body = json.loads(raw or b'{}')
             if self.path == '/tts':
                 return self.reply(200, tts(body), 'audio/wav')
             if self.path == '/convert':
@@ -214,6 +285,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, reference(body))
             if self.path == '/unload':
                 unload()
+                unload_whisper()
                 return self.json(200, {'ok': True})
             self.json(404, {'error': 'Introuvable.'})
         except Exception as err:  # noqa: BLE001 — l'erreur est renvoyée au backend

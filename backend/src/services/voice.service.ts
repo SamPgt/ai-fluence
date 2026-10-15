@@ -90,6 +90,26 @@ async function voicePost(path: string, body: unknown, timeoutMs = 30_000): Promi
   return res;
 }
 
+/**
+ * Dictée : le texte d'un enregistrement (WAV), par Whisper sur le serveur de voix. Rien n'est écrit sur le disque :
+ * l'audio passe dans le corps de la requête.
+ */
+export async function transcribe(wav: Uint8Array, language?: string): Promise<string> {
+  await ensureServer();
+  const url = new URL('/transcribe', env.VOICE_URL);
+  if (language) url.searchParams.set('language', language);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'audio/wav' },
+    body: Buffer.from(wav),
+    // Premier appel : chargement de Whisper (~10 s).
+    signal: AbortSignal.timeout(60_000),
+  });
+  const body = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
+  if (!res.ok) throw new HTTPException(502, { message: `Serveur de voix : ${body?.error ?? `HTTP ${res.status}`}` });
+  return body?.text ?? '';
+}
+
 /** Libère la VRAM du serveur de voix avant une génération vidéo (sans le démarrer s'il est arrêté). */
 export async function unloadVoice(): Promise<void> {
   if (!env.VOICE_URL || !(await health())) return;

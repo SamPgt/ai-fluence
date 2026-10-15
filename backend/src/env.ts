@@ -25,6 +25,10 @@ const envSchema = z.object({
   VOICE_URL: optionalString(z.url()),
   /** Commande qui lance le serveur de voix (au premier besoin, en arrière-plan). */
   VOICE_LAUNCH: optionalString(z.string()),
+  // LLM local (Ollama) pour l'aide à l'écriture des prompts. Vide = bouton « Reformuler » masqué.
+  OLLAMA_URL: optionalString(z.url()),
+  /** Modèle Ollama à utiliser (nom de `ollama list`) ; vide = le premier installé. */
+  OLLAMA_MODEL: optionalString(z.string()),
   /** Optionnel : bibliothèque LoRA Civitai (recherche + téléchargements protégés). Ne quitte jamais le backend. */
   CIVITAI_KEY: z.string().optional(),
 });
