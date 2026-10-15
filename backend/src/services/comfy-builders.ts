@@ -573,9 +573,10 @@ export function ltxFrames(seconds: number): number {
  * Découpage d'une vidéo LTX : nombre de clips, images par clip, recouvrement et images au total.
  * `cover` : la vidéo doit durer au moins `seconds` (piste de voix imposée), sinon au plus près.
  */
-export function ltxPlan(seconds: number, resolution: string, cover = false) {
+export function ltxPlan(seconds: number, resolution: string, cover = false, twoPass = false) {
   const wanted = cover ? ceil8k1(Math.ceil(seconds * LTX_FPS)) : ltxFrames(seconds);
-  if (wanted <= (LTX_SINGLE_MAX_FRAMES[resolution] ?? LTX_CLIP_FRAMES)) {
+  // Deux passes : la passe longue (8 étapes) est en demi-définition, un plan tient alors autant qu'en 512p.
+  if (wanted <= (LTX_SINGLE_MAX_FRAMES[twoPass ? '512p' : resolution] ?? LTX_CLIP_FRAMES)) {
     return { clips: 1, clipFrames: wanted, overlap: 0, frames: wanted };
   }
   const clips = Math.ceil((wanted - LTX_OVERLAP) / (LTX_CLIP_FRAMES - LTX_OVERLAP));
@@ -617,9 +618,15 @@ export function ltxPassages(prompt: string, clips: number): string[] {
  */
 export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opts: { saveAudio?: boolean } = {}): Graph {
   const resolution = String(values.resolution ?? '512p');
-  const plan = ctx.audio ? ltxPlan(ctx.audio.seconds, resolution, true) : ltxPlan(num(values.duration_seconds, 5), resolution);
-  // Deux passes : seulement en un plan, et si l'agrandisseur est installé.
-  const twoPass = values.deux_passes === true && plan.clips === 1 && Boolean(ctx.files.upscaler);
+  const wantTwoPass = values.deux_passes === true;
+  if (wantTwoPass && !ctx.files.upscaler) {
+    throw new Error('Agrandisseur de LTX 2.3 (ltx-2.3-spatial-upscaler-x2) absent du dossier latent_upscale_models de ComfyUI.');
+  }
+  const plan = ctx.audio
+    ? ltxPlan(ctx.audio.seconds, resolution, true, wantTwoPass)
+    : ltxPlan(num(values.duration_seconds, 5), resolution, false, wantTwoPass);
+  // Deux passes : seulement en un plan (15 s au plus).
+  const twoPass = wantTwoPass && plan.clips === 1;
   const full = ltxSize(ctx.imageSizes[0] ?? null, resolution, twoPass ? 64 : 32);
   // Taille de la (première) passe : la moitié en deux passes.
   const size = twoPass ? { width: full.width / 2, height: full.height / 2 } : full;

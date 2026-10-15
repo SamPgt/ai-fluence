@@ -422,7 +422,7 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
             default: false,
             description:
               'Méthode officielle de Lightricks : mouvement calculé en demi-définition, puis agrandi et fini en pleine ' +
-              'définition (3 étapes). Plus stable, souvent pas plus long. Vidéo en un seul plan (9 s en 720p, 15 s en 512p).',
+              'définition (3 étapes). Plus stable, souvent pas plus long. Jusqu’à 15 s en un seul plan, même en 720p (sans enchaînement de clips).',
           },
           duration_seconds: {
             type: 'integer',

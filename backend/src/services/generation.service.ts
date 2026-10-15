@@ -595,7 +595,7 @@ async function submitToComfy(p: Prepared): Promise<string> {
     const lead = edges.lead ? 0 : 0.4;
     const tail = edges.tail ? 0 : 0.6;
     const wanted = Math.max(lead + seconds + tail, Number(p.input.duration_seconds) || 0);
-    const plan = ltxPlan(wanted, String(p.input.resolution ?? '512p'), true);
+    const plan = ltxPlan(wanted, String(p.input.resolution ?? '512p'), true, p.input.deux_passes === true);
     const total = plan.frames / LTX_FPS;
     const padded = padWav(data, lead, Math.max(0, total - lead - seconds));
     audio = { file: await uploadImage(padded, `ai-fluence-voix-${Date.now()}.wav`, 'audio/wav'), seconds: total };
