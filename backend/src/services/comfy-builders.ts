@@ -618,10 +618,8 @@ export function ltxPassages(prompt: string, clips: number): string[] {
  */
 export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opts: { saveAudio?: boolean } = {}): Graph {
   const resolution = String(values.resolution ?? '512p');
-  const wantTwoPass = values.deux_passes === true;
-  if (wantTwoPass && !ctx.files.upscaler) {
-    throw new Error('Agrandisseur de LTX 2.3 (ltx-2.3-spatial-upscaler-x2) absent du dossier latent_upscale_models de ComfyUI.');
-  }
+  // Sans l'agrandisseur installé, une passe (l'option est alors absente des réglages).
+  const wantTwoPass = values.deux_passes === true && Boolean(ctx.files.upscaler);
   const plan = ctx.audio
     ? ltxPlan(ctx.audio.seconds, resolution, true, wantTwoPass)
     : ltxPlan(num(values.duration_seconds, 5), resolution, false, wantTwoPass);

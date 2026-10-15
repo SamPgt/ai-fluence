@@ -417,9 +417,11 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
           mouvement: { type: 'object', description: 'Vidéo dont LTX reprend les mouvements (squelettes).' },
           /** Expressivité du « Texte dit » pour cette vidéo (0,2 calme → 1,2 très expressive) ; sinon celle de la voix. */
           speech_exaggeration: { type: 'number', minimum: 0.2, maximum: 1.2 },
+          // Par défaut depuis le test du 2026-10-15 (720p, 15 s) : 9 min 45 au lieu de 18 min 28, scénario suivi dans
+          // l'ordre (plus d'enchaînement de plans), image plus nette. Retiré du schéma sans l'agrandisseur.
           deux_passes: {
             type: 'boolean',
-            default: false,
+            default: true,
             description:
               'Méthode officielle de Lightricks : mouvement calculé en demi-définition, puis agrandi et fini en pleine ' +
               'définition (3 étapes). Plus stable, souvent pas plus long. Jusqu’à 15 s en un seul plan, même en 720p (sans enchaînement de clips).',
@@ -664,6 +666,11 @@ async function liveSchema(endpoint: LocalEndpoint, faces: boolean, models: strin
           'Le résultat corrigé arrive en plus dans le fil (~1 min par zone).',
       };
     }
+  }
+  // Deux passes de LTX : seulement avec l'agrandisseur de Lightricks installé.
+  if (properties.deux_passes) {
+    const upscalers = await getNodeOptions('LatentUpscaleModelLoader', 'model_name').catch(() => []);
+    if (!upscalers.some(f => /ltx-2\.3.*spatial-upscaler-x2/i.test(f))) delete properties.deux_passes;
   }
   // Modèle de diffusion au choix : les fichiers visibles de la famille, le préféré en premier.
   if (models?.length) properties.model = { type: 'string', enum: models, default: models[0] };
