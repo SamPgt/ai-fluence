@@ -87,7 +87,7 @@ function HelpPage() {
                   ['LTX 2.3, 512p', '~40 s par seconde de vidéo', '4 s ≈ 5 min ; 15 s (une passe) ≈ 9 min 20'],
                   ['LTX 2.3, 720p', '~1 min 20 par seconde', '7 s ≈ 8–10 min ; 15 s (2 clips) ≈ 18–24 min'],
                   ['Wan 2.2, 480p', '3 s ≈ 4 min 30 ; 5 s ≈ 7 min', '720p : 5 s ≈ 22 min ; muet'],
-                  ['Création d’une voix (LTX)', '512p ≈ 5 min ; 720p ≈ 10–13 min', 'Une fois par personnage'],
+                  ['Création d’une voix (LTX, ~10 s de parole)', '512p ≈ 8 min ; 720p ≈ 13–16 min (estimé)', 'Une fois par personnage'],
                   ['Chatterbox (voix d’une phrase)', '~5 s', '~20 s au premier essai (chargement)'],
                 ]}
               />

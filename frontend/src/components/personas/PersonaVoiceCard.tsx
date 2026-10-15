@@ -164,7 +164,7 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
       {running ? (
         <div className="flex items-center gap-2 rounded-lg border border-border/60 p-3 text-sm">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Création de la voix dans ComfyUI… {elapsed} (environ 5 min)
+          Création de la voix dans ComfyUI… {elapsed} (environ 8 min en 512p)
           <Button size="sm" variant="ghost" className="ml-auto" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
             <Square className="h-3.5 w-3.5" /> Arrêter
           </Button>
@@ -195,7 +195,7 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
           {/* La voix de LTX suit la qualité de la vidéo générée avec elle : 720p, peut-être meilleure, ~2 fois plus long. */}
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Switch checked={hd} onCheckedChange={setHd} />
-            Vidéo en 720p : voix peut-être plus fidèle, création environ 2 fois plus longue (~10 min)
+            Vidéo en 720p : voix peut-être plus fidèle, création environ 2 fois plus longue (~15 min)
           </label>
           {/* LTX parle mieux anglais : timbre plus net, mais un léger accent possible en français (à comparer). */}
           <label className="flex items-center gap-2 text-xs text-muted-foreground">

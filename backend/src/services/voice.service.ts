@@ -320,9 +320,11 @@ export async function createVoice(
   const line =
     language === 'en'
       ? `talks casually in English, relaxed and smiling, like a vlogger telling about the day: ` +
-        `"Hey guys! So today I want to tell you about my day, and honestly, it was such a lovely, peaceful, really amazing day."`
+        `"Hey guys! So today I want to tell you about my day, and honestly, it was such a lovely, peaceful, really amazing day: ` +
+        `sunshine, a great coffee outside, and so many nice little surprises."`
       : `talks casually in French, relaxed and smiling, like a vlogger telling about the day: ` +
-        `"Coucou ! Alors aujourd'hui, je vais vous raconter ma journée, et franchement, c'était vraiment une super journée."`;
+        `"Coucou ! Alors aujourd'hui, je vais vous raconter ma journée. Franchement, c'était vraiment une super journée : ` +
+        `du soleil, un bon café en terrasse, et plein de jolies petites surprises."`;
   const prompt = `${subject} looks at the camera and ${line}${voiceLine} Clear speech, close microphone, quiet room, no music. Natural smartphone video.`;
   // La VRAM du serveur de voix est rendue avant le gros modèle vidéo.
   await unloadVoice();
@@ -330,7 +332,10 @@ export async function createVoice(
     // 512p par défaut : testé en 256p (2026-10-11), la vidéo se calcule ~2 fois plus vite, mais la voix sort nettement
     // moins bonne (plus robotique) : le son de LTX dépend de la qualité de l'image générée avec lui. 720p au choix,
     // pour une voix peut-être encore meilleure, environ 2 fois plus long.
-    { prompt, resolution, duration_seconds: 7 },
+    // ~10 s de parole : Chatterbox prend le timbre sur 10 s d'extrait (et l'accent sur les 6 premières) ; avec 7 s de
+    // vidéo, il n'en avait que ~6. En 720p, 9 s : au-delà (233 images), LTX enchaîne deux plans, et la voix inventée
+    // pourrait changer de l'un à l'autre.
+    { prompt, resolution, duration_seconds: resolution === '720p' ? 9 : 12 },
     { images: [image], imageSizes: [avatar.width && avatar.height ? { width: avatar.width, height: avatar.height } : null], files },
     { saveAudio: true },
   );
