@@ -581,12 +581,14 @@ export function Composer({
       prompt,
     }
     // Vocabulaire à bien transcrire : personas, jargon de l'app, fournisseurs, modèles.
-    void dictation.start((provider) =>
-      dictationKeyterms(provider, {
-        personas: personas.map((p) => p.name),
-        providers: Object.values(PROVIDERS).map((p) => p.label),
-        models: families.map((f) => f.label),
-      }),
+    void dictation.start(
+      settings?.dictationProvider ?? 'elevenlabs',
+      (provider) =>
+        dictationKeyterms(provider, {
+          personas: personas.map((p) => p.name),
+          providers: Object.values(PROVIDERS).map((p) => p.label),
+          models: families.map((f) => f.label),
+        }),
     )
   }
   /** Valide le texte dicté : petit son, fin de l'écoute, curseur juste après. */
@@ -625,11 +627,13 @@ export function Composer({
   toggleRef.current = toggleDictation
   // Pendant la dictée, Entrée et Échap lui reviennent, où que soit le focus.
   const dictationKeys = useRef({
+    prefetch: () => {},
     active: false,
     validate: () => {},
     cancel: () => {},
   })
   dictationKeys.current = {
+    prefetch: dictation.prefetch,
     active: dictation.active,
     validate: validateDictation,
     cancel: cancelDictation,
@@ -637,6 +641,8 @@ export function Composer({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const d = dictationKeys.current
+      // ⌥ seul (début de ⌥M) : jeton préparé pendant que le doigt cherche le M.
+      if (e.key === 'Alt' && !d.active) d.prefetch()
       if (d.active && (e.key === 'Enter' || e.key === 'Escape')) {
         // Phase de capture : avant le champ, un bouton ou une modale qui aurait le focus.
         e.preventDefault()
@@ -1127,25 +1133,24 @@ export function Composer({
                   <button
                     type="button"
                     onClick={toggleDictation}
+                    // Jeton préparé dès le survol : au clic, il ne reste que la connexion.
+                    onMouseEnter={dictation.prefetch}
+                    onFocus={dictation.prefetch}
                     aria-label={
                       dictation.active ? 'Valider la dictée' : 'Dicter'
                     }
                     aria-pressed={dictation.active}
+                    data-status={dictation.status}
                     className={cn(
                       'grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
                       dictation.active &&
-                        'bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300',
+                        'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 hover:text-blue-200',
                     )}
                   >
                     {dictation.status === 'connecting' ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Mic
-                        className={cn(
-                          'h-4 w-4',
-                          dictation.status === 'listening' && 'animate-pulse',
-                        )}
-                      />
+                      <Mic className="h-4 w-4" />
                     )}
                   </button>
                 </TooltipTrigger>

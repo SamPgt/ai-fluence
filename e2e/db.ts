@@ -17,5 +17,5 @@ export function sql(query: string): string {
 export function resetData() {
   sql('TRUNCATE generations, assets, threads, personas, prompt_presets, workflows RESTART IDENTITY CASCADE')
   // Modèles par défaut et LoRA de Général : réglages du compte, remis à zéro aussi.
-  sql(`UPDATE user_settings SET default_image_family = NULL, default_video_family = NULL, loras = '[]'`)
+  sql(`UPDATE user_settings SET default_image_family = NULL, default_video_family = NULL, loras = '[]', dictation_provider = 'elevenlabs'`)
 }

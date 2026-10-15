@@ -16,16 +16,35 @@ export interface DictationSession {
   close: () => void
 }
 
-/** `keyterms` : vocabulaire à privilégier (déjà coupé selon les limites du fournisseur). */
-export function connectDictation(
+/**
+ * Fournisseurs à qui l'on envoie nous-mêmes l'audio : le micro peut s'ouvrir avant la
+ * connexion (audio mis en attente, rien de perdu), donc « écoute » s'affiche tout de suite
+ * sans mentir. ElevenLabs ouvre lui-même le micro une fois connecté : pas d'avance possible.
+ */
+export const MIC_FIRST: ReadonlySet<DictationProvider> = new Set([
+  'deepgram',
+  'cartesia',
+])
+
+/**
+ * `keyterms` : vocabulaire à privilégier (déjà coupé selon les limites du fournisseur).
+ * `mic` : micro déjà ouvert (fournisseurs de MIC_FIRST), sinon il est ouvert ici.
+ */
+export async function connectDictation(
   provider: DictationProvider,
   token: string,
   handlers: DictationHandlers,
   keyterms: string[] = [],
+  mic?: MicBuffer,
 ): Promise<DictationSession> {
-  if (provider === 'deepgram') return connectDeepgram(token, handlers, keyterms)
-  if (provider === 'cartesia') return connectCartesia(token, handlers, keyterms)
-  return connectElevenLabs(token, handlers, keyterms)
+  if (provider === 'elevenlabs') {
+    mic?.stop()
+    return connectElevenLabs(token, handlers, keyterms)
+  }
+  const m = mic ?? (await openMicBuffer())
+  return provider === 'deepgram'
+    ? connectDeepgram(token, handlers, keyterms, m)
+    : connectCartesia(token, handlers, keyterms, m)
 }
 
 /** `&keyterm=…` répété, un par mot-clé (Deepgram, Cartesia). */
@@ -116,27 +135,40 @@ async function openMic(onChunk: (chunk: ArrayBuffer) => void) {
   }
 }
 
+/** Micro ouvert dont l'audio attend une connexion : envoyé dès qu'elle est prête. */
+export interface MicBuffer {
+  attach: (ws: WebSocket) => void
+  stop: () => void
+}
+
 /**
- * Ouvre la connexion pendant que le micro capte déjà : l'audio reçu avant l'ouverture
- * part dès qu'elle est prête, rien n'est perdu au démarrage.
+ * Ouvre le micro tout de suite et garde l'audio en attente : il part sur la connexion
+ * dès qu'elle est ouverte (`attach`), rien n'est perdu au démarrage.
  */
-async function streamMic(ws: WebSocket) {
-  ws.binaryType = 'arraybuffer'
+export async function openMicBuffer(): Promise<MicBuffer> {
   const queued: ArrayBuffer[] = []
+  let target: WebSocket | null = null
   const stopMic = await openMic((chunk) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(chunk)
-    else if (ws.readyState === WebSocket.CONNECTING) queued.push(chunk)
+    if (target?.readyState === WebSocket.OPEN) target.send(chunk)
+    else queued.push(chunk)
   })
-  const flush = () => queued.splice(0).forEach((b) => ws.send(b))
-  if (ws.readyState === WebSocket.OPEN) flush()
-  else ws.addEventListener('open', flush)
-  return stopMic
+  return {
+    attach: (ws) => {
+      target = ws
+      ws.binaryType = 'arraybuffer'
+      const flush = () => queued.splice(0).forEach((b) => ws.send(b))
+      if (ws.readyState === WebSocket.OPEN) flush()
+      else ws.addEventListener('open', flush)
+    },
+    stop: stopMic,
+  }
 }
 
 async function connectDeepgram(
   token: string,
   h: DictationHandlers,
   keyterms: string[],
+  mic: MicBuffer,
 ): Promise<DictationSession> {
   // Français et anglais : la langue est détectée phrase par phrase.
   // `numerals` : les nombres dits sont écrits en chiffres (« quatre images » → « 4 images »).
@@ -144,12 +176,12 @@ async function connectDeepgram(
     `wss://api.deepgram.com/v2/listen?model=flux-general-multi&encoding=linear16&sample_rate=16000&language_hint=fr&language_hint=en&numerals=true${keytermParams(keyterms)}`,
     ['bearer', token],
   )
-  const stopMic = await streamMic(ws)
+  mic.attach(ws)
   let closed = false
   const close = () => {
     if (closed) return
     closed = true
-    stopMic()
+    mic.stop()
     if (ws.readyState === WebSocket.OPEN)
       ws.send(JSON.stringify({ type: 'CloseStream' }))
     ws.close()
@@ -189,18 +221,19 @@ async function connectCartesia(
   token: string,
   h: DictationHandlers,
   keyterms: string[],
+  mic: MicBuffer,
 ): Promise<DictationSession> {
   const ws = new WebSocket(
     `wss://api.cartesia.ai/stt/websocket?model=ink-2&encoding=pcm_s16le&sample_rate=16000&cartesia_version=2026-08-14&access_token=${encodeURIComponent(token)}${keytermParams(keyterms)}`,
   )
-  const stopMic = await streamMic(ws)
+  mic.attach(ws)
   // Ink-2 envoie le texte validé par petits morceaux, à mettre bout à bout tels quels.
   let text = ''
   let closed = false
   const close = () => {
     if (closed) return
     closed = true
-    stopMic()
+    mic.stop()
     if (ws.readyState === WebSocket.OPEN) ws.send('close')
     ws.close()
   }

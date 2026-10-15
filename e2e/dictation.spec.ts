@@ -96,3 +96,19 @@ test('Réinitialiser pendant la dictée l’arrête et vide tout ; Annuler rend 
   await page.getByRole('button', { name: 'Annuler' }).click()
   await expect(app.prompt).toHaveValue('texte d’avant')
 })
+
+test('Deepgram : micro ouvert tout de suite (avant le jeton), puis la dictée arrive', async ({ app, page }) => {
+  expect((await page.request.patch('/api/settings', { data: { dictationProvider: 'deepgram' } })).ok()).toBeTruthy()
+  // Jeton retardé : le micro doit déjà être « en écoute » pendant l'attente.
+  await page.route('**/api/dictation/token', async (route) => {
+    await new Promise((r) => setTimeout(r, 1500))
+    await route.continue()
+  })
+  await app.gotoNew()
+  await page.getByRole('button', { name: 'Dicter' }).click()
+  const mic = page.getByRole('button', { name: 'Valider la dictée' })
+  await expect(mic).toHaveAttribute('data-status', 'listening', { timeout: 1000 })
+  await expect(page.getByTestId('dictation-preview')).toContainText(SAID)
+  await app.prompt.press('Enter')
+  await expect(app.prompt).toHaveValue(SAID)
+})

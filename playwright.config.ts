@@ -20,6 +20,8 @@ export default defineConfig({
     baseURL: APP_URL,
     // Chrome installé sur la machine : pas de navigateur à télécharger.
     channel: 'chrome',
+    // Faux micro, accordé d'office : la dictée peut ouvrir le micro sans fenêtre d'autorisation.
+    launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] },
     headless: true,
     viewport: { width: 1440, height: 900 },
     storageState: AUTH_FILE,
