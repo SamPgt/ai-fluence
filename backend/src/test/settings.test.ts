@@ -14,6 +14,8 @@ const SETTINGS_KEYS = [
   'defaultImageFamily',
   'defaultMediaDir',
   'defaultVideoFamily',
+  'dictationProvider',
+  'dictationProviders',
   'elevenLabsKeyHint',
   'enhanceModel',
   'hasApiKey',

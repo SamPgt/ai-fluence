@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, test as base, type Page } from '@playwright/test'
-import type { Generation, Persona, Thread } from '@ai-fluence/shared'
+import type { Generation, Persona, Thread } from '@sublime/shared'
 import { resetData } from './db'
 
 export const DRAFTS_KEY = 'aif-composer-drafts'
@@ -22,6 +22,8 @@ type GenerateBody = {
   threadId?: string | null
   params?: Record<string, unknown>
   referenceAssetIds?: string[]
+  /** Série : N images d'un coup. */
+  count?: number
 }
 
 export class App {
@@ -83,7 +85,8 @@ export class App {
   // ── Composer ─────────────────────────────────────────────────
 
   get prompt() {
-    return this.page.getByPlaceholder(/Décris/)
+    // Par son identifiant : le placeholder disparaît pendant la dictée.
+    return this.page.getByTestId('composer-prompt')
   }
   get modelPicker() {
     return this.page.getByTestId('model-picker')
@@ -118,7 +121,7 @@ export class App {
   }
 
   async gotoNew() {
-    await this.page.goto('/')
+    await this.page.goto('/nouveau')
     await this.ready()
   }
 

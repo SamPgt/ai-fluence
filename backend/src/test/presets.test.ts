@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import type { PromptPreset } from '@ai-fluence/shared';
+import type { PromptPreset } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { promptPresets } from '../db/schema.js';
 import { call, signup } from './helpers.js';

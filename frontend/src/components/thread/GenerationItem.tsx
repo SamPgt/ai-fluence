@@ -21,7 +21,7 @@ import {
   type Asset,
   type Generation,
   type GenerationRequest,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { assetsApi, generationsApi } from '@/lib/api'
 import {

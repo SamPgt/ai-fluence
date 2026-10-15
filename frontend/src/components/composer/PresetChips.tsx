@@ -8,7 +8,7 @@ import {
   type MediaKind,
   type PersonaLora,
   type PromptPreset,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { presetsQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'

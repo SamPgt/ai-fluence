@@ -8,7 +8,7 @@
  */
 import { HTTPException } from 'hono/http-exception';
 import { eq, like, sql } from 'drizzle-orm';
-import type { LibrarySource } from '@ai-fluence/shared';
+import type { LibrarySource } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { libraryCache } from '../db/schema.js';
 import type { SessionUser } from '../types.js';

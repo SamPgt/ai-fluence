@@ -1,5 +1,5 @@
 {
-  "name": "ai-fluence-backend",
+  "name": "sublime-backend",
   "version": "0.1.0",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -11,13 +11,13 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "dev:test": "cross-env NODE_ENV=test DATABASE_URL=postgresql://localhost:5432/ai-fluence-test API_PORT=3471 CLIENT_URL=http://localhost:3071 DATA_DIR=../.e2e-data APP_SECRET=0000000000000000000000000000000000000000000000000000000000000000 SPICY_FAKE=true CIVITAI_KEY= UNSPLASH_ACCESS_KEY= PEXELS_API_KEY= tsx src/index.ts"
+    "dev:test": "cross-env NODE_ENV=test DATABASE_URL=postgresql://localhost:5432/sublime-test API_PORT=3471 CLIENT_URL=http://localhost:3071 DATA_DIR=../.e2e-data APP_SECRET=0000000000000000000000000000000000000000000000000000000000000000 SPICY_FAKE=true CIVITAI_KEY= UNSPLASH_ACCESS_KEY= PEXELS_API_KEY= deepgramApiKey= cartesiaApiKey= tsx src/index.ts"
   },
   "engines": {
     "node": ">=22.13"
   },
   "dependencies": {
-    "@ai-fluence/shared": "*",
+    "@sublime/shared": "*",
     "@hono/node-server": "^1.19.14",
     "@hono/zod-validator": "^0.7.6",
     "@spicyapi/sdk": "^0.8.0",

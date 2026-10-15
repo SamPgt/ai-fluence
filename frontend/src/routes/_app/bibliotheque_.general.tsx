@@ -7,7 +7,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, Layers } from 'lucide-react'
 import { toast } from 'sonner'
-import type { PersonaLora } from '@ai-fluence/shared'
+import type { PersonaLora } from '@sublime/shared'
 
 import { settingsApi } from '@/lib/api'
 import { qk, settingsQuery } from '@/lib/queries'

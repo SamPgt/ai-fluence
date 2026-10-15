@@ -8,7 +8,7 @@ import type {
   ImageInputInfo,
   Persona,
   VideoRefMode,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { assetsApi } from '@/lib/api'
 import { qk } from '@/lib/queries'
@@ -114,7 +114,7 @@ export function ReferencePicker({
           </Link>
         </div>
         {/* Marge intérieure : le contour de sélection n'est plus coupé par la zone de défilement. */}
-        <div className="-m-1 max-h-[min(30rem,60vh)] space-y-4 overflow-y-auto p-1 pr-3">
+        <div className="-m-1 max-h-[min(30rem,60vh)] space-y-4 overflow-y-auto p-1 pr-5">
           {owners.map((o) => (
             <ReferenceSection
               key={o.id}
@@ -239,11 +239,14 @@ function ReferenceSection({
               <span
                 className={cn(
                   'absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full',
-                  selected ? 'bg-brand' : 'border border-white/80 bg-black/30',
+                  // Cochée : blanc adouci (ni gris terne, ni blanc pur), avec une ombre légère.
+                  selected
+                    ? 'bg-white/85 shadow-[0_1px_3px_rgba(0,0,0,0.35)] backdrop-blur-sm'
+                    : 'border border-white/80 bg-black/30',
                 )}
               >
                 {selected && (
-                  <Check className="h-3 w-3 text-brand-foreground" />
+                  <Check className="h-3 w-3 text-neutral-900" strokeWidth={2.75} />
                 )}
               </span>
             </button>

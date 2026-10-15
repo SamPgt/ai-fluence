@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import type { Asset, Generation, PromptPreset, Thread } from '@ai-fluence/shared'
+import type { Asset, Generation, PromptPreset, Thread } from '@sublime/shared'
 import { expect, FIXTURE_IMAGE } from './helpers'
 
 export const SEEDREAM = 'bytedance/seedream-5.0-flash'

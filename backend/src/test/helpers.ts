@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { expect } from 'vitest';
-import type { Generation, Persona, Thread, User } from '@ai-fluence/shared';
+import type { Generation, Persona, Thread, User } from '@sublime/shared';
 import app from '../app.js';
 import { db } from '../db/index.js';
 import { SESSION_COOKIE } from '../lib/session.js';

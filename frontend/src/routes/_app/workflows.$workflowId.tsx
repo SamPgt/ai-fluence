@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { toast } from 'sonner'
-import { WORKFLOW_LIMITS, type Workflow, type WorkflowGraph } from '@ai-fluence/shared'
+import { WORKFLOW_LIMITS, type Workflow, type WorkflowGraph } from '@sublime/shared'
 
 import { workflowsApi } from '@/lib/api'
 import { qk, workflowQuery } from '@/lib/queries'

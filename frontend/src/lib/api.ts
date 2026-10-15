@@ -6,6 +6,7 @@ import type {
   Asset,
   AuthResponse,
   CatalogResponse,
+  DictationTokenResponse,
   CivitaiSearchResponse,
   CivitaiSort,
   CreateGenerationResponse,
@@ -40,7 +41,7 @@ import type {
   WorkflowStateResponse,
   WorkflowSummary,
   UpdateWorkflowRequest,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 export class ApiError extends Error {
   constructor(
@@ -231,6 +232,11 @@ export const presetsApi = {
   update: (id: string, body: Partial<Pick<PromptPreset, 'label' | 'text' | 'media' | 'enabled'>>) =>
     apiFetch<{ preset: PromptPreset }>(`/presets/${id}`, { method: 'PATCH', body }),
   remove: (id: string) => apiFetch<{ ok: true }>(`/presets/${id}`, { method: 'DELETE' }),
+}
+
+/** Dictée : jeton temporaire du fournisseur choisi (`fake` en test : dictée simulée). */
+export const dictationApi = {
+  token: () => apiFetch<DictationTokenResponse>('/dictation/token', { method: 'POST' }),
 }
 
 export const promptsApi = {

@@ -11,7 +11,7 @@ import {
   WORKFLOW_NODES,
   WORKFLOW_NODE_GROUPS,
   type WorkflowNodeType,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { catalogQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'

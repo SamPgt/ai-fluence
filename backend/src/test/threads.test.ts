@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import type { Thread } from '@ai-fluence/shared';
+import type { Thread } from '@sublime/shared';
 import app from '../app.js';
 import { db } from '../db/index.js';
 import { threads } from '../db/schema.js';

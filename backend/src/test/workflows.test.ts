@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import type { Workflow, WorkflowGraph } from '@ai-fluence/shared';
+import type { Workflow, WorkflowGraph } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { workflows } from '../db/schema.js';
 import { purge, TRASH_DAYS } from '../services/trash.service.js';

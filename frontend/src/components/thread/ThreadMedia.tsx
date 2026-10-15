@@ -4,7 +4,7 @@
  * puis ses résultats.
  */
 import { createContext, useContext, useMemo, useState } from 'react'
-import type { Asset, Generation } from '@ai-fluence/shared'
+import type { Asset, Generation } from '@sublime/shared'
 
 import { MediaViewer } from './MediaViewer'
 

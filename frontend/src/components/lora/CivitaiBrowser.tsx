@@ -16,7 +16,7 @@ import {
   MODEL_FAMILIES,
   type CivitaiLora,
   type CivitaiSort,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { civitaiApi } from '@/lib/api'
 import { cn } from '@/lib/utils'

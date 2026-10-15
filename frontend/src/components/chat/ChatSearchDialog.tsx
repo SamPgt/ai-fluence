@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Search, MessageSquare, FileText, X } from 'lucide-react'
-import type { SearchResult } from '@ai-fluence/shared'
+import type { SearchResult } from '@sublime/shared'
 
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import { threadsApi } from '@/lib/api'

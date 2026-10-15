@@ -7,7 +7,7 @@ import {
   type CatalogFamily,
   type CatalogResponse,
   type InputSchema,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { env } from '../env.js';

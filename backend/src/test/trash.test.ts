@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import type { Thread, TrashResponse } from '@ai-fluence/shared';
+import type { Thread, TrashResponse } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, generations, personas, promptPresets, threads } from '../db/schema.js';
 import { purge, TRASH_DAYS } from '../services/trash.service.js';

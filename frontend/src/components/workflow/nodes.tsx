@@ -40,7 +40,7 @@ import {
   type MediaKind,
   type TaskKind,
   type WorkflowNodeType,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { assetsApi } from '@/lib/api'
 import { catalogQuery } from '@/lib/queries'

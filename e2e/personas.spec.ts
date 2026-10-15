@@ -322,3 +322,20 @@ test('Bibliothèque : la recherche filtre les sections par nom', async ({ app, p
   await search.fill('gén')
   await expect(librarySections(page)).toHaveAttribute('aria-label', 'Général')
 })
+
+test('Bibliothèque : Général montre ses raccourcis, un clic les modifie', async ({ page }) => {
+  const created = await page.request.post('/api/presets', {
+    data: { label: 'Lumière douce', text: 'soft light', media: 'all' },
+  })
+  expect(created.ok()).toBeTruthy()
+  const count = ((await (await page.request.get('/api/presets')).json()).presets as unknown[]).length
+  await gotoLibrary(page)
+  const general = librarySections(page).last()
+  await expect(general).toHaveAttribute('aria-label', 'Général')
+  await expect(general).toContainText(`${count} raccourci${count > 1 ? 's' : ''}`)
+  await general.getByRole('button', { name: 'Lumière douce' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await general.getByRole('button', { name: 'Raccourci', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+})

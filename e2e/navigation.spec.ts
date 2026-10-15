@@ -77,7 +77,7 @@ test('rail replié : navigation, nouveau fil et fils récents @core', async ({ a
   await expect(page).toHaveURL(new RegExp(`/t/${thread.id}$`))
 
   await panel.getByRole('button', { name: 'Nouveau fil' }).click()
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/nouveau$/)
   // La recherche et le compte restent accessibles.
   await expect(panel.getByRole('button', { name: 'Rechercher', exact: true })).toBeVisible()
   await panel.getByRole('button', { name: 'Menu utilisateur' }).click()
@@ -110,7 +110,7 @@ test('le raccourci affiché sur « Nouveau fil » ouvre un nouveau fil', async (
   // Le focus hors d'un champ : Maj+L ne doit pas s'appliquer pendant la saisie.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await page.keyboard.press(mac ? 'Meta+l' : 'Shift+L')
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/nouveau$/)
   await app.ready()
 })
 
@@ -118,7 +118,7 @@ test('le bouton « Nouveau fil » ramène au composer vide', async ({ app, page 
   const { thread } = await app.generate({ prompt: 'fil courant' })
   await app.gotoThread(thread.id)
   await page.getByRole('button', { name: /Nouveau fil/ }).click()
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/nouveau$/)
   await expect(page.getByRole('heading', { name: 'Que veux-tu créer ?' })).toBeVisible()
 })
 
@@ -222,7 +222,7 @@ test('le menu utilisateur mène au paramétrage', async ({ app, page }) => {
   await page.getByRole('button', { name: 'Menu utilisateur' }).click()
   await page.getByRole('menuitem', { name: 'Paramétrage' }).click()
   await expect(page).toHaveURL(/\/parametres\?tab=account/)
-  await expect(page.getByRole('tab', { name: 'Compte' })).toHaveAttribute('data-state', 'active')
+  await expect(page.getByRole('tab', { name: 'Général' })).toHaveAttribute('data-state', 'active')
 })
 
 test('le lien du crédit mène à l’onglet Crédits', async ({ app, page }) => {
@@ -232,7 +232,7 @@ test('le lien du crédit mène à l’onglet Crédits', async ({ app, page }) =>
   await expect(page.getByText('Crédits et consommation')).toBeVisible()
 })
 
-test('la sidebar : marque vers un nouveau fil, puis Accueil, Bibliothèque, Workflows et Galerie @core', async ({ app, page }) => {
+test('la sidebar : marque vers l’Accueil, puis Accueil, Bibliothèque, Workflows et Galerie @core', async ({ app, page }) => {
   const { thread } = await app.generate({ prompt: 'fil de la sidebar' })
   await app.gotoThread(thread.id)
   const panel = page.getByTestId('thread-panel')
@@ -248,6 +248,6 @@ test('la sidebar : marque vers un nouveau fil, puis Accueil, Bibliothèque, Work
   await expect(page).toHaveURL(/\/workflows$/)
 
   await panel.getByRole('link', { name: 'Sublime, accueil' }).click()
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByRole('heading', { name: 'Que veux-tu créer ?' })).toBeVisible()
+  await expect(page).toHaveURL(/:\d+\/$/)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^(Bonjour|Bonsoir)/)
 })

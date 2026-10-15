@@ -31,7 +31,7 @@ import {
   type PortType,
   type WorkflowGraph,
   type WorkflowNodeType,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
 import { useNodeResults, useWorkflowRun } from './WorkflowRun'

@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQueries, useQuery } from '@tanstack/react-query'
 import { Check, FolderHeart, GlobeOff, Loader2, Plus, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Asset, LibraryPhoto, LibrarySource } from '@ai-fluence/shared'
+import type { Asset, LibraryPhoto, LibrarySource } from '@sublime/shared'
 
 import { assetsApi, libraryApi } from '@/lib/api'
 import { personasQuery, qk } from '@/lib/queries'
@@ -194,10 +194,11 @@ export function LibraryBrowser({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Fenêtre centrée (pas plein écran) : on pioche une image et on revient au composer. */}
+      {/* Fenêtre centrée (pas plein écran) : on pioche une image et on revient au composer.
+          Très large : centrée sur toute la fenêtre, pas sur le fil comme les autres modales. */}
       <DialogContent
         showCloseButton={false}
-        className="flex h-[min(780px,calc(100dvh-4rem))] w-[min(1120px,calc(100vw-2rem-var(--sidebar-w,0px)))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/60 bg-background p-0 sm:max-w-none"
+        className="left-1/2 flex h-[min(780px,calc(100dvh-4rem))] w-[min(1120px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/60 bg-background p-0 sm:max-w-none"
       >
         <DialogTitle className="sr-only">
           Choisir depuis une librairie

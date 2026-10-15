@@ -1,5 +1,5 @@
 /**
- * Paramètres (/parametres) : onglets Compte, Modèles, Crédits, Stockage et
+ * Paramètres (/parametres) : onglets Général (compte, modèles par défaut, dictée), Crédits, Stockage et
  * Clés API. Les raccourcis se gèrent dans la page Général de la Bibliothèque.
  * Le compte e2e est partagé : chaque test le remet en état ensuite.
  */
@@ -11,7 +11,7 @@ import { resetData, sql } from './db'
 import { expect, FIXTURE_IMAGE, test } from './helpers'
 import { E2E_KEY, gotoSettings, hydrated, restoreSharedUser } from './support-auth'
 
-const ME = "(SELECT id FROM users WHERE email = 'e2e@ai-fluence.test')"
+const ME = "(SELECT id FROM users WHERE email = 'e2e@sublime.test')"
 
 // Données vides au départ, même pour les tests sans le fixture `app`.
 test.beforeEach(() => resetData())
@@ -20,30 +20,27 @@ test.afterEach(async ({ page }) => {
   await restoreSharedUser(page.request)
 })
 
-test('les onglets sont Compte, Modèles, Crédits, Stockage et Clés API, rien d’autre @core @smoke', async ({ page }) => {
+test('les onglets sont Général, Crédits, Stockage et Clés API, rien d’autre @core @smoke', async ({ page }) => {
   await gotoSettings(page)
-  await expect(page.getByRole('tab')).toHaveText(['Compte', 'Modèles', 'Crédits', 'Stockage', 'Clés API'])
-  for (const absent of ['Raccourcis', 'Logo', 'Couleur']) {
+  await expect(page.getByRole('tab')).toHaveText(['Général', 'Crédits', 'Stockage', 'Clés API'])
+  for (const absent of ['Compte', 'Modèles', 'Raccourcis', 'Logo', 'Couleur']) {
     await expect(page.getByRole('tab', { name: absent })).toHaveCount(0)
   }
-  // Compte est l'onglet par défaut, et l'onglet choisi passe dans l'URL.
-  await expect(page.getByRole('tab', { name: 'Compte' })).toHaveAttribute('data-state', 'active')
+  // Général est l'onglet par défaut, et l'onglet choisi passe dans l'URL.
+  await expect(page.getByRole('tab', { name: 'Général' })).toHaveAttribute('data-state', 'active')
   await page.getByRole('tab', { name: 'Stockage' }).click()
   await expect(page).toHaveURL(/tab=storage/)
   await expect(page.getByText('Dossier des médias')).toBeVisible()
 })
 
 test.describe('Compte', () => {
-  test('changer le nom le met à jour partout, même après rechargement @core', async ({ page }) => {
+  test('changer le nom affiché (en quittant le champ) le met à jour partout, même après rechargement @core', async ({ page }) => {
     await gotoSettings(page, 'account')
-    const name = page.getByLabel('Nom', { exact: true })
+    const name = page.getByLabel('Nom affiché')
     await expect(name).toHaveValue('E2E')
-    const save = page.getByRole('button', { name: 'Enregistrer' })
-    await expect(save).toBeDisabled()
     await name.fill('Marie Curie')
-    await save.click()
+    await name.press('Enter')
     await expect(page.getByText('Compte mis à jour')).toBeVisible()
-    await expect(save).toBeDisabled()
 
     // Initiales puis nom sur le bouton du menu utilisateur, en bas de la sidebar.
     const menu = page.getByRole('button', { name: 'Menu utilisateur' })
@@ -52,14 +49,17 @@ test.describe('Compte', () => {
 
     await page.reload()
     await hydrated(page)
-    await expect(page.getByLabel('Nom', { exact: true })).toHaveValue('Marie Curie')
-    expect(sql("SELECT name FROM users WHERE email = 'e2e@ai-fluence.test'")).toBe('Marie Curie')
+    await expect(page.getByLabel('Nom affiché')).toHaveValue('Marie Curie')
+    expect(sql("SELECT name FROM users WHERE email = 'e2e@sublime.test'")).toBe('Marie Curie')
   })
 
-  test('un nom vide ne peut pas être enregistré', async ({ page }) => {
+  test('un nom vide n’est pas enregistré : le champ reprend le nom actuel', async ({ page }) => {
     await gotoSettings(page, 'account')
-    await page.getByLabel('Nom', { exact: true }).fill('   ')
-    await expect(page.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
+    const name = page.getByLabel('Nom affiché')
+    await name.fill('   ')
+    await name.press('Enter')
+    await expect(name).toHaveValue('E2E')
+    expect(sql("SELECT name FROM users WHERE email = 'e2e@sublime.test'")).toBe('E2E')
   })
 
   test('envoyer une photo de profil l’affiche, et Retirer l’enlève', async ({ page }) => {
@@ -278,7 +278,7 @@ test.describe('Clés API', () => {
     await expect(page.getByRole('link', { name: /Créer une clé dans la console SpicyAPI/ })).toBeVisible()
 
     // Composer sans clé : bandeau d'avertissement, crédit remplacé, envoi impossible.
-    await page.goto('/')
+    await page.goto('/nouveau')
     await hydrated(page)
     await expect(page.getByRole('link', { name: /Ajoute ta clé API SpicyAPI pour commencer à générer/ })).toBeVisible()
     await expect(page.getByTestId('thread-panel').getByText('Clé API manquante')).toBeVisible()

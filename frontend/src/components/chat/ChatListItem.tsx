@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ImageIcon, Pin, Trash2 } from 'lucide-react'
-import type { Thread } from '@ai-fluence/shared'
+import type { Thread } from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'

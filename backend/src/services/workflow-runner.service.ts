@@ -32,7 +32,7 @@ import {
   type WorkflowRunStartResponse,
   type ThreadWorkflowRun,
   type WorkflowStateResponse,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, generations, personas, threads, users, workflowNodeResults, workflowRuns, workflows } from '../db/schema.js';
 import { env } from '../env.js';

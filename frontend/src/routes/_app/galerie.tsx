@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Film, Loader2, Workflow } from 'lucide-react'
-import { getFamily } from '@ai-fluence/shared'
+import { getFamily } from '@sublime/shared'
 
 import { assetsApi } from '@/lib/api'
 import { personasQuery, qk } from '@/lib/queries'

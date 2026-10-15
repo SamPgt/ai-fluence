@@ -1,4 +1,4 @@
-import type { Persona } from '@ai-fluence/shared'
+import type { Persona } from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
 

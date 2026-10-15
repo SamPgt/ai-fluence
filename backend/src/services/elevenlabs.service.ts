@@ -3,7 +3,7 @@
  * et n'est jamais envoyée au navigateur. En test (SPICY_FAKE), aucun appel réseau.
  */
 import { HTTPException } from 'hono/http-exception';
-import type { VoiceLibraryItem, VoiceLibraryResponse } from '@ai-fluence/shared';
+import type { VoiceLibraryItem, VoiceLibraryResponse } from '@sublime/shared';
 import { env } from '../env.js';
 import { decryptSecret } from '../lib/crypto.js';
 import { getSettingsRow } from './settings.service.js';
@@ -11,8 +11,13 @@ import { getSettingsRow } from './settings.service.js';
 export const ELEVENLABS_API = 'https://api.elevenlabs.io';
 const TIMEOUT_MS = 15_000;
 
-export async function elevenFetch(apiKey: string, path: string): Promise<Response> {
+export async function elevenFetch(
+  apiKey: string,
+  path: string,
+  { method = 'GET', permission = 'lecture des voix' }: { method?: 'GET' | 'POST'; permission?: string } = {},
+): Promise<Response> {
   const res = await fetch(`${ELEVENLABS_API}${path}`, {
+    method,
     headers: { 'xi-api-key': apiKey, Accept: 'application/json' },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   }).catch(() => null);
@@ -26,7 +31,7 @@ export async function elevenFetch(apiKey: string, path: string): Promise<Respons
     const status = typeof body?.detail === 'object' ? body?.detail?.status : undefined;
     if (res.status === 401 && status === 'missing_permissions') {
       throw new HTTPException(400, {
-        message: `Clé ElevenLabs sans la permission nécessaire : ${detail ?? 'lecture des voix'}. Active « Voices : lecture » sur la clé.`,
+        message: `Clé ElevenLabs sans la permission nécessaire : ${detail ?? permission}. Active-la sur la clé dans ElevenLabs.`,
       });
     }
     if (res.status === 401)
@@ -272,4 +277,22 @@ export async function listVoiceLibrary(apiKey: string, q: VoiceLibraryQuery): Pr
     })),
     hasMore: Boolean(body.has_more),
   };
+}
+
+// ── Dictée (speech to text en direct) ─────────────────────────
+
+/**
+ * Jeton à usage unique (15 min) pour Scribe v2 Realtime : le navigateur se connecte
+ * directement à ElevenLabs avec lui, la clé reste sur le serveur. Création gratuite ;
+ * la transcription est décomptée du forfait ElevenLabs (temps réel inclus dès Free).
+ */
+export async function createScribeToken(userId: string): Promise<string> {
+  const apiKey = await requireElevenLabsKey(userId);
+  const res = await elevenFetch(apiKey, '/v1/single-use-token/realtime_scribe', {
+    method: 'POST',
+    permission: 'Speech to Text',
+  });
+  const body = (await res.json()) as { token?: string };
+  if (!body.token) throw new HTTPException(502, { message: 'ElevenLabs n’a pas renvoyé de jeton.' });
+  return body.token;
 }

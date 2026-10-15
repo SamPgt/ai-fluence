@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query'
 import { KeyRound } from 'lucide-react'
 
 import { sessionQueryOptions } from '@/server/auth'
-import type { User } from '@ai-fluence/shared'
+import type { User } from '@sublime/shared'
 import { uiPrefsQueryOptions } from '@/server/ui-prefs'
 import { settingsQuery } from '@/lib/queries'
 import { isMac, isTypingTarget } from '@/lib/platform'
@@ -87,7 +87,7 @@ function AppShell({ user: initialUser }: { user: User }) {
           !isTypingTarget(e.target)
       if (newThread) {
         e.preventDefault()
-        navigate({ to: '/' })
+        navigate({ to: '/nouveau' })
       }
     }
     window.addEventListener('keydown', onKey)

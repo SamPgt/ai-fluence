@@ -7,7 +7,7 @@
  * images jointes).
  */
 import type { Page, Route } from '@playwright/test'
-import type { CivitaiLora, CivitaiSearchResponse, Generation, PersonaLora } from '@ai-fluence/shared'
+import type { CivitaiLora, CivitaiSearchResponse, Generation, PersonaLora } from '@sublime/shared'
 import { expect, test, type App } from './helpers'
 import { PNG, getPersona, gotoPersona, hydrated, popover, saved, sendAndCapture, uploadReference } from './support-personas'
 

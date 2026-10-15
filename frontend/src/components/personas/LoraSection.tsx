@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { ChevronDown, ExternalLink, Globe, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { MODEL_FAMILIES, getFamily, type PersonaLora } from '@ai-fluence/shared'
+import { MODEL_FAMILIES, getFamily, type PersonaLora } from '@sublime/shared'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

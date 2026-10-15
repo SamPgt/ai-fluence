@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ImageUpscale, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Asset, PriceChangedResponse } from '@ai-fluence/shared'
+import type { Asset, PriceChangedResponse } from '@sublime/shared'
 
 import { ApiError, generationsApi } from '@/lib/api'
 import { qk } from '@/lib/queries'

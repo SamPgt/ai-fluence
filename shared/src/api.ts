@@ -48,6 +48,56 @@ export interface Settings {
   defaultVideoFamily: string | null;
   /** LoRA de Général (rangés dans aucun persona). */
   loras: PersonaLora[];
+  /** Fournisseur de la dictée du composer. */
+  dictationProvider: DictationProvider;
+  /** Fournisseurs de dictée utilisables (clé configurée sur le serveur ; ElevenLabs : clé du compte). */
+  dictationProviders: DictationProvider[];
+}
+
+/** Dictée en direct : ElevenLabs Scribe v2 Realtime, Deepgram Flux ou Cartesia Ink-2. */
+export type DictationProvider = 'elevenlabs' | 'deepgram' | 'cartesia';
+
+/** Modèles de dictée, rangés comme le menu des modèles : Rapide, Précis, Autre. */
+export const DICTATION_MODELS: {
+  id: DictationProvider;
+  label: string;
+  brand: string;
+  logo: string;
+  hint: string;
+  section: 'fast' | 'accurate' | 'other';
+}[] = [
+  {
+    id: 'deepgram',
+    label: 'Deepgram Flux',
+    brand: 'Deepgram',
+    logo: '/providers/deepgram.svg',
+    hint: 'Le texte arrive quasi instantanément',
+    section: 'fast',
+  },
+  {
+    id: 'cartesia',
+    label: 'Cartesia Ink-2',
+    brand: 'Cartesia',
+    logo: '/providers/cartesia.svg',
+    hint: 'Très précis, par petits morceaux',
+    section: 'accurate',
+  },
+  {
+    id: 'elevenlabs',
+    label: 'ElevenLabs Scribe v2 Realtime',
+    brand: 'ElevenLabs',
+    logo: '/providers/elevenlabs.svg',
+    hint: 'Très précis, texte provisoire en direct',
+    section: 'accurate',
+  },
+];
+
+/** Jeton de dictée : le navigateur se connecte directement au fournisseur avec lui. */
+export interface DictationTokenResponse {
+  provider: DictationProvider;
+  token: string;
+  /** Tests : dictée simulée, sans micro ni réseau. */
+  fake: boolean;
 }
 
 export interface UpdateSettingsRequest {
@@ -56,6 +106,7 @@ export interface UpdateSettingsRequest {
   defaultImageFamily?: string | null;
   defaultVideoFamily?: string | null;
   loras?: PersonaLora[];
+  dictationProvider?: DictationProvider;
 }
 
 export interface SetApiKeyRequest {

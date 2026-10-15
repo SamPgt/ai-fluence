@@ -4,7 +4,7 @@
  * dans le navigateur ; un brouillon vide repart du générique.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Asset } from '@ai-fluence/shared'
+import type { Asset } from '@sublime/shared'
 
 const KEY = 'aif-composer-drafts'
 const asset = (id: string) => ({ id, mediaType: 'image' }) as Asset

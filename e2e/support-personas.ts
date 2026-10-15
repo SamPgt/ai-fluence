@@ -3,7 +3,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { expect, type Page } from '@playwright/test'
-import type { Asset, Generation, Persona } from '@ai-fluence/shared'
+import type { Asset, Generation, Persona } from '@sublime/shared'
 import { FIXTURE_IMAGE } from './helpers'
 
 export const PNG = readFileSync(FIXTURE_IMAGE)
@@ -11,14 +11,9 @@ export const PNG = readFileSync(FIXTURE_IMAGE)
 /** Fichier image en mémoire, avec un nom distinct. */
 export const pngFile = (name: string) => ({ name, mimeType: 'image/png', buffer: PNG })
 
-/** Attend que React ait pris la main sur la page (sinon une saisie est effacée). */
-export async function hydrated(page: Page) {
-  await page.waitForFunction(() =>
-    [document, document.documentElement, document.body].some((n) =>
-      Object.keys(n).some((k) => k.startsWith('__reactContainer')),
-    ),
-  )
-}
+/** Hydratation finie (gestionnaires d'événements branchés) : cf. support-auth. */
+import { hydrated } from './support-auth'
+export { hydrated }
 
 /** Fiche d'un persona, onglet choisi (`general` = Références), une fois la page prête. */
 export async function gotoPersona(page: Page, id: string, tab?: 'general' | 'lora') {

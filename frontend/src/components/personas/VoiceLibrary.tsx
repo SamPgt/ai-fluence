@@ -21,7 +21,7 @@ import {
   Venus,
   X,
 } from 'lucide-react'
-import type { PersonaVoice, VoiceLibraryItem } from '@ai-fluence/shared'
+import type { PersonaVoice, VoiceLibraryItem } from '@sublime/shared'
 
 import { voicesApi, type VoiceLibraryQuery } from '@/lib/api'
 import { settingsQuery } from '@/lib/queries'

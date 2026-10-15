@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { APP_DEFAULT_FAMILY, MODEL_FAMILIES, PROVIDERS, type CatalogFamily } from '@ai-fluence/shared';
+import { APP_DEFAULT_FAMILY, MODEL_FAMILIES, PROVIDERS, type CatalogFamily } from '@sublime/shared';
 import { SEEDANCE_MINI, SEEDREAM_FLASH, call, signup } from './helpers.js';
 
 const TASKS = ['text-to-image', 'image-to-image', 'text-to-video', 'image-to-video', 'reference-to-video', 'upscale'];

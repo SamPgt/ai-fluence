@@ -2,7 +2,7 @@
  * `npm run test:unit` :
  * - unit : logique pure des trois paquets (sans base ni serveur) ;
  * - api : chaque endpoint Hono appelé par `app.fetch` (pas de serveur), sur la
- *   base `ai-fluence-test`, avec un faux SpicyAPI (aucun réseau, aucun coût).
+ *   base `sublime-test`, avec un faux SpicyAPI (aucun réseau, aucun coût).
  * Les tests de bout en bout sont dans e2e/ (Playwright).
  */
 import { fileURLToPath } from 'node:url'
@@ -35,7 +35,7 @@ export default defineConfig({
           // Appliqué avant le chargement des modules : prime sur backend/.env.
           env: {
             NODE_ENV: 'test',
-            DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgresql://localhost:5432/ai-fluence-test',
+            DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgresql://localhost:5432/sublime-test',
             APP_SECRET: '0'.repeat(64),
             CLIENT_URL: 'http://localhost:3071',
             DATA_DIR: here('./.vitest-data'),

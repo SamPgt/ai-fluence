@@ -21,14 +21,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { UpdateSettingsRequest } from '@sublime/shared'
+import { DictationModelField } from '@/components/settings/DictationModelField'
 import { DefaultFamily } from '@/components/settings/DefaultFamily'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
-const TABS = ['account', 'models', 'credits', 'storage', 'api-key'] as const
+const TABS = ['account', 'credits', 'storage', 'api-key'] as const
 type Tab = (typeof TABS)[number]
 
 export const Route = createFileRoute('/_app/parametres')({
   validateSearch: (search: Record<string, unknown>): { tab: Tab } => ({
+    // `models` : ancien onglet, aujourd'hui dans Général (`account`).
     tab: TABS.includes(search.tab as Tab) ? (search.tab as Tab) : 'account',
   }),
   component: SettingsPage,
@@ -73,8 +76,7 @@ function SettingsPage() {
             className="gap-6"
           >
             <TabsList className="w-full justify-start overflow-x-auto">
-              <TabsTrigger value="account">Compte</TabsTrigger>
-              <TabsTrigger value="models">Modèles</TabsTrigger>
+              <TabsTrigger value="account">Général</TabsTrigger>
               <TabsTrigger value="credits">Crédits</TabsTrigger>
               <TabsTrigger value="storage">Stockage</TabsTrigger>
               <TabsTrigger value="api-key">Clés API</TabsTrigger>
@@ -88,11 +90,10 @@ function SettingsPage() {
             <TabsContent value="credits">
               <CreditsTab />
             </TabsContent>
-            <TabsContent value="models">
-              <ModelsTab />
-            </TabsContent>
-            <TabsContent value="account">
+            {/* Général : le compte, puis les modèles par défaut et la dictée. */}
+            <TabsContent value="account" className="space-y-5">
               <AccountTab />
+              <ModelsTab />
             </TabsContent>
           </Tabs>
         </div>
@@ -120,30 +121,42 @@ function useSettingsMutation<T>(
 function ModelsTab() {
   const { data: settings } = useQuery(settingsQuery())
   const save = useSettingsMutation(
-    (patch: {
-      defaultImageFamily?: string | null
-      defaultVideoFamily?: string | null
-    }) => settingsApi.update(patch),
-    'Modèle par défaut enregistré',
+    (patch: UpdateSettingsRequest) => settingsApi.update(patch),
+    'Préférence enregistrée',
   )
   return (
-    <Section
-      title="Modèles par défaut"
-      description="Sélectionnés automatiquement dans le composer pour un nouveau fil."
-    >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <DefaultFamily
-          media="image"
-          value={settings?.defaultImageFamily ?? null}
-          onChange={(v) => save.mutate({ defaultImageFamily: v })}
-        />
-        <DefaultFamily
-          media="video"
-          value={settings?.defaultVideoFamily ?? null}
-          onChange={(v) => save.mutate({ defaultVideoFamily: v })}
-        />
-      </div>
-    </Section>
+    <div className="space-y-5">
+      <Section
+        title="Modèles par défaut"
+        description="Sélectionnés automatiquement dans le composer pour un nouveau fil."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <DefaultFamily
+            media="image"
+            value={settings?.defaultImageFamily ?? null}
+            onChange={(v) => save.mutate({ defaultImageFamily: v })}
+          />
+          <DefaultFamily
+            media="video"
+            value={settings?.defaultVideoFamily ?? null}
+            onChange={(v) => save.mutate({ defaultVideoFamily: v })}
+          />
+        </div>
+      </Section>
+      <Section
+        title="Dictée"
+        description="Modèle du micro du composer (⌥M). Le texte s’écrit pendant que tu parles."
+      >
+        <div className="max-w-sm space-y-1.5">
+          <Label>Modèle</Label>
+          <DictationModelField
+            value={settings?.dictationProvider ?? 'elevenlabs'}
+            available={settings?.dictationProviders ?? ['elevenlabs']}
+            onChange={(v) => save.mutate({ dictationProvider: v })}
+          />
+        </div>
+      </Section>
+    </div>
   )
 }
 
@@ -477,13 +490,20 @@ function AccountTab() {
     }
   }
 
+  // Nom affiché : enregistré en quittant le champ (ou avec Entrée), jamais vide.
+  const saveName = () => {
+    const next = name.trim()
+    if (!next) return setName(user.name)
+    if (next !== user.name) update.mutate({ name: next })
+  }
+
   return (
-    <Section title="Compte" description={user.email}>
+    <Section title="Compte">
       <div className="flex items-center gap-4">
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full bg-secondary"
+          className="group relative h-14 w-14 shrink-0 overflow-hidden rounded-full bg-secondary"
           aria-label="Changer la photo de profil"
         >
           {user.avatarUrl ? (
@@ -505,27 +525,31 @@ function AccountTab() {
             )}
           </span>
         </button>
-        <div className="space-y-1.5">
-          <div className="text-sm font-medium">Photo de profil</div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-            >
-              Choisir une image
-            </Button>
-            {user.avatarUrl && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => update.mutate({ avatarAssetId: null })}
-              >
-                Retirer
-              </Button>
-            )}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[15px] font-medium">{user.name}</div>
+          <div className="truncate text-sm text-muted-foreground">
+            {user.email}
           </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+          >
+            Changer la photo
+          </Button>
+          {user.avatarUrl && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => update.mutate({ avatarAssetId: null })}
+            >
+              Retirer
+            </Button>
+          )}
         </div>
         <input
           ref={fileRef}
@@ -535,23 +559,16 @@ function AccountTab() {
           onChange={(e) => onAvatar(e.target.files?.[0])}
         />
       </div>
-      <div className="space-y-1.5">
-        <Label>Nom</Label>
-        <div className="flex gap-2">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={60}
-            aria-label="Nom"
-          />
-          <Button
-            variant="outline"
-            onClick={() => update.mutate({ name })}
-            disabled={!name.trim() || name === user.name}
-          >
-            Enregistrer
-          </Button>
-        </div>
+      <div className="space-y-1.5 border-t border-border/40 pt-5">
+        <Label htmlFor="account-name">Nom affiché</Label>
+        <Input
+          id="account-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={saveName}
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          maxLength={60}
+        />
       </div>
     </Section>
   )

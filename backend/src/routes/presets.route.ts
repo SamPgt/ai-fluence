@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { PromptPreset } from '@ai-fluence/shared';
+import type { PromptPreset } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { promptPresets } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';

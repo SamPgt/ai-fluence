@@ -4,7 +4,7 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, X } from 'lucide-react'
-import type { MediaKind } from '@ai-fluence/shared'
+import type { MediaKind } from '@sublime/shared'
 
 import { catalogQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -15,16 +15,21 @@ export function ModelField({
   value,
   onChange,
   emptyLabel,
+  fallbackId,
 }: {
   media: MediaKind
   value: string | null
   onChange: (id: string | null) => void
   /** Texte affiché quand aucun modèle n'est choisi. */
   emptyLabel: string
+  /** Modèle utilisé quand rien n'est choisi : affiché avec son logo et le badge « par défaut ». */
+  fallbackId?: string
 }) {
   const { data: catalog } = useQuery(catalogQuery())
   const families = catalog?.families ?? []
   const current = families.find((f) => f.id === value)
+  const fallback = current ? undefined : families.find((f) => f.id === fallbackId)
+  const shown = current ?? fallback
 
   return (
     <div className="relative">
@@ -38,15 +43,21 @@ export function ModelField({
             type="button"
             className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs transition-colors outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/40"
           >
-            {current && <ProviderLogo provider={current.provider} size="sm" />}
+            {shown && <ProviderLogo provider={shown.provider} size="sm" />}
             <span
               className={cn(
-                'min-w-0 flex-1 truncate text-left',
-                !current && 'text-muted-foreground',
+                'min-w-0 truncate text-left',
+                !shown && 'flex-1 text-muted-foreground',
               )}
             >
-              {current?.label ?? emptyLabel}
+              {shown?.label ?? emptyLabel}
             </span>
+            {fallback && (
+              <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                par défaut
+              </span>
+            )}
+            {shown && <span className="flex-1" />}
             {!current && (
               <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
             )}

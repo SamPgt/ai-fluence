@@ -6,7 +6,7 @@
  * Règles Pexels suivies : lien visible vers Pexels, photographe crédité avec
  * un lien vers la page de la photo.
  */
-import type { LibraryPhoto, LibrarySearchResponse } from '@ai-fluence/shared';
+import type { LibraryPhoto, LibrarySearchResponse } from '@sublime/shared';
 import { env } from '../env.js';
 import type { SessionUser } from '../types.js';
 import { PER_PAGE, cacheGet, cacheSet, createClient, importImage } from './library.service.js';

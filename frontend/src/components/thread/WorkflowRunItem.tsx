@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { undoToast } from '@/lib/undo-toast'
-import type { Asset, ThreadWorkflowRun } from '@ai-fluence/shared'
+import type { Asset, ThreadWorkflowRun } from '@sublime/shared'
 
 import { workflowsApi } from '@/lib/api'
 import { qk } from '@/lib/queries'

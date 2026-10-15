@@ -11,7 +11,7 @@ import { undoToast } from '@/lib/undo-toast'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { EditWorkflowDialog } from '@/components/workflow/EditWorkflowDialog'
-import type { WorkflowSummary } from '@ai-fluence/shared'
+import type { WorkflowSummary } from '@sublime/shared'
 
 export const Route = createFileRoute('/_app/workflows/')({
   component: WorkflowsPage,

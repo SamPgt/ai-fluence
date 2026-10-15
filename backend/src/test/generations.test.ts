@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import { eq, inArray } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getFamily } from '@ai-fluence/shared';
+import { getFamily } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, generations, userSettings } from '../db/schema.js';
 import { fakeSpicyClient } from '../services/spicy.fake.js';

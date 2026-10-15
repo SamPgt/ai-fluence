@@ -29,7 +29,7 @@ export async function hydrated(page: Page) {
 
 /** E-mail unique pour un compte créé pendant un test. */
 export function uniqueEmail(prefix = 'compte') {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@ai-fluence.test`
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@sublime.test`
 }
 
 /** Crée un compte par l'API : la session est posée dans le contexte de `request`. */

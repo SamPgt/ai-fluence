@@ -1,4 +1,4 @@
-import { BADGE_INFO, type ModelBadge as Badge } from '@ai-fluence/shared'
+import { BADGE_INFO, type ModelBadge as Badge } from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
 

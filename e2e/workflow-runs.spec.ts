@@ -3,7 +3,7 @@
  * résultats dans les nœuds, historique et résultat actif, échec, galerie.
  */
 import type { Page } from '@playwright/test'
-import type { Workflow, WorkflowGraph } from '@ai-fluence/shared'
+import type { Workflow, WorkflowGraph } from '@sublime/shared'
 import { expect, test } from './helpers'
 
 const node = (page: Page, type: string) => page.locator(`[data-testid="workflow-node"][data-node-type="${type}"]`)

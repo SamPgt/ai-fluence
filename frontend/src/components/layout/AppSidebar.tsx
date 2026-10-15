@@ -20,7 +20,7 @@ import {
   Workflow,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Thread, User } from '@ai-fluence/shared'
+import type { Thread, User } from '@sublime/shared'
 
 import { undoToast } from '@/lib/undo-toast'
 import { authApi, threadsApi, trashApi } from '@/lib/api'
@@ -56,7 +56,7 @@ import {
 import { CreditFooter } from './CreditFooter'
 
 const NAV = [
-  { to: '/accueil', label: 'Accueil', icon: House },
+  { to: '/', label: 'Accueil', icon: House },
   { to: '/bibliotheque', label: 'Bibliothèque', icon: Library },
   { to: '/workflows', label: 'Workflows', icon: Workflow },
   { to: '/galerie', label: 'Galerie', icon: Images },
@@ -171,7 +171,7 @@ export function AppSidebar({ user }: { user: User }) {
           </div>
           <button
             type="button"
-            onClick={() => navigate({ to: '/' })}
+            onClick={() => navigate({ to: '/nouveau' })}
             className="flex h-9 w-full items-center gap-2.5 rounded-lg border border-border/60 bg-white/[0.04] px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-white/[0.07]"
           >
             <Plus className="h-4 w-4" strokeWidth={1.6} />
@@ -187,6 +187,7 @@ export function AppSidebar({ user }: { user: User }) {
                 to={to}
                 className="flex h-8 items-center gap-2.5 rounded-[5px] px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
                 activeProps={{ className: 'bg-accent text-foreground' }}
+                activeOptions={{ exact: to === '/' }}
               >
                 <Icon className="h-4 w-4" strokeWidth={1.6} />
                 {label}
@@ -348,7 +349,7 @@ function CollapsedRail({
       >
         <button
           type="button"
-          onClick={() => navigate({ to: '/' })}
+          onClick={() => navigate({ to: '/nouveau' })}
           aria-label="Nouveau fil"
           className="grid h-9 w-9 place-items-center rounded-lg border border-border/60 bg-white/[0.04] text-foreground transition-colors hover:bg-white/[0.08]"
         >
@@ -363,6 +364,7 @@ function CollapsedRail({
             aria-label={label}
             className={RAIL_BUTTON}
             activeProps={{ className: 'bg-accent text-foreground' }}
+            activeOptions={{ exact: to === '/' }}
           >
             <Icon className="h-4 w-4" strokeWidth={1.6} />
           </Link>

@@ -9,7 +9,7 @@ import { and, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'driz
 import { unlink } from 'node:fs/promises';
 import trash from 'trash';
 import { env } from '../env.js';
-import type { TrashResponse } from '@ai-fluence/shared';
+import type { TrashResponse } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, personas, threads, workflows } from '../db/schema.js';
 import { toAsset } from './serialize.js';

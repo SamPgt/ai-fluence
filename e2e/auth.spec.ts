@@ -62,7 +62,7 @@ test.describe('déconnecté', () => {
     await expect(page).toHaveURL(/\/connexion/)
   })
 
-  test('la connexion réussie ouvre l’app @core @smoke', async ({ page }) => {
+  test('la connexion réussie ouvre l’Accueil @core @smoke', async ({ page }) => {
     await page.goto('/connexion')
     await hydrated(page)
     await page.getByLabel('E-mail').fill(USER.email)
@@ -70,7 +70,7 @@ test.describe('déconnecté', () => {
     await page.getByRole('button', { name: 'Se connecter' }).click()
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('button', { name: 'Menu utilisateur' })).toBeVisible()
-    await expect(page.getByTestId('model-picker')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^(Bonjour|Bonsoir)/)
   })
 
   test('les liens passent de la connexion à l’inscription et retour', async ({ page }) => {
@@ -111,7 +111,7 @@ test.describe('déconnecté', () => {
     await expect(page).toHaveURL(/\/$/)
   })
 
-  for (const path of ['/', '/parametres', '/corbeille', '/galerie', '/t/00000000-0000-0000-0000-000000000000']) {
+  for (const path of ['/', '/nouveau', '/parametres', '/corbeille', '/galerie', '/t/00000000-0000-0000-0000-000000000000']) {
     test(`la route protégée ${path} renvoie vers la connexion`, async ({ page }) => {
       await page.goto(path)
       await expect(page).toHaveURL(/\/connexion$/)

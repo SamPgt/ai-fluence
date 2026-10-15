@@ -8,7 +8,7 @@ import {
   ExternalLink,
   X,
 } from 'lucide-react'
-import type { Asset } from '@ai-fluence/shared'
+import type { Asset } from '@sublime/shared'
 
 import { Dialog, DialogOverlay, DialogPortal } from '@/components/ui/dialog'
 

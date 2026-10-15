@@ -8,7 +8,7 @@ import {
   appDefault,
   type InputSchema,
   type JsonSchemaProp,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'

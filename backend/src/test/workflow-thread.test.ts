@@ -3,7 +3,7 @@
  * rattachée au fil (créé au besoin), résultat final affiché dans le fil.
  */
 import { describe, expect, it } from 'vitest';
-import type { ThreadDetailResponse, WorkflowGraph } from '@ai-fluence/shared';
+import type { ThreadDetailResponse, WorkflowGraph } from '@sublime/shared';
 import { settle, signup, type Agent } from './helpers.js';
 
 const SEEDREAM = 'bytedance/seedream-5.0-flash';

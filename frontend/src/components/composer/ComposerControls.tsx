@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Image as ImageIcon, Minus, Play, Plus } from 'lucide-react'
-import type { MediaKind } from '@ai-fluence/shared'
+import type { MediaKind } from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
 import {

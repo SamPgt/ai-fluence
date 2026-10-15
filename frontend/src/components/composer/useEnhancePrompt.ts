@@ -4,7 +4,7 @@
  */
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { MediaKind } from '@ai-fluence/shared'
+import type { MediaKind } from '@sublime/shared'
 
 import { promptsApi } from '@/lib/api'
 import { composer } from '@/lib/composer-store'

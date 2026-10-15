@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import type { EnhancePromptResponse } from '@ai-fluence/shared';
+import type { EnhancePromptResponse } from '@sublime/shared';
 import { auth } from '../middleware/auth.js';
 import { env } from '../env.js';
 import { getSettingsRow, requireApiKey } from '../services/settings.service.js';

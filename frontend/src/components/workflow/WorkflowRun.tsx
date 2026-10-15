@@ -8,7 +8,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { useReactFlow } from '@xyflow/react'
 import { Loader2, Play, Square } from 'lucide-react'
 import { toast } from 'sonner'
-import { WORKFLOW_NODES, type WorkflowGraph, type WorkflowNodeResult, type WorkflowStateResponse } from '@ai-fluence/shared'
+import { WORKFLOW_NODES, type WorkflowGraph, type WorkflowNodeResult, type WorkflowStateResponse } from '@sublime/shared'
 
 import { workflowsApi } from '@/lib/api'
 import { qk, workflowStateQuery } from '@/lib/queries'

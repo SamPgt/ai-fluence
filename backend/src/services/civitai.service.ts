@@ -13,7 +13,7 @@ import {
   type CivitaiSearchResponse,
   type CivitaiSort,
   type CivitaiVariant,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { env } from '../env.js';
 
 const API = 'https://civitai.com/api/v1';

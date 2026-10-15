@@ -24,7 +24,7 @@ import {
   type InputSchema,
   UPSCALERS,
   type TaskKind,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { db } from '../db/index.js';
 import { env } from '../env.js';
 import { assets, generations, personas, promptPresets, threads, users } from '../db/schema.js';

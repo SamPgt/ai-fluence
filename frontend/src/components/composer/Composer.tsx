@@ -17,6 +17,7 @@ import {
   Plus,
   Upload,
   X,
+  Mic,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -27,6 +28,8 @@ import {
   appDefault,
   audioInputInfo,
   APP_DEFAULT_FAMILY,
+  PROVIDERS,
+  dictationKeyterms,
   type Asset,
   type Generation,
   type GenerationRequest,
@@ -34,9 +37,16 @@ import {
   type JsonSchemaProp,
   type MediaKind,
   type TaskKind,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { assetsApi, generationsApi } from '@/lib/api'
+import { playValidateSound, useDictation } from './useDictation'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { LoadingValue } from '@/components/ui/loading-value'
 import { composer, composerStore, isEmptyDraft } from '@/lib/composer-store'
 import {
   catalogQuery,
@@ -244,7 +254,10 @@ export function Composer({
     clearTimeout(undoTimer.current)
     undoTimer.current = setTimeout(() => setUndoReset(null), 2500)
   }
+  // Dictée en cours (déclarée plus bas) : arrêtée avant de vider, sans rien garder.
+  const stopDictationRef = useRef<() => void>(() => {})
   const resetComposer = () => {
+    stopDictationRef.current()
     setUndoReset(composer.reset(defaultFamily))
     hideUndoLater()
   }
@@ -528,7 +541,128 @@ export function Composer({
     composer.clearAfterSend()
   }
 
+  // ── Dictée ───────────────────────────────────────────────────
+  // Le texte dicté s'insère à la dernière position connue du curseur (sinon à la fin),
+  // en gris tant qu'il n'est pas validé : Entrée (ou le micro) valide, Échap annule.
+  const dictation = useDictation()
+  const caret = useRef<{ start: number; end: number } | null>(null)
+  const dictationBase = useRef<{
+    before: string
+    after: string
+    prompt: string
+  } | null>(null)
+  const rememberCaret = () => {
+    const t = textareaRef.current
+    if (t) caret.current = { start: t.selectionStart, end: t.selectionEnd }
+  }
+  // Morceaux affichés : texte avant, texte dicté (gris), texte après.
+  const dictated = (() => {
+    const base = dictationBase.current
+    if (!base || !dictation.text) return null
+    const lead = base.before && !/\s$/.test(base.before) ? ' ' : ''
+    const tail = base.after && !/^\s/.test(base.after) ? ' ' : ''
+    return {
+      before: base.before,
+      text: `${lead}${dictation.text}${tail}`,
+      after: base.after,
+    }
+  })()
+  useEffect(() => {
+    if (dictation.active && dictated)
+      composer.setPrompt(dictated.before + dictated.text + dictated.after)
+  }, [dictation.text]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startDictation = () => {
+    const prompt = composerStore.state.prompt
+    const at = caret.current ?? { start: prompt.length, end: prompt.length }
+    dictationBase.current = {
+      before: prompt.slice(0, at.start),
+      after: prompt.slice(at.end),
+      prompt,
+    }
+    // Vocabulaire à bien transcrire : personas, jargon de l'app, fournisseurs, modèles.
+    void dictation.start((provider) =>
+      dictationKeyterms(provider, {
+        personas: personas.map((p) => p.name),
+        providers: Object.values(PROVIDERS).map((p) => p.label),
+        models: families.map((f) => f.label),
+      }),
+    )
+  }
+  /** Valide le texte dicté : petit son, fin de l'écoute, curseur juste après. */
+  const validateDictation = () => {
+    const base = dictationBase.current
+    const text = dictation.stop()
+    dictationBase.current = null
+    if (!base || !text.trim()) {
+      if (base) composer.setPrompt(base.prompt)
+      return
+    }
+    const lead = base.before && !/\s$/.test(base.before) ? ' ' : ''
+    const tail = base.after && !/^\s/.test(base.after) ? ' ' : ''
+    const head = base.before + lead + text + tail
+    composer.setPrompt(head + base.after)
+    playValidateSound()
+    caret.current = { start: head.length, end: head.length }
+    requestAnimationFrame(() => {
+      const t = textareaRef.current
+      t?.focus()
+      t?.setSelectionRange(head.length, head.length)
+    })
+  }
+  const cancelDictation = () => {
+    const base = dictationBase.current
+    dictation.cancel()
+    dictationBase.current = null
+    if (base) composer.setPrompt(base.prompt)
+  }
+  stopDictationRef.current = cancelDictation
+
+  const toggleDictation = () =>
+    dictation.active ? validateDictation() : startDictation()
+  // ⌥M (Alt+M) : lancer ou valider la dictée, depuis n'importe où dans l'app.
+  const toggleRef = useRef(toggleDictation)
+  toggleRef.current = toggleDictation
+  // Pendant la dictée, Entrée et Échap lui reviennent, où que soit le focus.
+  const dictationKeys = useRef({
+    active: false,
+    validate: () => {},
+    cancel: () => {},
+  })
+  dictationKeys.current = {
+    active: dictation.active,
+    validate: validateDictation,
+    cancel: cancelDictation,
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const d = dictationKeys.current
+      if (d.active && (e.key === 'Enter' || e.key === 'Escape')) {
+        // Phase de capture : avant le champ, un bouton ou une modale qui aurait le focus.
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.key === 'Enter') d.validate()
+        else d.cancel()
+        return
+      }
+      // Par le caractère (« µ » pour ⌥M sur Mac, « m » ailleurs) : marche en AZERTY
+      // comme en QWERTY, où la touche M n'est pas au même endroit (e.code).
+      const isM =
+        e.key === 'µ' || e.key.toLowerCase() === 'm' || e.code === 'KeyM'
+      if (e.altKey && !e.metaKey && !e.ctrlKey && isM) {
+        e.preventDefault()
+        toggleRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+  // Changement de fil : la dictée en cours est abandonnée.
+  useEffect(() => () => cancelDictation(), [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Pendant la dictée, Entrée et Échap sont pris plus haut (écouteur global).
+    if (dictation.active) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       send()
@@ -739,33 +873,63 @@ export function Composer({
             </div>
           )}
 
-          <textarea
-            ref={textareaRef}
-            value={state.prompt}
-            onChange={(e) => composer.setPrompt(e.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={(e) => {
-              const files = Array.from(e.clipboardData.files)
-              if (files.length) {
-                e.preventDefault()
-                onFiles(files)
-              }
-            }}
-            placeholder={
-              family?.media === 'video'
-                ? 'Décris la scène ou ajoute des références'
-                : 'Décris l’image ou ajoute des références'
-            }
-            className={cn(
-              'field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none',
-              // Place du bouton Réinitialiser quand il est sur la ligne du texte.
-              canReset &&
-                state.attachments.length === 0 &&
-                uploading === 0 &&
-                'pr-14',
+          {/* Pendant la dictée, le texte s'affiche par-dessus le champ : le dicté en gris. */}
+          <div className="relative">
+            {dictated && (
+              <div
+                aria-hidden
+                data-testid="dictation-preview"
+                className={cn(
+                  'pointer-events-none absolute inset-0 overflow-hidden px-4 pt-3.5 pb-2 text-[15px] leading-normal break-words whitespace-pre-wrap',
+                  canReset &&
+                    state.attachments.length === 0 &&
+                    uploading === 0 &&
+                    'pr-14',
+                )}
+              >
+                {dictated.before}
+                <span className="text-muted-foreground/60">
+                  {dictated.text}
+                </span>
+                {dictated.after}
+              </div>
             )}
-            rows={1}
-          />
+            <textarea
+              ref={textareaRef}
+              data-testid="composer-prompt"
+              value={state.prompt}
+              readOnly={dictation.active}
+              onChange={(e) => composer.setPrompt(e.target.value)}
+              onSelect={rememberCaret}
+              onBlur={rememberCaret}
+              onKeyDown={onKeyDown}
+              onPaste={(e) => {
+                const files = Array.from(e.clipboardData.files)
+                if (files.length) {
+                  e.preventDefault()
+                  onFiles(files)
+                }
+              }}
+              // Pendant la dictée, jamais de placeholder : du texte arrive.
+              placeholder={
+                dictation.active
+                  ? ''
+                  : family?.media === 'video'
+                    ? 'Décris la scène ou ajoute des références'
+                    : 'Décris l’image ou ajoute des références'
+              }
+              className={cn(
+                'field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none',
+                dictated && 'text-transparent caret-transparent',
+                // Place du bouton Réinitialiser quand il est sur la ligne du texte.
+                canReset &&
+                  state.attachments.length === 0 &&
+                  uploading === 0 &&
+                  'pr-14',
+              )}
+              rows={1}
+            />
+          </div>
 
           {/* Barre d'outils */}
           <div className="flex items-center gap-2 px-2.5 pb-2.5">
@@ -944,16 +1108,58 @@ export function Composer({
             {/* Générer : prix à gauche du bouton, sans infobulle. */}
             <div className="flex shrink-0 items-center gap-2">
               <span className="text-xs text-foreground/80 tabular-nums">
-                {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                ) : quoteIsCurrent && quote.data ? (
-                  <>≈ {formatUsd(quote.data.estimatedCost)}</>
-                ) : null}
+                {/* Recalcul : l'ancien prix reste, estompé ; trois points au tout premier prix du fil. */}
+                <LoadingValue
+                  key={threadId ?? 'new'}
+                  loading={canQuote && (quote.isFetching || !quoteIsCurrent)}
+                  value={
+                    canQuote && quoteIsCurrent && quote.data
+                      ? `≈ ${formatUsd(quote.data.estimatedCost)}`
+                      : null
+                  }
+                  variant="dots"
+                  keepValue
+                />
               </span>
+              {/* Dictée : à gauche de l'envoi. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={toggleDictation}
+                    aria-label={
+                      dictation.active ? 'Valider la dictée' : 'Dicter'
+                    }
+                    aria-pressed={dictation.active}
+                    className={cn(
+                      'grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+                      dictation.active &&
+                        'bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:text-red-300',
+                    )}
+                  >
+                    {dictation.status === 'connecting' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Mic
+                        className={cn(
+                          'h-4 w-4',
+                          dictation.status === 'listening' && 'animate-pulse',
+                        )}
+                      />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="flex items-center gap-2">
+                  {dictation.active ? 'Entrée valide, Échap annule' : 'Dicter'}
+                  <kbd className="rounded bg-white/10 px-1 font-sans text-[11px]">
+                    ⌥M
+                  </kbd>
+                </TooltipContent>
+              </Tooltip>
               <Button
                 type="button"
                 size="icon"
-                onClick={send}
+                onClick={dictation.active ? validateDictation : send}
                 disabled={!canQuote || extraImages > 0 || create.isPending}
                 variant="primary"
                 className="h-9 w-9 rounded-full brand-gradient hover:opacity-90"

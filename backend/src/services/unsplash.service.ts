@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { HTTPException } from 'hono/http-exception';
-import type { LibraryPhoto, LibrarySearchResponse } from '@ai-fluence/shared';
+import type { LibraryPhoto, LibrarySearchResponse } from '@sublime/shared';
 import { env } from '../env.js';
 import type { SessionUser } from '../types.js';
 import { PER_PAGE, cacheDelete, cacheGet, cacheList, cacheSet, createClient, importImage } from './library.service.js';

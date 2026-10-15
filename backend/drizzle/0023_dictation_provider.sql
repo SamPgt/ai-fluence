@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "dictation_provider" text DEFAULT 'elevenlabs' NOT NULL;

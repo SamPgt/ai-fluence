@@ -3,7 +3,7 @@
  * échec qui bloque la suite, lancement d'un seul nœud, plafond de coût.
  */
 import { describe, expect, it } from 'vitest';
-import type { WorkflowGraph, WorkflowStateResponse } from '@ai-fluence/shared';
+import type { WorkflowGraph, WorkflowStateResponse } from '@sublime/shared';
 import { settle, signup, type Agent } from './helpers.js';
 
 const SEEDREAM = 'bytedance/seedream-5.0-flash';

@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { getFamily, type Balance, type CreditsResponse, type Settings } from '@ai-fluence/shared';
+import { getFamily, type Balance, type CreditsResponse, type Settings } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { generations, userSettings } from '../db/schema.js';
 import { env, expandHome } from '../env.js';
@@ -29,6 +29,12 @@ function toSettings(user: SessionUser, row: SettingsRow): Settings {
     defaultImageFamily: row.defaultImageFamily,
     defaultVideoFamily: row.defaultVideoFamily,
     loras: row.loras,
+    dictationProvider: row.dictationProvider,
+    dictationProviders: [
+      'elevenlabs' as const,
+      ...(env.deepgramApiKey ? (['deepgram'] as const) : []),
+      ...(env.cartesiaApiKey ? (['cartesia'] as const) : []),
+    ],
   };
 }
 
@@ -40,6 +46,7 @@ const updateSchema = z.object({
   defaultVideoFamily: z.string().refine(id => getFamily(id)?.media === 'video', 'Modèle vidéo inconnu.').nullable().optional(),
   /** LoRA de Général (même format et même limite que celles d'un persona). */
   loras: z.array(loraSchema).max(12).optional(),
+  dictationProvider: z.enum(['elevenlabs', 'deepgram', 'cartesia']).optional(),
 });
 
 async function balanceOf(userId: string): Promise<Balance | null> {
@@ -81,6 +88,7 @@ const settingsRoutes = new Hono<AppEnv>()
     if (body.defaultImageFamily !== undefined) patch.defaultImageFamily = body.defaultImageFamily;
     if (body.defaultVideoFamily !== undefined) patch.defaultVideoFamily = body.defaultVideoFamily;
     if (body.loras !== undefined) patch.loras = withIds(body.loras);
+    if (body.dictationProvider !== undefined) patch.dictationProvider = body.dictationProvider;
     const [row] = await db.update(userSettings).set(patch).where(eq(userSettings.userId, user.id)).returning();
     return c.json({ settings: toSettings(user, row) });
   })

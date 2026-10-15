@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Generation, ThreadWorkflowRun } from '@ai-fluence/shared'
+import type { Generation, ThreadWorkflowRun } from '@sublime/shared'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'

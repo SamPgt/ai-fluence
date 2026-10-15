@@ -1,5 +1,6 @@
 ---
 name: write-commit
+model: sonnet
 description: Écrit le message de commit des modifications en cours d'un dépôt Git (une ligne de titre puis des puces Conventional Commits), dans `<racine>/-commits/AAAA-MM-JJ.md`, prêt à copier-coller dans VS Code. À utiliser quand l'utilisateur demande « écris le commit », « prépare le commit », « résume les modifs pour le commit ». Ne commite jamais, ne modifie ni le code ni l'historique.
 ---
 
@@ -49,7 +50,7 @@ feat(scope): résumé de l'ensemble
 
 - **Titre** : la première ligne, sans préfixe (jamais « Titre : ») : le type Conventional Commits le plus représentatif, un scope, et un résumé de tout le commit (`feat(scope): résumé`). Une seule ligne, idéalement moins de 72 caractères. Le fichier se copie-colle tel quel : la première ligne devient le titre du commit.
 - **Ligne vide** entre le titre et les puces.
-- **10 lignes au maximum** pour tout le fichier, titre et ligne vide compris. Une ligne par puce, pas de sous-puces sauf rare exception. Regrouper les petites nouveautés dans une seule puce (`feat : a, b, c`) et les petites corrections aussi (`fix(ui) : a, b, c`). Si ça dépasse encore, garder l'essentiel et fusionner le reste.
+- **10 lignes au maximum** pour tout le fichier, titre et ligne vide compris. Une ligne par puce, pas de sous-puces sauf rare exception. Regrouper les petites nouveautés dans une seule puce (`feat : a, b, c`) et les petites corrections aussi (`fix(ui) : a, b, c`). Si ça dépasse encore, garder l'essentiel et fusionner le reste. Pour un gros lot de modifications, la variante `write-commit-long` autorise 16 lignes.
 - **Puces de premier niveau** : `- type(scope) : description`, avec une espace avant et après les deux-points. Types : `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`, `revert`. Ordre : `feat`, puis `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`.
 - **Détails** : en principe aucun, la puce suffit. Exception rare (changement cassant, migration à appliquer) : une sous-puce indentée de deux espaces (`  - détail`), sans type.
 - **Changement cassant** : `type(scope)! : …` et un détail `BREAKING CHANGE: …` qui explique l'impact.

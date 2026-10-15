@@ -5,7 +5,7 @@ import {
   getFamily,
   type GenerationRequest,
   type PriceChangedResponse,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { ApiError, generationsApi } from '@/lib/api'
 import { qk } from '@/lib/queries'

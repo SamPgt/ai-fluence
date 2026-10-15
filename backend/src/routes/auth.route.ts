@@ -4,7 +4,7 @@ import bcrypt from 'bcrypt';
 import { env } from '../env.js';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { AuthResponse, User } from '@ai-fluence/shared';
+import type { AuthResponse, User } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, users } from '../db/schema.js';
 import { createSession, destroySession, getSessionUser } from '../lib/session.js';

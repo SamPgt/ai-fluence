@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ImageIcon, Loader2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
-import { WORKFLOW_LIMITS, type WorkflowSummary } from '@ai-fluence/shared'
+import { WORKFLOW_LIMITS, type WorkflowSummary } from '@sublime/shared'
 
 import { assetsApi, workflowsApi } from '@/lib/api'
 import { qk } from '@/lib/queries'

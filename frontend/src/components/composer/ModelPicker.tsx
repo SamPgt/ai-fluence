@@ -22,7 +22,7 @@ import {
   type CatalogFamily,
   type MediaKind,
   type ProviderId,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
 import { useUiPref } from '@/components/providers/ui-prefs'

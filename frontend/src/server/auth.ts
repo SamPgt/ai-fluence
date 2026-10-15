@@ -5,7 +5,7 @@
 import { queryOptions } from '@tanstack/react-query'
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import type { User } from '@ai-fluence/shared'
+import type { User } from '@sublime/shared'
 
 export const SESSION_QUERY_KEY = ['session'] as const
 

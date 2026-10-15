@@ -9,7 +9,7 @@ import {
   type Asset,
   type MediaKind,
   type VideoRefMode,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 /** Brouillon du composer : un par fil, plus un pour le nouveau fil. */
 export interface Draft {

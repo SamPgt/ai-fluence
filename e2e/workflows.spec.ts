@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import type { Workflow } from '@ai-fluence/shared'
+import type { Workflow } from '@sublime/shared'
 import { expect, FIXTURE_IMAGE, test } from './helpers'
 
 const cards = (page: Page) => page.getByTestId('workflow-card')

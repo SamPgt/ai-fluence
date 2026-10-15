@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { CONTEXT_BLOCK_STORED_MAX } from '@ai-fluence/shared';
+import { CONTEXT_BLOCK_STORED_MAX } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';

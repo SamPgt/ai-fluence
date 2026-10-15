@@ -9,7 +9,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Image as ImageIcon, ImagePlus, Loader2, Play, Upload, Workflow as WorkflowIcon, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { workflowInputs, type Asset, type WorkflowInput, type WorkflowInputValue } from '@ai-fluence/shared'
+import { workflowInputs, type Asset, type WorkflowInput, type WorkflowInputValue } from '@sublime/shared'
 
 import { assetsApi, workflowsApi } from '@/lib/api'
 import { qk, workflowQuery, workflowsQuery } from '@/lib/queries'

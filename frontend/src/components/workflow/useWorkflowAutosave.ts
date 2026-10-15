@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { WorkflowGraph } from '@ai-fluence/shared'
+import type { WorkflowGraph } from '@sublime/shared'
 
 import { workflowsApi } from '@/lib/api'
 import { qk } from '@/lib/queries'

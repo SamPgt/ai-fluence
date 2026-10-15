@@ -12,7 +12,7 @@ import {
   type Workflow,
   type WorkflowGraph,
   type WorkflowSummary,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, workflows } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';

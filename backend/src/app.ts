@@ -17,6 +17,7 @@ import trashRoutes from './routes/trash.route.js';
 import voicesRoutes from './routes/voices.route.js';
 import libraryRoutes from './routes/library.route.js';
 import workflowsRoutes from './routes/workflows.route.js';
+import dictationRoutes from './routes/dictation.route.js';
 import type { AppEnv } from './types.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,7 +58,8 @@ const app = new Hono<AppEnv>()
   .route('/trash', trashRoutes)
   .route('/voices', voicesRoutes)
   .route('/library', libraryRoutes)
-  .route('/workflows', workflowsRoutes);
+  .route('/workflows', workflowsRoutes)
+  .route('/dictation', dictationRoutes);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {

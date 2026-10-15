@@ -1,4 +1,4 @@
-import type { Asset, Generation, Persona, Thread } from '@ai-fluence/shared';
+import type { Asset, Generation, Persona, Thread } from '@sublime/shared';
 import type { assets, generations, personas, threads } from '../db/schema.js';
 
 type AssetRow = typeof assets.$inferSelect;

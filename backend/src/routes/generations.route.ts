@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import type { PriceChangedResponse } from '@ai-fluence/shared';
+import type { PriceChangedResponse } from '@sublime/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { generations, threads } from '../db/schema.js';

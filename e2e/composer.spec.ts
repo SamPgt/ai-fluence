@@ -469,7 +469,7 @@ test.describe('envoi', () => {
     await page.keyboard.press('Shift+Enter');
     await page.keyboard.type('deuxième ligne');
     await expect(app.prompt).toHaveValue('première ligne\ndeuxième ligne');
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/nouveau$/);
 
     await expect(page.getByRole('button', { name: `Générer pour ${PRICE}` })).toBeEnabled();
     await page.keyboard.press('Enter');
@@ -489,7 +489,7 @@ test.describe('envoi', () => {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(800);
     expect(sent).toBe(false);
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/nouveau$/);
   });
 
   test('la génération apparaît dans le fil avec le modèle et le logo du fournisseur', async ({
@@ -555,7 +555,7 @@ test.describe('sans clé API', () => {
     const removed = await page.request.delete('/api/settings/api-key');
     expect(removed.ok()).toBeTruthy();
     try {
-      await page.goto('/');
+      await page.goto('/nouveau');
       const banner = page.getByRole('link', {
         name: /Ajoute ta clé API SpicyAPI pour commencer à générer/,
       });

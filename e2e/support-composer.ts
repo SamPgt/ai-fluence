@@ -3,7 +3,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { expect, type Locator, type Page } from '@playwright/test'
-import type { PromptPreset } from '@ai-fluence/shared'
+import type { PromptPreset } from '@sublime/shared'
 import { FIXTURE_IMAGE } from './helpers'
 
 export { formatUsd } from '../frontend/src/lib/format'

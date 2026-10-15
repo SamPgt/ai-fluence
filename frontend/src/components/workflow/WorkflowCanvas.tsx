@@ -32,7 +32,7 @@ import {
   type Connection,
   type WorkflowGraph,
   type WorkflowNodeType,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { NODE_ICONS, PORT_COLORS } from './NodeShell'
 import { NODE_DND_TYPE, useAddNode } from './NodePalette'

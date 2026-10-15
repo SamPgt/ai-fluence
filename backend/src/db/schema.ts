@@ -10,7 +10,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind, WorkflowGraph, WorkflowNodeStatus, WorkflowRunInput, WorkflowRunStatus } from '@ai-fluence/shared';
+import type { DictationProvider, GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind, WorkflowGraph, WorkflowNodeStatus, WorkflowRunInput, WorkflowRunStatus } from '@sublime/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -59,6 +59,8 @@ export const userSettings = pgTable('user_settings', {
   defaultVideoFamily: text('default_video_family'),
   /** LoRA de Général (rangés dans aucun persona). */
   loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
+  /** Fournisseur de la dictée du composer. */
+  dictationProvider: text('dictation_provider').$type<DictationProvider>().notNull().default('elevenlabs'),
   updatedAt: updatedAt(),
 });
 

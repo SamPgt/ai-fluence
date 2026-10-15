@@ -1,5 +1,5 @@
 /** Choix d'un modèle par défaut (photo ou vidéo) ; vide = celui de l'app. */
-import { APP_DEFAULT_FAMILY, getFamily, type MediaKind } from '@ai-fluence/shared'
+import { APP_DEFAULT_FAMILY, getFamily, type MediaKind } from '@sublime/shared'
 
 import { ModelField } from '@/components/composer/ModelField'
 import { Label } from '@/components/ui/label'
@@ -22,6 +22,7 @@ export function DefaultFamily({
         value={value}
         onChange={onChange}
         emptyLabel={auto ? `Automatique (${auto})` : 'Automatique'}
+        fallbackId={APP_DEFAULT_FAMILY[media]}
       />
     </div>
   )

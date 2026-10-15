@@ -6,7 +6,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Plus, SquarePen, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { MediaKind, PromptPreset } from '@ai-fluence/shared'
+import type { MediaKind, PromptPreset } from '@sublime/shared'
 
 import { presetsApi } from '@/lib/api'
 import { presetsQuery, qk } from '@/lib/queries'
@@ -40,7 +40,7 @@ function toMedia(photo: boolean, video: boolean): Media {
 }
 
 /** Modale de création et de modification d'un raccourci. */
-function ShortcutDialog({
+export function ShortcutDialog({
   open,
   shortcut,
   onOpenChange,

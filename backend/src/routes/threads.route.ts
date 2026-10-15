@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { SearchResult, ThreadDetailResponse } from '@ai-fluence/shared';
+import type { SearchResult, ThreadDetailResponse } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';

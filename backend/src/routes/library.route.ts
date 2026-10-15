@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import type { LibrarySource, LibraryStatus } from '@ai-fluence/shared';
+import type { LibrarySource, LibraryStatus } from '@sublime/shared';
 import { auth } from '../middleware/auth.js';
 import { importPexels, pexelsEnabled, searchPexels } from '../services/pexels.service.js';
 import { toAsset } from '../services/serialize.js';

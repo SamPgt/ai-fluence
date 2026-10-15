@@ -17,30 +17,33 @@ test('accueil : reprendre un fil, voir les dernières images, lancer un workflow
     },
   })
 
-  await page.goto('/')
+  await page.goto('/nouveau')
   await page.getByTestId('thread-panel').getByRole('link', { name: 'Accueil', exact: true }).click()
-  await expect(page).toHaveURL(/\/accueil$/)
+  await expect(page).toHaveURL(/:\d+\/$/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^(Bonjour|Bonsoir) E2E$/)
-  await expect(page.getByText('2 fils cette semaine')).toBeVisible()
+  await expect(page.getByText('Fils cette semaine').locator('..')).toContainText('2')
+  await expect(page.getByText('Générations', { exact: true }).locator('..')).toContainText('4')
   // Le fil le plus récent d'abord, avec ses images.
   const cards = page.getByTestId('home-thread')
   await expect(cards).toHaveCount(2)
   await expect(cards.first()).toContainText('variantes de la tour')
-  await expect(cards.nth(1).locator('img')).toHaveCount(3)
+  // Le premier fil en mosaïque (une seule image ici, deux cases vides), les suivants avec leur dernière image.
+  await expect(cards.first().locator('img')).toHaveCount(1)
+  await expect(cards.nth(1).locator('img')).toHaveCount(1)
   await expect(page.getByRole('img', { name: 'design nature' })).toHaveCount(3)
 
   // ▶ : un fil vierge avec le formulaire du workflow.
   await page.getByTestId('home-workflow').click()
-  await expect(page).toHaveURL(new RegExp(`\\?workflow=${w.id}`))
+  await expect(page).toHaveURL(new RegExp(`/nouveau\\?workflow=${w.id}`))
   await expect(page.getByTestId('workflow-form')).toContainText('Sticker')
 
-  await page.goto('/accueil')
+  await page.goto('/')
   await cards.nth(1).click()
   await expect(page).toHaveURL(new RegExp(`/t/${thread.id}`))
 })
 
 test('accueil d’un compte neuf : les premiers pas à la place des fils', async ({ page }) => {
-  await page.goto('/accueil')
+  await page.goto('/')
   await expect(page.getByText('Premiers pas')).toBeVisible()
   await expect(page.getByTestId('home-thread')).toHaveCount(0)
   await page.getByRole('link', { name: 'Bibliothèque' }).last().click()

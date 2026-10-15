@@ -310,3 +310,15 @@ code {
   color: inherit;
   text-align: left;
 }
+
+/* Trois points de chargement (LoadingValue, variante « dots ») : chacun s'allume à son tour. */
+@keyframes loading-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 0.9;
+  }
+}
