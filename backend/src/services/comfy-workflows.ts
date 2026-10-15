@@ -257,6 +257,8 @@ export const LTX_FILES: LocalEndpoint['requires'] = {
   audioVae: { loader: 'VAELoader', input: 'vae_name', match: /ltx-2\.3.*audio_vae/i },
   // Mouvement repris d'une vidéo (facultatif) : LoRA in-context de Lightricks (pose, profondeur, contours).
   icLora: { loader: 'LoraLoaderModelOnly', input: 'lora_name', match: /ltx-2\.3.*ic-lora-union-control/i, optional: true },
+  // Deux passes (facultatif) : agrandisseur ×2 du latent, de Lightricks.
+  upscaler: { loader: 'LatentUpscaleModelLoader', input: 'model_name', match: /ltx-2\.3.*spatial-upscaler-x2/i, optional: true },
 };
 
 export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpoint>>> = {
@@ -415,6 +417,13 @@ export const LOCAL_ENDPOINTS: Record<string, Partial<Record<TaskKind, LocalEndpo
           mouvement: { type: 'object', description: 'Vidéo dont LTX reprend les mouvements (squelettes).' },
           /** Expressivité du « Texte dit » pour cette vidéo (0,2 calme → 1,2 très expressive) ; sinon celle de la voix. */
           speech_exaggeration: { type: 'number', minimum: 0.2, maximum: 1.2 },
+          deux_passes: {
+            type: 'boolean',
+            default: false,
+            description:
+              'Méthode officielle de Lightricks : mouvement calculé en demi-définition, puis agrandi et fini en pleine ' +
+              'définition (3 étapes). Plus stable, souvent pas plus long. Vidéo en un seul plan (9 s en 720p, 15 s en 512p).',
+          },
           duration_seconds: {
             type: 'integer',
             enum: [5, 10, 15, 20, 30, 45, 60],

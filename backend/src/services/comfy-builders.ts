@@ -552,6 +552,15 @@ const LTX_END_STRENGTH = 0.9;
 /** Images de recouvrement entre deux clips (8k + 1, ~0,7 s). */
 const LTX_OVERLAP = 17;
 
+/**
+ * Deux passes (méthode officielle de Lightricks, modèle « video_ltx2_3_i2v » de ComfyUI) : le mouvement est calculé en
+ * demi-définition (8 étapes), le latent agrandi ×2 par l'agrandisseur de LTX, puis 3 étapes de finition en pleine
+ * définition, l'image de départ reposée à pleine force. Sigmas de la finition repris du modèle officiel.
+ */
+const LTX_REFINE_SIGMAS = '0.85, 0.7250, 0.4219, 0.0';
+/** Force de l'image de départ dans la passe en demi-définition (0,7 dans le modèle officiel : plus de mouvement). */
+const LTX_TWO_PASS_FIRST_STRENGTH = 0.7;
+
 /** Plus petit nombre d'images LTX (8k + 1) qui couvre `frames`. */
 const ceil8k1 = (frames: number) => Math.max(1, Math.ceil((frames - 1) / 8)) * 8 + 1;
 
@@ -574,12 +583,15 @@ export function ltxPlan(seconds: number, resolution: string, cover = false) {
   return { clips, clipFrames, overlap: LTX_OVERLAP, frames: clipFrames + (clips - 1) * (clipFrames - LTX_OVERLAP) };
 }
 
-/** Taille LTX : le petit côté à 512 ou 704 px, les proportions de l'image de départ, multiples de 32. */
-function ltxSize(image: { width: number; height: number } | null, resolution: string) {
+/**
+ * Taille LTX : le petit côté à 512 ou 704 px, les proportions de l'image de départ, multiples de 32 (de 64 en deux
+ * passes : la demi-taille doit rester multiple de 32).
+ */
+function ltxSize(image: { width: number; height: number } | null, resolution: string, step = 32) {
   const short = resolution === '720p' ? 704 : 512;
   const ratio = image ? image.width / image.height : 9 / 16;
-  const round32 = (n: number) => Math.max(32, Math.round(n / 32) * 32);
-  return ratio >= 1 ? { width: round32(short * ratio), height: short } : { width: short, height: round32(short / ratio) };
+  const round = (n: number) => Math.max(step, Math.round(n / step) * step);
+  return ratio >= 1 ? { width: round(short * ratio), height: short } : { width: short, height: round(short / ratio) };
 }
 
 /**
@@ -605,8 +617,12 @@ export function ltxPassages(prompt: string, clips: number): string[] {
  */
 export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opts: { saveAudio?: boolean } = {}): Graph {
   const resolution = String(values.resolution ?? '512p');
-  const size = ltxSize(ctx.imageSizes[0] ?? null, resolution);
   const plan = ctx.audio ? ltxPlan(ctx.audio.seconds, resolution, true) : ltxPlan(num(values.duration_seconds, 5), resolution);
+  // Deux passes : seulement en un plan, et si l'agrandisseur est installé.
+  const twoPass = values.deux_passes === true && plan.clips === 1 && Boolean(ctx.files.upscaler);
+  const full = ltxSize(ctx.imageSizes[0] ?? null, resolution, twoPass ? 64 : 32);
+  // Taille de la (première) passe : la moitié en deux passes.
+  const size = twoPass ? { width: full.width / 2, height: full.height / 2 } : full;
   const passages = ltxPassages(String(values.prompt ?? ''), plan.clips);
   const seed = seedOf(values.seed);
   const L = plan.clipFrames;
@@ -698,7 +714,7 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
     if (c === 0) {
       g[`${p}img`] = {
         class_type: 'LTXVImgToVideoInplace',
-        inputs: { vae: ['3', 0], image: ['7', 0], latent: [`${p}lat`, 0], strength: 1, bypass: false },
+        inputs: { vae: ['3', 0], image: ['7', 0], latent: [`${p}lat`, 0], strength: twoPass ? LTX_TWO_PASS_FIRST_STRENGTH : 1, bypass: false },
       };
       video = [`${p}img`, 0];
       if (ctx.motion) {
@@ -756,6 +772,30 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
       // Retire les images des guides (fin du clip précédent, image de fin) ajoutées au latent.
       g[`${p}crop`] = { class_type: 'LTXVCropGuides', inputs: { positive, negative, latent: [`${p}sep`, 0] } };
       samples = [`${p}crop`, 2];
+      positive = [`${p}crop`, 0];
+      negative = [`${p}crop`, 1];
+    }
+    let audioLatent: [string, number] = [`${p}sep`, 1];
+    if (twoPass) {
+      // Finition en pleine définition : latent agrandi, image de départ reposée, 3 étapes (vidéo et son ensemble).
+      Object.assign(g, {
+        r1: { class_type: 'LatentUpscaleModelLoader', inputs: { model_name: ctx.files.upscaler } },
+        r2: { class_type: 'LTXVLatentUpsampler', inputs: { samples, upscale_model: ['r1', 0], vae: ['3', 0] } },
+        r3: { class_type: 'ImageScale', inputs: { image: ['5', 0], upscale_method: 'lanczos', ...full, crop: 'center' } },
+        r4: { class_type: 'LTXVPreprocess', inputs: { image: ['r3', 0], img_compression: 18 } },
+        r5: { class_type: 'LTXVImgToVideoInplace', inputs: { vae: ['3', 0], image: ['r4', 0], latent: ['r2', 0], strength: 1, bypass: false } },
+        r6: { class_type: 'LTXVConcatAVLatent', inputs: { video_latent: ['r5', 0], audio_latent: audioLatent } },
+        r7: { class_type: 'ManualSigmas', inputs: { sigmas: LTX_REFINE_SIGMAS } },
+        r8: { class_type: 'RandomNoise', inputs: { noise_seed: (seed + 1000) % 2 ** 31 } },
+        r9: { class_type: 'CFGGuider', inputs: { model, positive, negative, cfg: 1 } },
+        r10: {
+          class_type: 'SamplerCustomAdvanced',
+          inputs: { noise: ['r8', 0], guider: ['r9', 0], sampler: ['16', 0], sigmas: ['r7', 0], latent_image: ['r6', 0] },
+        },
+        r11: { class_type: 'LTXVSeparateAVLatent', inputs: { av_latent: ['r10', 0] } },
+      });
+      samples = ['r11', 0];
+      audioLatent = ['r11', 1];
     }
     g[`${p}dec`] = {
       class_type: 'VAEDecodeTiled',
@@ -771,7 +811,7 @@ export function buildLtx(values: Record<string, unknown>, ctx: BuildContext, opt
       images = [`${p}cat`, 0];
     }
     if (!ctx.audio) {
-      g[`${p}adec`] = { class_type: 'LTXVAudioVAEDecode', inputs: { samples: [`${p}sep`, 1], audio_vae: ['4', 0] } };
+      g[`${p}adec`] = { class_type: 'LTXVAudioVAEDecode', inputs: { samples: audioLatent, audio_vae: ['4', 0] } };
       if (c === 0) {
         audio = [`${p}adec`, 0];
       } else {

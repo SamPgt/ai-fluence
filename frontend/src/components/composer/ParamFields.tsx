@@ -80,6 +80,7 @@ export function formatOption(key: string, v: unknown): string {
   if (key === 'retouch') return 'Retouche au pinceau'
   if (key === 'autofix') return 'Correction auto'
   if (key === 'mouvement') return 'Mouvement repris'
+  if (key === 'deux_passes') return v ? 'Deux passes' : 'Une passe'
   if (key === 'rendu_telephone') return v ? 'Rendu téléphone' : 'Rendu net'
   if (key === 'correction_auto') return v ? 'Correction auto' : 'Sans correction'
   // Fichiers ComfyUI (modèles, LoRA) : sans l'extension.
