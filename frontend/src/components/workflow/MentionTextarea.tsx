@@ -1,7 +1,7 @@
 /**
- * Champ de texte d'un nœud, avec mentions d'images : « @image2 » s'affiche en bleu quand
- * le nœud de génération relié reçoit bien une image 2 (en rouge sinon), et taper « @ »
- * propose les images reçues. Le texte coloré est dessiné sous un champ transparent,
+ * Champ de texte d'un nœud, avec mentions d'images et de listes : « @image2 » s'affiche en
+ * bleu quand le nœud de génération relié reçoit bien une image 2, « @liste1 » en orange
+ * quand il reçoit une liste 1 (en rouge sinon), et taper « @ » propose ce qu'il reçoit. Le texte coloré est dessiné sous un champ transparent,
  * aux mêmes dimensions (un champ de saisie ne peut pas colorer une partie de son texte).
  */
 import { Fragment, useLayoutEffect, useRef, useState } from 'react'
@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils'
 import { useDraft } from './useDraft'
 
 export interface MentionOption {
+  /** Image (par défaut) ou liste (« @liste1 »). */
+  kind?: 'image' | 'list'
   n: number
   label: string
   /** Image d'une entrée « À fournir » : connue seulement au lancement (affichée en jaune). */
@@ -19,13 +21,16 @@ export interface MentionOption {
 /** Couleur d'une mention : image présente (bleu), fournie au lancement (jaune), inexistante (rouge). */
 const MENTION_CLASS = {
   known: 'text-sky-400',
+  list: 'text-orange-400',
   pending: 'text-amber-300',
   unknown: 'text-red-400 underline decoration-dotted underline-offset-2',
 } as const
 
-const TOKEN = /(@image\d+)/gi
+const TOKEN = /(@(?:image|liste)\d+)/gi
 /** « @ » puis le début d'une mention, juste avant le curseur. */
-const TYPING = /@(i(m(a(g(e\d*)?)?)?)?)?$/i
+const TYPING = /@([a-z]{0,5}\d*)$/i
+
+const word = (o: MentionOption) => `${o.kind === 'list' ? 'liste' : 'image'}${o.n}`
 
 /** Mêmes dimensions de texte pour le champ et le texte coloré dessous. */
 const TEXT = 'px-2.5 py-2 text-[13px] leading-snug whitespace-pre-wrap break-words border border-transparent'
@@ -64,7 +69,7 @@ export function MentionTextarea({
   }, [value])
 
   const matches = menu
-    ? (options ?? []).filter((o) => `image${o.n}`.startsWith(menu.query.toLowerCase()))
+    ? (options ?? []).filter((o) => word(o).startsWith(menu.query.toLowerCase()))
     : []
 
   const detect = (text: string, caret: number) => {
@@ -79,7 +84,7 @@ export function MentionTextarea({
     const el = ref.current
     if (!el || !menu) return
     const caret = el.selectionStart
-    const mention = `@image${o.n} `
+    const mention = `@${word(o)} `
     const next = value.slice(0, menu.start) + mention + value.slice(caret)
     pendingCaret.current = menu.start + mention.length
     onChange(next)
@@ -87,9 +92,10 @@ export function MentionTextarea({
   }
 
   const stateOf = (token: string): keyof typeof MENTION_CLASS => {
-    const n = Number(token.slice('@image'.length))
-    const option = options?.find((o) => o.n === n)
-    return !option ? 'unknown' : option.pending ? 'pending' : 'known'
+    const list = token.toLowerCase().startsWith('@liste')
+    const n = Number(token.slice(list ? '@liste'.length : '@image'.length))
+    const option = options?.find((o) => o.n === n && (o.kind === 'list') === list)
+    return !option ? 'unknown' : list ? 'list' : option.pending ? 'pending' : 'known'
   }
 
   return (
@@ -153,12 +159,12 @@ export function MentionTextarea({
       {menu && matches.length > 0 && (
         <div
           role="listbox"
-          aria-label="Images à citer"
+          aria-label="Images et listes à citer"
           className="absolute top-full left-0 z-20 mt-1 w-full rounded-lg border border-border/60 bg-popover p-1 shadow-lg"
         >
           {matches.map((o, i) => (
             <button
-              key={o.n}
+              key={word(o)}
               type="button"
               role="option"
               aria-selected={i === active}
@@ -171,7 +177,9 @@ export function MentionTextarea({
                 i === active ? 'bg-accent' : 'hover:bg-accent/60',
               )}
             >
-              <span className={o.pending ? 'text-amber-300' : 'text-sky-400'}>@image{o.n}</span>
+              <span className={o.kind === 'list' ? 'text-orange-400' : o.pending ? 'text-amber-300' : 'text-sky-400'}>
+                @{word(o)}
+              </span>
               <span className="truncate text-xs text-muted-foreground">{o.label}</span>
             </button>
           ))}

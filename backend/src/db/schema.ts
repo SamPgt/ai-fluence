@@ -10,7 +10,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { DictationProvider, GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind, WorkflowGraph, WorkflowNodeStatus, WorkflowRunInput, WorkflowRunStatus } from '@sublime/shared';
+import type { DictationProvider, GenerationContext, GenerationLora, PersonaContextBlock, PersonaKind, PersonaLora, PersonaVoice, TaskKind, WorkflowGraph, WorkflowNodeStatus, WorkflowRunInput, WorkflowRunStatus, WorkflowStoredItem } from '@sublime/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
@@ -294,6 +294,8 @@ export const workflowNodeResults = pgTable(
     status: text('status').$type<WorkflowNodeStatus>().notNull().default('pending'),
     generationId: uuid('generation_id').references(() => generations.id, { onDelete: 'set null' }),
     text: text('text'),
+    /** Nœud qui a reçu une liste : un résultat par élément (le lot). Null sinon. */
+    items: jsonb('items').$type<WorkflowStoredItem[]>(),
     cost: text('cost'),
     errorMessage: text('error_message'),
     createdAt: createdAt(),

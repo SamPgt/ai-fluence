@@ -265,6 +265,46 @@ export interface CivitaiSearchResponse {
   nextCursor: string | null;
 }
 
+/** Pack de wildcards Civitai (une archive de listes). */
+export interface CivitaiWildcard {
+  /** Version téléchargée (la plus récente). */
+  versionId: number;
+  modelId: number;
+  name: string;
+  creator: string | null;
+  downloads: number;
+  sizeKB: number;
+}
+
+export interface CivitaiWildcardSearchResponse {
+  items: CivitaiWildcard[];
+  nextCursor: string | null;
+}
+
+/** Une liste d'un pack de wildcards : `total` éléments, dont `items` gardés (2000 au plus). */
+export interface WildcardList {
+  name: string;
+  total: number;
+  items: string[];
+  /** `tags` : écrite pour Stable Diffusion (suites de tags) ; une reformulation est proposée. */
+  format: 'tags' | 'text';
+}
+
+/** Reformulation d'éléments de liste en phrases (modèle de texte, payant). */
+export interface ListRewriteQuoteResponse {
+  count: number;
+  estimatedCost: string;
+}
+
+export interface ListRewriteResponse {
+  items: string[];
+  cost: string | null;
+}
+
+export interface CivitaiWildcardListsResponse {
+  lists: WildcardList[];
+}
+
 // ── Librairies de photos libres de droits (Unsplash, Pexels) ──
 
 export type LibrarySource = 'unsplash' | 'pexels';
@@ -619,7 +659,31 @@ export interface WorkflowRun {
   completedAt: string | null;
 }
 
-/** Résultat d'un nœud lors d'une exécution. */
+/** Un élément d'un lot, tel qu'enregistré (colonne `items`). */
+export interface WorkflowStoredItem {
+  /** Élément de la liste de départ (« robe rouge »). */
+  label: string;
+  status: WorkflowNodeStatus;
+  generationId?: string | null;
+  text?: string | null;
+  cost?: string | null;
+  errorMessage?: string | null;
+}
+
+/** Un élément d'un lot, avec sa génération. */
+export interface WorkflowResultItem {
+  label: string;
+  status: WorkflowNodeStatus;
+  generation: Generation | null;
+  text: string | null;
+  cost: string | null;
+  errorMessage: string | null;
+}
+
+/**
+ * Résultat d'un nœud lors d'une exécution : un lot. Une image (ou un texte), ou, pour un
+ * nœud qui a reçu une liste, un élément par passe (`items`).
+ */
 export interface WorkflowNodeResult {
   id: string;
   runId: string;
@@ -629,6 +693,8 @@ export interface WorkflowNodeResult {
   generation: Generation | null;
   /** Texte produit (nœuds de texte). */
   text: string | null;
+  /** Lot d'une liste : un élément par passe, dans l'ordre de la liste. Null hors liste. */
+  items: WorkflowResultItem[] | null;
   cost: string | null;
   errorMessage: string | null;
   createdAt: string;
@@ -688,5 +754,12 @@ export interface ThreadWorkflowRun {
 export interface WorkflowQuoteResponse {
   estimatedCost: string;
   /** Tâche de chaque étape : génération (`text-to-image`…) ou modèle de texte (`text`). */
-  nodes: { nodeId: string; task: TaskKind | 'text'; estimatedCost: string }[];
+  nodes: {
+    nodeId: string;
+    task: TaskKind | 'text';
+    /** Prix de l'étape : celui d'une passe × `count`. */
+    estimatedCost: string;
+    /** Nombre de passes : une par élément de la liste reçue, sinon 1. */
+    count: number;
+  }[];
 }

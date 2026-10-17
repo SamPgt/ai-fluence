@@ -19,9 +19,14 @@ import {
   threadUsableError,
   workflowInputs,
   runOrder,
-  staticOutput,
   textPlan,
+  expectedListSize,
+  fanOut,
+  LIST_LIMITS,
+  valueResolver,
+  type FanItem,
   type Generation,
+  type ListItem,
   type PortValue,
   type WorkflowGraph,
   type WorkflowNodeResult,
@@ -32,6 +37,7 @@ import {
   type WorkflowRunStartResponse,
   type ThreadWorkflowRun,
   type WorkflowStateResponse,
+  type WorkflowStoredItem,
 } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, generations, personas, threads, users, workflowNodeResults, workflowRuns, workflows } from '../db/schema.js';
@@ -73,6 +79,32 @@ function assertValidGraph(graph: WorkflowGraph) {
   if (errors.length) throw new HTTPException(400, { message: errors[0] });
 }
 
+/** Générations d'un résultat : la sienne, ou celles des éléments du lot (réussis seulement si `succeeded`). */
+const generationIdsOf = (r: ResultRow, succeeded = false): string[] =>
+  [r.generationId, ...(r.items ?? []).filter(i => !succeeded || i.status === 'succeeded').map(i => i.generationId)].filter(
+    (id): id is string => Boolean(id),
+  );
+
+/** Médias de ces générations, dans l'ordre de création. */
+async function assetsByGeneration(generationIds: string[]): Promise<(generationId: string) => string[]> {
+  const rows = generationIds.length
+    ? await db
+        .select({ id: assets.id, generationId: assets.generationId })
+        .from(assets)
+        .where(inArray(assets.generationId, generationIds))
+        .orderBy(assets.createdAt)
+    : [];
+  return generationId => rows.filter(a => a.generationId === generationId).map(a => a.id);
+}
+
+/** Valeur de sortie d'un résultat : son texte ou ses images, ou la liste des éléments réussis du lot. */
+function resultValue(r: ResultRow, assetsOf: (generationId: string) => string[]): PortValue {
+  const one = (text: string | null | undefined, generationId: string | null | undefined): Omit<ListItem, 'label'> =>
+    text != null ? { text } : { assetIds: generationId ? assetsOf(generationId) : [] };
+  if (r.items) return { items: r.items.filter(i => i.status === 'succeeded').map(i => ({ label: i.label, ...one(i.text, i.generationId) })) };
+  return one(r.text, r.generationId);
+}
+
 /**
  * Résultat actif d'un nœud : celui choisi dans le nœud (`activeResultId`), sinon le
  * dernier réussi. Ses médias servent d'entrée aux nœuds suivants.
@@ -81,9 +113,8 @@ async function activeOutputs(workflowId: string, graph: WorkflowGraph, nodeIds: 
   const out = new Map<string, PortValue>();
   if (!nodeIds.length) return out;
   const rows = await db
-    .select({ r: workflowNodeResults, assetId: assets.id })
+    .select()
     .from(workflowNodeResults)
-    .leftJoin(assets, eq(assets.generationId, workflowNodeResults.generationId))
     .where(
       and(
         eq(workflowNodeResults.workflowId, workflowId),
@@ -91,19 +122,15 @@ async function activeOutputs(workflowId: string, graph: WorkflowGraph, nodeIds: 
         eq(workflowNodeResults.status, 'succeeded'),
       ),
     )
-    .orderBy(desc(workflowNodeResults.createdAt), assets.createdAt);
-  const byResult = new Map<string, { r: ResultRow; assetIds: string[] }>();
-  for (const { r, assetId } of rows) {
-    const entry = byResult.get(r.id) ?? { r, assetIds: [] };
-    if (assetId) entry.assetIds.push(assetId);
-    byResult.set(r.id, entry);
-  }
-  for (const nodeId of nodeIds) {
+    .orderBy(desc(workflowNodeResults.createdAt));
+  const picks = nodeIds.flatMap(nodeId => {
     const chosen = graph.nodes.find(n => n.id === nodeId)?.data.activeResultId;
-    const list = [...byResult.values()].filter(e => e.r.nodeId === nodeId);
-    const pick = list.find(e => e.r.id === chosen) ?? list[0];
-    if (pick) out.set(nodeId, pick.r.text !== null ? { text: pick.r.text } : { assetIds: pick.assetIds });
-  }
+    const list = rows.filter(r => r.nodeId === nodeId);
+    const pick = list.find(r => r.id === chosen) ?? list[0];
+    return pick ? [pick] : [];
+  });
+  const assetsOf = await assetsByGeneration(picks.flatMap(r => generationIdsOf(r, true)));
+  for (const r of picks) out.set(r.nodeId, resultValue(r, assetsOf));
   return out;
 }
 
@@ -151,26 +178,40 @@ export async function quoteRun(user: SessionUser, workflowId: string, graph: Wor
   }
   // Étapes pas encore produites : chiffrées avec une image de remplacement (le prix dépend
   // du modèle et des réglages, pas du contenu de l'image).
+  // Une étape qui produira une liste compte pour le nombre d'éléments attendu.
   const stand = await standInImage(user.id);
   const pending: PortValue = { assetIds: [stand], text: 'prompt' };
-  const valueOf = (id: string, port: string) =>
-    staticOutput(graph.nodes.find(n => n.id === id)!, port) ?? known.get(id) ?? (order.includes(id) ? pending : null);
+  const pendingFor = (id: string): PortValue => {
+    const size = expectedListSize(graph, id);
+    return size === null ? pending : { items: Array.from({ length: size }, () => ({ label: 'élément', ...pending })) };
+  };
+  const standIn = (id: string) => !known.has(id) && order.includes(id);
+  const valueOf = valueResolver(graph, id => known.get(id) ?? (standIn(id) ? pendingFor(id) : null), { standIn });
 
   const nodes: WorkflowQuoteResponse['nodes'] = [];
   for (const nodeId of order) {
+    const fail = (reason: string) => new HTTPException(400, { message: `« ${label(graph, nodeId)} » : ${reason}` });
+    // Une passe chiffrée, multipliée par le nombre d'éléments de la liste reçue.
+    const fan = fanOut(graph, nodeId, valueOf);
+    if (!fan) throw fail('Une étape précédente n’a pas encore de résultat.');
+    if (!fan.items.length) throw fail('la liste est vide.');
+    if (fan.items.length > LIST_LIMITS.max) throw fail(`${fan.items.length} éléments actifs, ${LIST_LIMITS.max} au plus.`);
+    const first = fan.items[0].valueOf;
+    const count = fan.items.length;
+    const times = (cost: string) => String(Number((Number(cost) * count).toFixed(6)));
     if (isTextNode(graph, nodeId)) {
-      const t = textPlan(graph, nodeId, valueOf);
-      if (!t.ok) throw new HTTPException(400, { message: `« ${label(graph, nodeId)} » : ${t.reason}` });
-      nodes.push({ nodeId, task: 'text', estimatedCost: await estimateChat(user.id, { ...t.plan, system: SYSTEM_PROMPTS[t.plan.kind] }) });
+      const t = textPlan(graph, nodeId, first);
+      if (!t.ok) throw fail(t.reason);
+      const one = await estimateChat(user.id, { ...t.plan, system: SYSTEM_PROMPTS[t.plan.kind] });
+      nodes.push({ nodeId, task: 'text', estimatedCost: times(one), count });
       continue;
     }
-    const r = generationPlan(graph, nodeId, valueOf);
-    if (!r.ok) throw new HTTPException(400, { message: `« ${label(graph, nodeId)} » : ${r.reason}` });
+    const r = generationPlan(graph, nodeId, first);
+    if (!r.ok) throw fail(r.reason);
     const q = await quoteWorkflowGeneration(user, { ...r.plan, threadId: null }).catch((err: unknown) => {
-      const message = err instanceof HTTPException ? err.message : 'devis impossible.';
-      throw new HTTPException(400, { message: `« ${label(graph, nodeId)} » : ${message}` });
+      throw fail(err instanceof HTTPException ? err.message : 'devis impossible.');
     });
-    nodes.push({ nodeId, task: q.task, estimatedCost: q.estimatedCost });
+    nodes.push({ nodeId, task: q.task, estimatedCost: times(q.estimatedCost), count });
   }
   const total = nodes.reduce((s, n) => s + Number(n.estimatedCost), 0);
   return { estimatedCost: String(Number(total.toFixed(6))), nodes };
@@ -302,8 +343,7 @@ export async function executeRun(runId: string): Promise<void> {
   const outputs = await activeOutputs(run.workflowId, graph, outsideSources(graph, run.nodeIds));
   const cap = Number(run.estimatedCost ?? 0) * COST_MARGIN;
   let spent = 0;
-  const valueOf = (id: string, port: string) =>
-    staticOutput(graph.nodes.find(n => n.id === id)!, port) ?? outputs.get(id) ?? null;
+  const valueOf = valueResolver(graph, id => outputs.get(id));
 
   const assetIdsOf = async (generationId: string) =>
     (await db.select({ id: assets.id }).from(assets).where(eq(assets.generationId, generationId)).orderBy(assets.createdAt)).map(
@@ -339,7 +379,117 @@ export async function executeRun(runId: string): Promise<void> {
     }
   }
 
+  /**
+   * Nœud qui reçoit une liste : une passe par élément, toutes dans le même résultat (le lot).
+   * Les demandes partent une à une (le plafond de coût reste juste), puis s'exécutent
+   * ensemble. Le lot réussit si au moins un élément réussit ; les autres sont écartés.
+   */
+  async function runListNode(nodeId: string, fan: FanItem[]) {
+    const result = results.get(nodeId)!;
+    const text = isTextNode(graph, nodeId);
+    // Reprise après un redémarrage : les éléments déjà lancés gardent leur génération.
+    const items: WorkflowStoredItem[] =
+      result.items?.length === fan.length ? result.items.map(i => ({ ...i })) : fan.map(f => ({ label: f.label, status: 'pending' }));
+    let saving = Promise.resolve();
+    const save = () => {
+      const snapshot = items.map(i => ({ ...i }));
+      saving = saving.then(async () => {
+        await db.update(workflowNodeResults).set({ items: snapshot }).where(eq(workflowNodeResults.id, result.id));
+      });
+      return saving;
+    };
+    let gate: Promise<unknown> = Promise.resolve();
+    const oneAtATime = <T>(fn: () => Promise<T>): Promise<T> => {
+      const p = gate.then(fn);
+      gate = p.catch(() => {});
+      return p;
+    };
+    await db.update(workflowNodeResults).set({ status: 'running', items }).where(eq(workflowNodeResults.id, result.id));
+
+    await Promise.all(
+      fan.map(async (f, i) => {
+        const item = items[i];
+        if (['succeeded', 'failed', 'skipped'].includes(item.status)) return;
+        try {
+          if (text) {
+            const started = await oneAtATime(async () => {
+              if (await isStopped(runId)) return null;
+              const t = textPlan(graph, nodeId, f.valueOf);
+              if (!t.ok) throw new Error(t.reason);
+              const request = { ...t.plan, system: SYSTEM_PROMPTS[t.plan.kind] };
+              const estimate = Number(await estimateChat(run.userId, request));
+              if (estimate > Math.max(0, cap - spent) + 1e-9) {
+                throw new HTTPException(402, { message: 'Le coût dépasse le devis confirmé : exécution arrêtée.' });
+              }
+              spent += estimate;
+              item.status = 'running';
+              void save();
+              return { request, estimate };
+            });
+            if (!started) {
+              Object.assign(item, { status: 'skipped', errorMessage: 'Exécution arrêtée.' });
+            } else {
+              const out = await runChat(run.userId, started.request);
+              spent += Number(out.cost ?? started.estimate) - started.estimate;
+              Object.assign(item, { status: 'succeeded', text: out.text, cost: out.cost ?? String(started.estimate) });
+            }
+          } else {
+            if (!item.generationId) {
+              const started = await oneAtATime(async () => {
+                if (await isStopped(runId)) return false;
+                const r = generationPlan(graph, nodeId, f.valueOf);
+                if (!r.ok) throw new Error(r.reason);
+                const generation: Generation = await createWorkflowGeneration(
+                  user,
+                  { ...r.plan, threadId: null },
+                  { workflowId: run.workflowId, nodeId },
+                  Math.max(0, cap - spent),
+                );
+                spent += Number(generation.estimatedCost ?? 0);
+                Object.assign(item, { status: 'running', generationId: generation.id });
+                await save();
+                return true;
+              });
+              if (!started) {
+                Object.assign(item, { status: 'skipped', errorMessage: 'Exécution arrêtée.' });
+                await save();
+                return;
+              }
+            }
+            const done = await waitGeneration(item.generationId!);
+            if (done?.status === 'succeeded') Object.assign(item, { status: 'succeeded', cost: done.cost ?? done.estimatedCost });
+            else {
+              Object.assign(item, { status: 'failed', errorMessage: done?.errorMessage ?? 'La génération a échoué.', cost: done?.cost ?? null });
+            }
+          }
+        } catch (err) {
+          Object.assign(item, { status: 'failed', errorMessage: (err as Error).message });
+        }
+        await save();
+      }),
+    );
+    await saving;
+
+    const ok = items.filter(i => i.status === 'succeeded');
+    const failed = items.filter(i => i.status === 'failed');
+    const cost = items.reduce((s, i) => s + Number(i.cost ?? 0), 0);
+    const row = { ...result, items };
+    if (ok.length) outputs.set(nodeId, resultValue(row, await assetsByGeneration(generationIdsOf(row, true))));
+    const status = ok.length ? 'succeeded' : failed.length ? 'failed' : 'skipped';
+    const errorMessage = failed.length
+      ? ok.length
+        ? `${failed.length} sur ${items.length} en échec : ${failed[0].errorMessage}`
+        : (failed[0].errorMessage ?? 'Échec.')
+      : status === 'skipped'
+        ? 'Exécution arrêtée.'
+        : null;
+    await finishResult(result.id, { status, items, cost: cost ? String(Number(cost.toFixed(6))) : null, errorMessage });
+    results.set(nodeId, { ...row, status });
+  }
+
   async function runNode(nodeId: string) {
+    const fan = fanOut(graph, nodeId, valueOf);
+    if (fan?.list) return runListNode(nodeId, fan.items);
     if (isTextNode(graph, nodeId)) return runTextNode(nodeId);
     const result = results.get(nodeId)!;
     // Arrêt demandé entre-temps : la génération ne part pas (une déjà lancée va au bout).
@@ -476,7 +626,7 @@ export async function getState(userId: string, workflowId: string): Promise<Work
     .where(eq(workflowNodeResults.workflowId, workflowId))
     .orderBy(desc(workflowNodeResults.createdAt))
     .limit(200);
-  const genIds = rows.map(r => r.generationId).filter((id): id is string => Boolean(id));
+  const genIds = rows.flatMap(r => generationIdsOf(r));
   const gens = genIds.length ? await loadGenerations(userId, { ids: genIds }) : [];
   const byId = new Map(gens.map(g => [g.id, g]));
   const results: WorkflowNodeResult[] = rows.map(r => ({
@@ -486,6 +636,15 @@ export async function getState(userId: string, workflowId: string): Promise<Work
     status: r.status,
     generation: r.generationId ? (byId.get(r.generationId) ?? null) : null,
     text: r.text,
+    items:
+      r.items?.map(i => ({
+        label: i.label,
+        status: i.status,
+        generation: i.generationId ? (byId.get(i.generationId) ?? null) : null,
+        text: i.text ?? null,
+        cost: i.cost ?? null,
+        errorMessage: i.errorMessage ?? null,
+      })) ?? null,
     cost: r.cost,
     errorMessage: r.errorMessage,
     createdAt: r.createdAt.toISOString(),
@@ -511,7 +670,7 @@ export async function loadThreadRuns(userId: string, threadId: string): Promise<
     .select()
     .from(workflowNodeResults)
     .where(inArray(workflowNodeResults.runId, rows.map(r => r.run.id)));
-  const genIds = results.map(r => r.generationId).filter((id): id is string => Boolean(id));
+  const genIds = results.flatMap(r => generationIdsOf(r));
   const gens = new Map((genIds.length ? await loadGenerations(userId, { ids: genIds }) : []).map(g => [g.id, g]));
   const inputIds = [...new Set(rows.flatMap(r => r.run.inputs.flatMap(i => i.assetIds ?? [])))];
   const inputAssets = new Map(
@@ -525,8 +684,9 @@ export async function loadThreadRuns(userId: string, threadId: string): Promise<
     const mine = results.filter(r => r.runId === run.id);
     const finals = new Set(finalNodeIds(normalizeGraph(run.graph)));
     const finalGens = mine
-      .filter(r => finals.has(r.nodeId) && r.status === 'succeeded' && r.generationId)
-      .map(r => gens.get(r.generationId!))
+      .filter(r => finals.has(r.nodeId) && r.status === 'succeeded')
+      .flatMap(r => generationIdsOf(r, true))
+      .map(id => gens.get(id))
       .filter((g): g is NonNullable<typeof g> => Boolean(g));
     const outputs = finalGens.flatMap(g => g.outputs);
     const removed = finalGens.length > 0 && finalGens.every(g => g.removedAt);
@@ -563,10 +723,10 @@ export async function setRunResultRemoved(userId: string, runId: string, removed
   if (!run?.threadId) return false;
   const finals = finalNodeIds(normalizeGraph(run.graph));
   const rows = await db
-    .select({ generationId: workflowNodeResults.generationId })
+    .select()
     .from(workflowNodeResults)
     .where(and(eq(workflowNodeResults.runId, run.id), inArray(workflowNodeResults.nodeId, finals.length ? finals : [''])));
-  const ids = rows.map(r => r.generationId).filter((id): id is string => Boolean(id));
+  const ids = rows.flatMap(r => generationIdsOf(r));
   if (!ids.length) return false;
   await db.update(generations).set({ removedAt }).where(and(eq(generations.userId, userId), inArray(generations.id, ids)));
   return true;

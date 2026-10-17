@@ -28,13 +28,15 @@ import {
   WORKFLOW_NODE_GROUPS,
   connect,
   connectionError,
+  expectedListSize,
   imagesCarried,
+  isListOutput,
   type Connection,
   type WorkflowGraph,
   type WorkflowNodeType,
 } from '@sublime/shared'
 
-import { NODE_ICONS, PORT_COLORS } from './NodeShell'
+import { LIST_COLOR, NODE_ICONS, PORT_COLORS } from './NodeShell'
 import { NODE_DND_TYPE, useAddNode } from './NodePalette'
 import { nodeTypes } from './nodes'
 import { NumberedEdge } from './NumberedEdge'
@@ -45,10 +47,12 @@ const edgeTypes = { numbered: NumberedEdge }
  * Numéros des liens d'image (« 1 », « 2–4 »…), dans l'ordre des liens, seulement sur
  * les entrées qui en reçoivent plusieurs. Même numérotation que les images envoyées au modèle.
  */
-function edgeNumbers(nodes: FlowNode[], edges: Edge[]): Map<string, string> {
+function edgeNumbers(nodes: FlowNode[], edges: Edge[], lists: Set<string>): Map<string, string> {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const groups = new Map<string, Edge[]>()
   for (const e of edges) {
+    // Une liste arrive un élément à la fois : pas de numéro, sa pastille « ×N ».
+    if (lists.has(e.source)) continue
     // Seules les images sont numérotées (le prompt peut citer « image 2 »).
     const target = byId.get(e.target)
     const port = target ? WORKFLOW_NODES[target.type]?.inputs.find((p) => p.id === e.targetHandle) : undefined
@@ -130,18 +134,30 @@ export function WorkflowCanvas({
   const isField = (t: EventTarget | null) => t instanceof HTMLElement && t.matches('input, textarea, [contenteditable="true"]')
 
   // Liens de la couleur de leur type (celui du connecteur de départ), numérotés
-  // quand plusieurs arrivent sur une même entrée.
+  // quand plusieurs arrivent sur une même entrée. Une liste : orange, plus épais, « ×N ».
   const coloredEdges = useMemo(() => {
     const byId = new Map(nodes.map((n) => [n.id, n]))
-    const numbers = edgeNumbers(nodes, edges)
+    const g = toGraph(nodes, edges, undefined)
+    const lists = new Set(nodes.filter((n) => isListOutput(g, n.id)).map((n) => n.id))
+    const numbers = edgeNumbers(nodes, edges, lists)
+    // Entrée Listes : numéro de chaque liste quand il y en a plusieurs (« @liste2 »).
+    for (const target of new Set(edges.filter((e) => e.targetHandle === 'lists').map((e) => e.target))) {
+      const group = edges.filter((e) => e.target === target && e.targetHandle === 'lists')
+      if (group.length > 1) group.forEach((e, i) => numbers.set(e.id, String(i + 1)))
+    }
     return edges.map((e) => {
       const type = byId.get(e.source)?.type
       const port = type ? WORKFLOW_NODES[type]?.outputs.find((p) => p.id === e.sourceHandle) : undefined
+      const list = lists.has(e.source)
       return {
         ...e,
         type: 'numbered',
-        data: { number: numbers.get(e.id) ?? null },
-        ...(port ? { style: { stroke: PORT_COLORS[port.type], strokeWidth: 2 } } : {}),
+        data: { number: numbers.get(e.id) ?? null, count: list ? expectedListSize(g, e.source) : null },
+        ...(list
+          ? { style: { stroke: LIST_COLOR, strokeWidth: 3 } }
+          : port
+            ? { style: { stroke: PORT_COLORS[port.type], strokeWidth: 2 } }
+            : {}),
       }
     })
   }, [nodes, edges])

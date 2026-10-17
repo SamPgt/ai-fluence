@@ -2,7 +2,8 @@
  * Lien du canvas : la courbe de la couleur de son type ; au survol, une croix en son
  * milieu le retire. Quand plusieurs liens arrivent sur une même entrée (n → 1), le
  * numéro des images qu'il apporte (« 2 », ou « 2–4 » pour plusieurs photos) s'affiche
- * au départ du câble : c'est ce numéro que le prompt cite (« @image2 »).
+ * au départ du câble : c'est ce numéro que le prompt cite (« @image2 »). Une liste
+ * (câble orange) porte à la place son nombre d'éléments (« ×3 »).
  */
 import { useRef, useState } from 'react'
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, type EdgeProps } from '@xyflow/react'
@@ -21,6 +22,7 @@ export function NumberedEdge({
 }: EdgeProps) {
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition })
   const label = typeof data?.number === 'string' ? data.number : null
+  const count = typeof data?.count === 'number' ? data.count : null
   const { deleteElements } = useReactFlow()
   // Survol du câble ou de sa croix ; un court délai laisse le temps de passer de l'un à l'autre.
   const [hover, setHover] = useState(false)
@@ -39,7 +41,16 @@ export function NumberedEdge({
         <BaseEdge id={id} path={path} style={style} interactionWidth={24} />
       </g>
       <EdgeLabelRenderer>
-        {label && (
+        {count !== null && (
+          <span
+            data-testid="edge-count"
+            className="pointer-events-none absolute flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-card bg-orange-400 px-1.5 text-[10px] font-semibold whitespace-nowrap text-black tabular-nums"
+            style={{ transform: `translate(-50%, -50%) translate(${sourceX + 30}px, ${sourceY}px)` }}
+          >
+            {label && <span className="mr-1 opacity-60">{label} ·</span>}×{count}
+          </span>
+        )}
+        {label && count === null && (
           <span
             data-testid="edge-number"
             className="pointer-events-none absolute grid h-[18px] min-w-[18px] place-items-center rounded-full border border-card bg-sky-400 px-1 text-[10px] font-semibold text-black tabular-nums"

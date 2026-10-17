@@ -14,7 +14,8 @@ export type WorkflowNodeType =
   | 'llm'
   | 'image-gen'
   | 'video-gen'
-  | 'output';
+  | 'output'
+  | 'list';
 
 export interface PortDef {
   id: string;
@@ -24,6 +25,8 @@ export interface PortDef {
   multiple?: boolean;
   /** Entrée nécessaire pour lancer le nœud. */
   required?: boolean;
+  /** N'accepte que des listes (câbles orange) : les éléments que le prompt cite (« @liste1 »). */
+  list?: boolean;
 }
 
 export interface WorkflowNodeDef {
@@ -84,8 +87,9 @@ export const WORKFLOW_NODES: Record<WorkflowNodeType, WorkflowNodeDef> = {
     label: 'Générer une image',
     hint: 'Texte ou images vers image',
     inputs: [
-      { id: 'prompt', type: 'text', label: 'Prompt', required: true },
+      { id: 'prompt', type: 'text', label: 'Prompt' },
       { id: 'references', type: 'image', label: 'Références', multiple: true },
+      { id: 'lists', type: 'text', label: 'Listes', multiple: true, list: true },
     ],
     outputs: [{ id: 'image', type: 'image', label: 'Image' }],
     paid: true,
@@ -95,13 +99,23 @@ export const WORKFLOW_NODES: Record<WorkflowNodeType, WorkflowNodeDef> = {
     label: 'Générer une vidéo',
     hint: 'Texte ou image vers vidéo',
     inputs: [
-      { id: 'prompt', type: 'text', label: 'Prompt', required: true },
+      { id: 'prompt', type: 'text', label: 'Prompt' },
       { id: 'start', type: 'image', label: 'Image de début' },
       { id: 'end', type: 'image', label: 'Image de fin' },
       { id: 'references', type: 'image', label: 'Références', multiple: true },
+      { id: 'lists', type: 'text', label: 'Listes', multiple: true, list: true },
     ],
     outputs: [{ id: 'video', type: 'video', label: 'Vidéo' }],
     paid: true,
+  },
+  list: {
+    type: 'list',
+    label: 'Liste',
+    hint: 'Une génération par élément',
+    // Facultatif : la réponse d'un Texte IA, découpée en éléments (un par ligne).
+    inputs: [{ id: 'text', type: 'text', label: 'Texte IA' }],
+    outputs: [{ id: 'items', type: 'text', label: 'Éléments' }],
+    paid: false,
   },
   output: {
     type: 'output',
@@ -121,7 +135,7 @@ export const WORKFLOW_TEXT_MODEL_DEFAULT = 'anthropic/claude-haiku-5.5/chat';
 
 /** Catégories de la palette des nœuds, dans l'ordre d'affichage. */
 export const WORKFLOW_NODE_GROUPS: { label: string; types: WorkflowNodeType[] }[] = [
-  { label: 'Entrées', types: ['text', 'image-source'] },
+  { label: 'Entrées', types: ['text', 'image-source', 'list'] },
   { label: 'Texte IA', types: ['describe', 'llm'] },
   { label: 'Génération', types: ['image-gen', 'video-gen'] },
   { label: 'Sortie', types: ['output'] },
@@ -212,7 +226,12 @@ export function connectionError(graph: WorkflowGraph, c: Connection): string | n
     return 'Ce lien existe déjà.';
   }
   if (reaches(graph.edges, c.target, c.source)) return 'Ce lien créerait une boucle.';
-  return null;
+  const fromList = isListOutput(graph, c.source);
+  if (input.list && !fromList) return 'Cette entrée attend une liste (nœud Liste).';
+  if (!input.list && fromList && WORKFLOW_NODES[target.type].inputs.some(p => p.list) && input.type === 'text') {
+    return 'Branche la liste sur l’entrée Listes : le prompt la cite avec @liste1.';
+  }
+  return listConflict(connect(graph, c, '__new'));
 }
 
 /** Ajoute le lien (supposé valide) ; sur une entrée simple, il remplace l'ancien. */
@@ -294,11 +313,23 @@ export function graphErrors(graph: WorkflowGraph): string[] {
 
 // ── Exécution ─────────────────────────────────────────────────
 
-/** Valeur portée par une sortie : du texte ou des images (ids de médias). */
-export interface PortValue {
+/** Élément d'une liste : ce qu'il porte, et le libellé de l'élément de départ (« robe rouge »). */
+export interface ListItem {
+  label: string;
   text?: string;
   assetIds?: string[];
 }
+
+/** Valeur portée par une sortie : du texte, des images (ids de médias), ou une liste. */
+export interface PortValue {
+  text?: string;
+  assetIds?: string[];
+  /** Sortie orange : une liste, traitée un élément à la fois par le nœud suivant. */
+  items?: ListItem[];
+}
+
+/** Valeur d'une sortie (null : pas encore de résultat). */
+export type ValueOf = (sourceId: string, port: string) => PortValue | null;
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -321,12 +352,25 @@ export function staticOutput(node: WorkflowNode, _port: string): PortValue | nul
 export const edgesInto = (graph: WorkflowGraph, nodeId: string, port: string) =>
   graph.edges.filter(e => e.target === nodeId && e.targetHandle === port);
 
-/** Nœuds payants reliés directement aux entrées de ce nœud (les nœuds d'entrée n'ont pas d'entrées). */
+/**
+ * Nœuds payants reliés aux entrées de ce nœud : directement, ou à travers un nœud Liste
+ * qui découpe leur réponse (les autres nœuds gratuits n'ont pas d'entrées).
+ */
 export function paidSources(graph: WorkflowGraph, nodeId: string): string[] {
   const byId = new Map(graph.nodes.map(n => [n.id, n]));
-  return [
-    ...new Set(graph.edges.filter(e => e.target === nodeId && byId.get(e.source) && isPaidNode(byId.get(e.source)!)).map(e => e.source)),
-  ];
+  const out = new Set<string>();
+  const seen = new Set<string>();
+  const visit = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    for (const e of graph.edges.filter(e => e.target === id)) {
+      const source = byId.get(e.source);
+      if (source && isPaidNode(source)) out.add(source.id);
+      else if (source?.type === 'list') visit(source.id);
+    }
+  };
+  visit(nodeId);
+  return [...out];
 }
 
 /** Nœuds payants à lancer, dans l'ordre de leurs dépendances (tous si `nodeIds` est absent). */
@@ -363,16 +407,19 @@ export function generationPlan(
 
   const values = (port: string) => edgesInto(graph, nodeId, port).map(e => valueOf(e.source, e.sourceHandle));
   const missing = (port: string) => values(port).some(v => v === null);
-  for (const port of ['prompt', 'references', 'start', 'end']) {
+  for (const port of ['prompt', 'references', 'start', 'end', 'lists']) {
     if (missing(port)) return { ok: false, reason: 'Une étape précédente n’a pas encore de résultat.' };
   }
   const images = (port: string) => values(port).flatMap(v => v?.assetIds ?? []);
 
   const prompt = resolveMentions(
-    values('prompt')
-      .map(v => v?.text?.trim() ?? '')
-      .filter(Boolean)
-      .join('\n\n'),
+    withListItems(
+      values('prompt')
+        .map(v => v?.text?.trim() ?? '')
+        .filter(Boolean)
+        .join('\n\n'),
+      values('lists').map(v => v?.text?.trim() ?? ''),
+    ),
   );
   if (!prompt) return { ok: false, reason: 'Le prompt est vide.' };
 
@@ -430,6 +477,26 @@ export function imageSlots(graph: WorkflowGraph, nodeId: string): ImageSlot[] {
   return slots;
 }
 
+/** Mentions de listes dans un prompt : « @liste1 » (insensible à la casse). */
+export const LIST_MENTION_RE = /@liste(\d+)/gi;
+
+/**
+ * Prompt d'une passe : chaque « @listeN » devient l'élément de la liste N (dans l'ordre
+ * des liens de l'entrée Listes). Une liste que le prompt ne cite pas s'ajoute à la fin ;
+ * sans prompt, les éléments font le prompt.
+ */
+export function withListItems(prompt: string, items: string[]): string {
+  const cited = new Set<number>();
+  const text = prompt.replace(LIST_MENTION_RE, (m, n: string) => {
+    const item = items[Number(n) - 1];
+    if (item === undefined) return m;
+    cited.add(Number(n) - 1);
+    return item;
+  });
+  const rest = items.filter((it, i) => it && !cited.has(i));
+  return [text.trim(), ...rest].filter(Boolean).join('\n\n');
+}
+
 /** Mentions écrites dans un prompt : « @image2 » (insensible à la casse). */
 export const MENTION_RE = /@image(\d+)/gi;
 
@@ -467,7 +534,17 @@ export function normalizeGraph(graph: WorkflowGraph): WorkflowGraph {
   const edges = graph.edges
     .filter(e => !(legacy.has(e.source) && e.sourceHandle === 'persona') && e.targetHandle !== 'persona')
     .map(e => (legacy.has(e.source) && e.sourceHandle === 'images' ? { ...e, sourceHandle: 'image' } : e));
-  return { ...graph, nodes, edges };
+  // Liste branchée sur le prompt d'une génération (avant l'entrée Listes) : elle passe sur Listes.
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const next = { ...graph, nodes, edges };
+  const moved = edges.map(e =>
+    e.targetHandle === 'prompt' &&
+    ['image-gen', 'video-gen'].includes(byId.get(e.target)?.type ?? '') &&
+    isListOutput(next, e.source)
+      ? { ...e, targetHandle: 'lists' }
+      : e,
+  );
+  return { ...next, edges: moved };
 }
 
 // ── Nœuds de texte IA ─────────────────────────────────────────
@@ -632,3 +709,186 @@ export function templateInputs(graph: WorkflowGraph, standInImageId: string): Re
     ]),
   );
 }
+
+// ── Listes (câbles orange) ────────────────────────────────────
+
+/**
+ * Bornes d'une liste : `max` éléments envoyés (actifs) au plus, `entries` éléments
+ * gardés dans le nœud (une liste importée peut être longue, on n'en active qu'une partie).
+ */
+export const LIST_LIMITS = { max: 50, defaultMax: 10, entries: 2000 } as const;
+
+/** Élément d'un nœud Liste : son texte, et s'il est envoyé (actif). */
+export interface ListEntry {
+  text: string;
+  active: boolean;
+}
+
+/**
+ * Éléments d'un texte : un par ligne, puces et numéros retirés (« - », « 1. », « 2) »…),
+ * lignes vides ignorées, `max` au plus.
+ */
+export function splitList(text: string, max: number = LIST_LIMITS.max): string[] {
+  return text
+    .split(/\r?\n/)
+    .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+/** Nombre maximum d'éléments gardés d'une réponse de Texte IA (10 par défaut). */
+export function listMaxOf(node: WorkflowNode): number {
+  const n = Math.round(Number(node.data.max));
+  return Number.isFinite(n) && n >= 1 ? Math.min(LIST_LIMITS.max, n) : LIST_LIMITS.defaultMax;
+}
+
+/**
+ * Éléments d'un nœud Liste. Une liste enregistrée en texte (une ligne par élément) est
+ * lue comme des éléments tous actifs.
+ */
+export function listEntries(node: WorkflowNode): ListEntry[] {
+  const raw = node.data.items;
+  if (typeof raw === 'string') return splitList(raw, LIST_LIMITS.entries).map(text => ({ text, active: true }));
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((e): e is ListEntry => Boolean(e) && typeof e === 'object' && typeof (e as ListEntry).text === 'string')
+    .map(e => ({ text: e.text.trim(), active: e.active !== false }))
+    .filter(e => e.text)
+    .slice(0, LIST_LIMITS.entries);
+}
+
+/** Éléments envoyés d'un nœud Liste (les actifs). */
+export const manualItems = (node: WorkflowNode) => listEntries(node).filter(e => e.active).map(e => e.text);
+
+/**
+ * Tirage « Aléatoire » : autant d'éléments actifs qu'avant, choisis au hasard dans toute
+ * la liste. `random` : pour les tests.
+ */
+export function shuffleActive(entries: ListEntry[], random: () => number = Math.random): ListEntry[] {
+  const count = entries.filter(e => e.active).length;
+  const order = entries.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const picked = new Set(order.slice(0, count));
+  return entries.map((e, i) => ({ ...e, active: picked.has(i) }));
+}
+
+/**
+ * La sortie de ce nœud est-elle une liste ? Celle d'un nœud Liste, et celle d'un nœud
+ * payant qui reçoit une liste (il fait un résultat par élément).
+ */
+export function isListOutput(graph: WorkflowGraph, nodeId: string, seen = new Set<string>()): boolean {
+  const node = graph.nodes.find(n => n.id === nodeId);
+  if (!node) return false;
+  if (node.type === 'list') return true;
+  if (!isPaidNode(node) || seen.has(nodeId)) return false;
+  seen.add(nodeId);
+  return graph.edges.some(e => e.target === nodeId && isListOutput(graph, e.source, seen));
+}
+
+/** Nœuds dont une liste arrive sur ce nœud. */
+export const listSources = (graph: WorkflowGraph, nodeId: string) => [
+  ...new Set(graph.edges.filter(e => e.target === nodeId && isListOutput(graph, e.source)).map(e => e.source)),
+];
+
+/** Pas de liste dans une Liste (une Liste se remplit à la main, par un import ou par un texte). */
+export function listConflict(graph: WorkflowGraph): string | null {
+  for (const node of graph.nodes) {
+    if (node.type === 'list' && listSources(graph, node.id).length) return 'Une liste ne se branche pas dans une autre liste.';
+  }
+  return null;
+}
+
+/**
+ * Nombre d'éléments attendu sur la sortie de ce nœud (null : pas une liste). Une liste
+ * écrite par un Texte IA compte pour son maximum : c'est ce qui fixe le devis.
+ */
+export function expectedListSize(graph: WorkflowGraph, nodeId: string, seen = new Set<string>()): number | null {
+  const node = graph.nodes.find(n => n.id === nodeId);
+  if (!node || seen.has(nodeId)) return null;
+  seen.add(nodeId);
+  if (node.type === 'list') return edgesInto(graph, nodeId, 'text').length ? listMaxOf(node) : manualItems(node).length;
+  if (!isPaidNode(node)) return null;
+  // Plusieurs listes avancent ensemble : autant de passes que la plus longue.
+  const sizes = listSources(graph, nodeId).map(s => expectedListSize(graph, s, new Set(seen)) ?? 0);
+  return sizes.length ? Math.max(...sizes) : null;
+}
+
+/**
+ * Valeur de chaque sortie : celle des nœuds d'entrée (lue dans leurs réglages), celle des
+ * nœuds Liste (leurs éléments, ou la réponse reçue découpée), sinon `computed` (résultat
+ * d'un nœud payant). `standIn` : pour un devis, nœuds pas encore lancés (valeur de
+ * remplacement) ; une liste écrite par l'un d'eux compte pour son maximum d'éléments.
+ */
+export function valueResolver(
+  graph: WorkflowGraph,
+  computed: (nodeId: string) => PortValue | null | undefined,
+  opts: { standIn?: (nodeId: string) => boolean } = {},
+): ValueOf {
+  const byId = new Map(graph.nodes.map(n => [n.id, n]));
+  const resolve: ValueOf = (id, port) => {
+    const node = byId.get(id);
+    if (!node) return null;
+    if (node.type === 'list') {
+      const input = edgesInto(graph, id, 'text')[0];
+      const lines = input ? null : manualItems(node);
+      if (lines) return { items: lines.map(l => ({ label: l, text: l })) };
+      const v = resolve(input!.source, input!.sourceHandle);
+      if (!v) return null;
+      if (opts.standIn?.(input!.source)) return { items: Array.from({ length: listMaxOf(node) }, () => ({ label: 'élément', text: 'élément' })) };
+      return { items: splitList(v.text ?? '', listMaxOf(node)).map(l => ({ label: l, text: l })) };
+    }
+    return staticOutput(node, port) ?? computed(id) ?? null;
+  };
+  return resolve;
+}
+
+/** Une passe d'un nœud : l'élément de liste traité (libellé vide hors liste) et ses entrées. */
+export interface FanItem {
+  label: string;
+  valueOf: ValueOf;
+}
+
+/**
+ * Passes d'un nœud payant : une par rang des listes reçues (câbles orange), sinon une
+ * seule. Les listes avancent ensemble : la passe 2 prend l'élément 2 de chaque liste ; une
+ * liste plus courte reprend au début. Chaque passe voit chaque liste remplacée par son
+ * élément. Null : une liste n'a pas encore de résultat.
+ */
+export function fanOut(graph: WorkflowGraph, nodeId: string, valueOf: ValueOf): { list: boolean; items: FanItem[] } | null {
+  const sources = listSources(graph, nodeId);
+  if (!sources.length) return { list: false, items: [{ label: '', valueOf }] };
+  const lists: { source: string; items: ListItem[] }[] = [];
+  for (const source of sources) {
+    const port = graph.edges.find(e => e.target === nodeId && e.source === source)!.sourceHandle;
+    const v = valueOf(source, port);
+    if (!v) return null;
+    lists.push({ source, items: v.items ?? [{ label: '', text: v.text, assetIds: v.assetIds }] });
+  }
+  const count = lists.some(l => !l.items.length) ? 0 : Math.max(...lists.map(l => l.items.length));
+  return {
+    list: true,
+    items: Array.from({ length: count }, (_, k) => {
+      const pick = new Map(lists.map(l => [l.source, l.items[k % l.items.length]]));
+      return {
+        label: [...pick.values()].map(it => it.label).filter(Boolean).join(' · '),
+        valueOf: (s, p) => {
+          const it = pick.get(s);
+          return it ? { text: it.text, assetIds: it.assetIds } : valueOf(s, p);
+        },
+      };
+    }),
+  };
+}
+
+/** Une liste reçue par un nœud de génération, avec son numéro (celui que le prompt cite : « @liste1 »). */
+export interface ListSlot {
+  n: number;
+  sourceId: string;
+}
+
+/** Listes citables d'un nœud Générer image / vidéo, dans l'ordre des liens de son entrée Listes. */
+export const listSlots = (graph: WorkflowGraph, nodeId: string): ListSlot[] =>
+  edgesInto(graph, nodeId, 'lists').map((e, i) => ({ n: i + 1, sourceId: e.source }));

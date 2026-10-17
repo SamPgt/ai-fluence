@@ -11,6 +11,7 @@ import {
 import type { Asset } from '@sublime/shared'
 
 import { Dialog, DialogOverlay, DialogPortal } from '@/components/ui/dialog'
+import { AddReferenceMenu } from './AddReferenceMenu'
 
 const NAV =
   'fixed top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20 disabled:pointer-events-none disabled:opacity-0'
@@ -25,6 +26,7 @@ export function MediaViewer({
   onPrev,
   onNext,
   source,
+  addReference,
 }: {
   asset: Asset | null
   onClose: () => void
@@ -32,6 +34,8 @@ export function MediaViewer({
   onNext?: () => void
   /** Demande qui a produit ce média : lien vers elle (à sa hauteur dans le fil), ou vers son workflow. */
   source?: { threadId: string | null; workflowId?: string | null; generationId: string } | null
+  /** Bouton « Ajouter aux références » (hors d'un fil, où chaque résultat a déjà le sien). */
+  addReference?: boolean
 }) {
   // Flèches du clavier pour passer d'un média à l'autre.
   useEffect(() => {
@@ -86,6 +90,13 @@ export function MediaViewer({
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Link>
+                )}
+                {addReference && (
+                  <AddReferenceMenu
+                    asset={asset}
+                    iconClassName="h-4 w-4"
+                    className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"
+                  />
                 )}
                 <a
                   href={`${asset.url}?download=1`}

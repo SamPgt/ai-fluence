@@ -13,8 +13,13 @@ import {
   type CivitaiSearchResponse,
   type CivitaiSort,
   type CivitaiVariant,
+  type CivitaiWildcard,
+  type CivitaiWildcardListsResponse,
+  type CivitaiWildcardSearchResponse,
+  type WildcardList,
 } from '@sublime/shared';
 import { env } from '../env.js';
+import { wildcardLists } from './wildcards.js';
 
 const API = 'https://civitai.com/api/v1';
 const TIMEOUT_MS = 15_000;
@@ -264,3 +269,84 @@ export async function resolveLoraUrl(path: string): Promise<string> {
 }
 
 export const civitaiEnabled = () => Boolean(env.CIVITAI_KEY);
+
+// ── Wildcards (listes pour le nœud Liste) ─────────────────────
+
+const ADULT_NAME = /\b(nsfw|hentai|nude|nudity|naked|porn|lewd|sex|erotic|ass|anus|anal|cum|penis|pussy|vagina|nipples?|genitals?)\b/i;
+
+/** Archive la plus lourde acceptée (les packs de listes pèsent quelques centaines de Ko). */
+const WILDCARD_MAX_KB = 10_000;
+
+export async function searchWildcards(args: { query?: string; cursor?: string }): Promise<CivitaiWildcardSearchResponse> {
+  const qs = new URLSearchParams({ types: 'Wildcards', limit: '20', sort: 'Most Downloaded', nsfw: 'false' });
+  if (args.query?.trim()) qs.set('query', args.query.trim());
+  if (args.cursor) qs.set('cursor', args.cursor);
+  const url = `${API}/models?${qs}`;
+  const cached = wildcardSearchCache.get(url);
+  if (cached && Date.now() - cached.at < SEARCH_TTL_MS) return cached.data;
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: headers(), signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch {
+    throw new HTTPException(502, { message: 'Civitai est injoignable pour le moment.' });
+  }
+  if (!res.ok) throw new HTTPException(502, { message: `Civitai a répondu ${res.status}.` });
+  const body = (await res.json()) as { items?: RawModel[]; metadata?: { nextCursor?: string } };
+  const items = (body.items ?? []).flatMap((m): CivitaiWildcard[] => {
+    const v = m.modelVersions[0];
+    const file = v?.files.find(f => f.name.toLowerCase().endsWith('.zip')) ?? v?.files[0];
+    // Civitai ne marque pas toujours les packs pour adultes : le nom les trahit souvent.
+    if (!v || !file || m.nsfw || ADULT_NAME.test(m.name)) return [];
+    return [
+      {
+        versionId: v.id,
+        modelId: m.id,
+        name: m.name,
+        creator: m.creator?.username ?? null,
+        downloads: m.stats?.downloadCount ?? 0,
+        sizeKB: Math.round(file.sizeKB),
+      },
+    ];
+  });
+  const data = { items, nextCursor: body.metadata?.nextCursor ?? null };
+  wildcardSearchCache.set(url, { at: Date.now(), data });
+  return data;
+}
+
+const wildcardSearchCache = new Map<string, { at: number; data: CivitaiWildcardSearchResponse }>();
+/** Listes déjà lues, par version (une archive ne change pas). En mémoire, jamais sur le disque. */
+const wildcardCache = new Map<number, { at: number; lists: WildcardList[] }>();
+const WILDCARD_TTL_MS = 60 * 60 * 1000;
+
+/** Listes d'un pack de wildcards : l'archive est téléchargée (avec la clé) puis lue. */
+export async function wildcardListsOf(versionId: number): Promise<CivitaiWildcardListsResponse> {
+  const cached = wildcardCache.get(versionId);
+  if (cached && Date.now() - cached.at < WILDCARD_TTL_MS) return { lists: cached.lists };
+  let res: Response;
+  try {
+    res = await fetch(`https://civitai.com/api/download/models/${versionId}`, {
+      headers: headers(),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    throw new HTTPException(502, { message: 'Civitai est injoignable pour le moment.' });
+  }
+  if (!res.ok) throw new HTTPException(502, { message: `Téléchargement refusé par Civitai (${res.status}).` });
+  if (Number(res.headers.get('content-length') ?? 0) > WILDCARD_MAX_KB * 1024) {
+    throw new HTTPException(413, { message: 'Archive trop lourde.' });
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > WILDCARD_MAX_KB * 1024) throw new HTTPException(413, { message: 'Archive trop lourde.' });
+  let lists: WildcardList[];
+  try {
+    lists = wildcardLists(buf);
+  } catch {
+    throw new HTTPException(422, { message: 'Archive illisible : ce pack ne contient pas de listes.' });
+  }
+  // Packs mélangés : leurs listes pour adultes sont écartées, comme les packs du même genre.
+  lists = lists.filter(l => !ADULT_NAME.test(l.name));
+  if (!lists.length) throw new HTTPException(422, { message: 'Aucune liste lisible dans ce pack.' });
+  wildcardCache.set(versionId, { at: Date.now(), lists });
+  return { lists };
+}

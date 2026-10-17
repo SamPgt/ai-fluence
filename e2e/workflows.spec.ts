@@ -283,8 +283,8 @@ test.describe('nœuds', () => {
     await page.getByRole('button', { name: 'Supprimer le nœud Texte' }).click()
     await expect(nodes(page)).toHaveCount(1)
     await expect.poll(async () => (await savedGraph(page, w.id)).edges).toEqual([])
-    // Prompt obligatoire non relié : signalé par l'astérisque, mais le brouillon reste enregistrable.
-    await expect(node(page, 'video-gen')).toContainText('Prompt *')
+    // Le prompt n'est plus obligatoire (une liste peut le remplacer) : vérifié au lancement.
+    await expect(node(page, 'video-gen')).not.toContainText('Prompt *')
   })
 
   test('Image source : « Assets » propose les photos de chaque persona, à cocher, puis plusieurs images @core', async ({

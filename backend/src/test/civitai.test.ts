@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '../env.js';
 import { fakeSpicyClient } from '../services/spicy.fake.js';
 import { call, signup } from './helpers.js';
+import { makeZip } from './zip.js';
 
 const Z_IMAGE_LORA = 'alibaba/z-image-turbo-lora';
 const FLUX_LORA = 'black-forest-labs/flux-1-dev-lora';
@@ -517,5 +518,62 @@ describe('LoRA Civitai dans une génération', () => {
     const res = await me.post('/generations', genBody);
     expect(res.status).toBe(502);
     expect(res.body.error).toBe('Civitai est injoignable : impossible de récupérer la LoRA.');
+  });
+});
+
+// ── Wildcards ─────────────────────────────────────────────────
+
+describe('wildcards (nœud Liste)', () => {
+  const pack = (id: number, name: string, nsfw = false) => ({
+    id,
+    name,
+    nsfw,
+    creator: { username: 'auteur' },
+    stats: { downloadCount: 1200 },
+    modelVersions: [{ id: id * 10, name: 'v1', baseModel: 'Other', files: [{ name: `${name}.zip`, type: 'Archive', sizeKB: 3.2, downloadUrl: 'x' }], images: [] }],
+  });
+
+  it('sans clé : indisponible (503), rien n’est demandé à Civitai', async () => {
+    const spy = stubCivitai(() => json({ items: [] }));
+    const me = await signup();
+    const res = await me.get('/civitai/wildcards?query=tenues');
+    expect(res.status).toBe(503);
+    expect(civitaiCalls(spy)).toEqual([]);
+  });
+
+  it('recherche puis listes d’un pack (archive téléchargée avec la clé) @smoke', async () => {
+    env.CIVITAI_KEY = 'cle-civitai-test';
+    const zip = makeZip({ 'tenues_ete.txt': 'robe_rouge\njean bleu\n# commentaire\n', 'nsfw_poses.txt': 'x', 'README.md': 'x' });
+    const spy = stubCivitai(url =>
+      url.includes('/download/models/')
+        ? new Response(new Uint8Array(zip), { headers: { 'Content-Type': 'application/zip' } })
+        : json({ items: [pack(1, 'Tenues'), pack(2, 'Osé', true)], metadata: { nextCursor: '2' } }),
+    );
+    const me = await signup();
+    const query = uniqueQuery();
+    const search = await me.get(`/civitai/wildcards?query=${query}`);
+    expect(search.status).toBe(200);
+    expect(search.body).toEqual({
+      items: [{ versionId: 10, modelId: 1, name: 'Tenues', creator: 'auteur', downloads: 1200, sizeKB: 3 }],
+      nextCursor: '2',
+    });
+    const searchUrl = new URL(civitaiCalls(spy)[0].url);
+    expect(searchUrl.searchParams.get('types')).toBe('Wildcards');
+    expect(searchUrl.searchParams.get('nsfw')).toBe('false');
+
+    const lists = await me.get('/civitai/wildcards/10');
+    expect(lists.status).toBe(200);
+    expect(lists.body).toEqual({ lists: [{ name: 'tenues ete', total: 2, items: ['robe rouge', 'jean bleu'], format: 'text' }] });
+    const download = civitaiCalls(spy).find(c => c.url.includes('/download/models/10'))!;
+    expect((download.init?.headers as Record<string, string>).Authorization).toBe('Bearer cle-civitai-test');
+  });
+
+  it('archive illisible : message clair (422)', async () => {
+    env.CIVITAI_KEY = 'cle-civitai-test';
+    stubCivitai(() => json({ error: 'pas un zip' }));
+    const me = await signup();
+    const res = await me.get('/civitai/wildcards/987654');
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/Archive illisible/);
   });
 });

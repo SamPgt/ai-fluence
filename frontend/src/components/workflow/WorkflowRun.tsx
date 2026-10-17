@@ -8,7 +8,15 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { useReactFlow } from '@xyflow/react'
 import { Loader2, Play, Square } from 'lucide-react'
 import { toast } from 'sonner'
-import { WORKFLOW_NODES, type WorkflowGraph, type WorkflowNodeResult, type WorkflowStateResponse } from '@sublime/shared'
+import {
+  WORKFLOW_NODES,
+  listEntries,
+  type Asset,
+  type WorkflowGraph,
+  type WorkflowNodeResult,
+  type WorkflowQuoteResponse,
+  type WorkflowStateResponse,
+} from '@sublime/shared'
 
 import { workflowsApi } from '@/lib/api'
 import { qk, workflowStateQuery } from '@/lib/queries'
@@ -26,12 +34,13 @@ import {
 /**
  * Ce qui peut changer le prix : les nœuds (type, modèle, réglages, images) et les liens.
  * Pas les positions, ni le texte tapé : déplacer un nœud ou écrire ne relance pas le calcul.
+ * D'une liste, seul compte le nombre d'éléments.
  */
 export function priceKey(graph: WorkflowGraph, nodeIds?: string[]): string {
   return JSON.stringify([
     graph.nodes.map((n) => {
-      const { text: _text, instruction: _instruction, ...data } = n.data
-      return [n.id, n.type, data]
+      const { text: _text, instruction: _instruction, label: _label, items: _items, ...data } = n.data
+      return [n.id, n.type, data, n.type === 'list' ? listEntries(n).filter((e) => e.active).length : null]
     }),
     graph.edges.map((e) => [e.source, e.sourceHandle, e.target, e.targetHandle]),
     nodeIds ?? null,
@@ -54,6 +63,8 @@ interface RunContextValue {
   running: boolean
   /** Devis de tout le workflow, calculé en arrière-plan. */
   price: string | null
+  /** Le même devis, étape par étape. */
+  quoteNodes: WorkflowQuoteResponse['nodes']
   /** Prépare le devis d'un nœud (au survol de son ▶). */
   prefetchNode: (nodeId: string) => void
   /** Ouvre le devis pour ces nœuds (absent : tout le workflow). */
@@ -67,6 +78,7 @@ const RunContext = createContext<RunContextValue>({
   state: undefined,
   running: false,
   price: null,
+  quoteNodes: [],
   prefetchNode: () => {},
   requestRun: () => {},
   stop: () => {},
@@ -75,12 +87,24 @@ const RunContext = createContext<RunContextValue>({
 
 export const useWorkflowRun = () => useContext(RunContext)
 
+/** Médias d'un résultat : ceux de sa génération, ou ceux des éléments réussis du lot. */
+export const resultOutputs = (r: WorkflowNodeResult): Asset[] =>
+  r.items
+    ? r.items.flatMap((i) => (i.status === 'succeeded' ? (i.generation?.outputs ?? []) : []))
+    : (r.generation?.outputs ?? [])
+
+/** Lots réussis d'un nœud (avec des médias ou du texte), du plus récent au plus ancien. */
+export const doneLots = (results: WorkflowNodeResult[]) =>
+  results.filter(
+    (r) => r.status === 'succeeded' && (resultOutputs(r).length > 0 || r.text || r.items?.some((i) => i.text)),
+  )
+
 /**
  * Résultat actif d'un nœud parmi ses résultats réussis : celui choisi dans le nœud,
  * sinon le plus récent. C'est lui qui part aux nœuds suivants.
  */
 export function pickActive(results: WorkflowNodeResult[], activeResultId: unknown): WorkflowNodeResult | undefined {
-  const done = results.filter((r) => r.status === 'succeeded' && (r.generation?.outputs.length || r.text))
+  const done = doneLots(results)
   return done.find((r) => r.id === activeResultId) ?? done[0]
 }
 
@@ -147,6 +171,7 @@ export function WorkflowRunProvider({
         state,
         running,
         price: fullQuote.data?.estimatedCost ?? null,
+        quoteNodes: fullQuote.data?.nodes ?? [],
         prefetchNode: (nodeId) => {
           const graph = getGraph()
           if (graph) void queryClient.prefetchQuery(quoteOptions(workflowId, graph, [nodeId]))
@@ -239,6 +264,12 @@ function RunDialog({
   })
 
   const steps = quote.data?.nodes.length ?? 0
+  // Étapes démultipliées par une liste : « Générer une image : 3 × 0,01 $ ».
+  const fanned = (quote.data?.nodes ?? []).filter((n) => n.count > 1)
+  const nodeLabel = (id: string) => {
+    const type = graph?.nodes.find((n) => n.id === id)?.type
+    return type ? WORKFLOW_NODES[type].label : id
+  }
   return (
     <Dialog open={Boolean(target)} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md" showCloseButton={false}>
@@ -250,6 +281,18 @@ function RunDialog({
               : 'Calcul du prix…'}
           </DialogDescription>
         </DialogHeader>
+        {fanned.length > 0 && (
+          <ul data-testid="quote-fanout" className="space-y-1 text-[13px] text-muted-foreground">
+            {fanned.map((n) => (
+              <li key={n.nodeId} className="flex justify-between gap-3 tabular-nums">
+                <span>{nodeLabel(n.nodeId)}</span>
+                <span>
+                  {n.count} × {formatUsd(String(Number(n.estimatedCost) / n.count))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
         {quote.error && <p className="text-sm text-destructive-foreground">{(quote.error as Error).message}</p>}
         <DialogFooter className="items-center sm:justify-between">
           <span className="text-sm text-muted-foreground tabular-nums">

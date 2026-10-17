@@ -32,8 +32,20 @@ test('accueil : reprendre un fil, voir les dernières images, lancer un workflow
   await expect(cards.nth(1).locator('img')).toHaveCount(1)
   await expect(page.getByRole('img', { name: 'design nature' })).toHaveCount(3)
 
+  // Tous les workflows, le plus récent d'abord ; un clic ouvre le canvas.
+  const other = (await (await page.request.post('/api/workflows', { data: { name: 'Brouillon' } })).json()).workflow
+  await page.reload()
+  const rows = page.getByTestId('home-workflow')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.first()).toContainText('Brouillon')
+  // Sans entrée « À fournir » : pas de ▶.
+  await expect(rows.first().getByRole('link', { name: /dans un fil/ })).toHaveCount(0)
+  await rows.first().click()
+  await expect(page).toHaveURL(new RegExp(`/workflows/${other.id}`))
+
   // ▶ : un fil vierge avec le formulaire du workflow.
-  await page.getByTestId('home-workflow').click()
+  await page.goto('/')
+  await page.getByRole('link', { name: 'Lancer Sticker dans un fil' }).click()
   await expect(page).toHaveURL(new RegExp(`/nouveau\\?workflow=${w.id}`))
   await expect(page.getByTestId('workflow-form')).toContainText('Sticker')
 

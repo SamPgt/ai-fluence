@@ -13,6 +13,7 @@ import generationsRoutes from './routes/generations.route.js';
 import presetsRoutes from './routes/presets.route.js';
 import promptsRoutes from './routes/prompts.route.js';
 import civitaiRoutes from './routes/civitai.route.js';
+import listsRoutes from './routes/lists.route.js';
 import trashRoutes from './routes/trash.route.js';
 import voicesRoutes from './routes/voices.route.js';
 import libraryRoutes from './routes/library.route.js';
@@ -55,6 +56,7 @@ const app = new Hono<AppEnv>()
   .route('/presets', presetsRoutes)
   .route('/prompts', promptsRoutes)
   .route('/civitai', civitaiRoutes)
+  .route('/lists', listsRoutes)
   .route('/trash', trashRoutes)
   .route('/voices', voicesRoutes)
   .route('/library', libraryRoutes)

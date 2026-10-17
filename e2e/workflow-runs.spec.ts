@@ -51,7 +51,7 @@ test('▶ Lancer : devis, puis image et vidéo dans leurs nœuds, puis en galeri
   await expect(page.getByTestId('gallery-item').first()).toContainText('Workflow')
 })
 
-test('▶ d’un nœud : un nouveau résultat s’ajoute à l’historique ; une vignette choisit le résultat actif', async ({
+test('▶ d’un nœud : chaque exécution fait un lot ; le sélecteur de lots choisit le lot actif', async ({
   app,
   page,
 }) => {
@@ -65,11 +65,15 @@ test('▶ d’un nœud : un nouveau résultat s’ajoute à l’historique ; une
     await expect(page.getByText('Workflow terminé')).toBeVisible({ timeout: 15_000 })
     await page.getByText('Workflow terminé').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {})
   }
-  const history = node(page, 'image-gen').getByRole('button', { name: 'Utiliser ce résultat' })
-  await expect(history).toHaveCount(2)
-  await expect(history.first()).toHaveAttribute('aria-pressed', 'true')
-  await history.last().click()
-  await expect(history.last()).toHaveAttribute('aria-pressed', 'true')
+  const selector = node(page, 'image-gen').getByTestId('lot-selector')
+  await expect(selector).toContainText('Lot 2 sur 2 · 1 image')
+  await selector.getByRole('button', { name: 'Lot précédent' }).click()
+  await expect(selector).toContainText('Lot 1 sur 2')
+  await expect(selector.getByRole('button', { name: 'Lot précédent' })).toBeDisabled()
+  // La liste des lots, au clic sur le centre.
+  await selector.getByRole('button', { name: 'Choisir un lot' }).click()
+  await expect(page.getByRole('button', { name: 'Utiliser le lot 1' })).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Escape')
   await expect
     .poll(async () => {
       const graph = (await (await page.request.get(`/api/workflows/${w.id}`)).json()).workflow.graph as WorkflowGraph
@@ -185,7 +189,7 @@ test('mentions : « @ » propose les images reçues, @image2 en bleu, une image 
   const field = text.getByRole('textbox', { name: 'Texte du nœud' })
   await field.click()
   await page.keyboard.type('colle le logo @')
-  const list = page.getByRole('listbox', { name: 'Images à citer' })
+  const list = page.getByRole('listbox', { name: 'Images et listes à citer' })
   await expect(list.getByRole('option')).toHaveText([/@image1\s*Image source/, /@image2\s*Image source/])
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')

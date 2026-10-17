@@ -1,6 +1,7 @@
 /**
  * Accueil : où en est-on, et où reprendre. Salutation et crédit, les derniers fils (avec
- * leurs images), les dernières générations et les workflows à lancer depuis un fil.
+ * leurs images), les dernières générations et les derniers workflows (ouverts dans leur
+ * canvas ; ▶ lance dans un fil ceux qui ont des entrées « À fournir »).
  * Page d'arrivée (`/`). Pas de composer ici : « Nouveau fil » ouvre un fil vierge (`/nouveau`).
  */
 import { createFileRoute, Link } from '@tanstack/react-router'
@@ -58,7 +59,9 @@ function HomePage() {
   const recent = [...threads]
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
     .slice(0, 3)
-  const usable = workflows.filter((w) => w.usableInThread).slice(0, 4)
+  const recentWorkflows = [...workflows]
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .slice(0, 4)
   const isNew = threads.length === 0
 
   const generations = threads.reduce((n, t) => n + t.generationCount, 0)
@@ -158,13 +161,12 @@ function HomePage() {
                 link={{ to: '/workflows', label: 'Tout voir' }}
               />
               <div className="space-y-2.5">
-                {usable.map((w) => (
+                {recentWorkflows.map((w) => (
                   <WorkflowRow key={w.id} workflow={w} />
                 ))}
-                {usable.length === 0 && (
+                {recentWorkflows.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    Un workflow avec une entrée « À fournir au lancement » se
-                    lance d’ici.
+                    Aucun workflow pour l’instant.
                   </p>
                 )}
               </div>
@@ -252,15 +254,28 @@ function ThreadCard({ thread, mosaic }: { thread: Thread; mosaic: boolean }) {
   )
 }
 
-/** Workflow utilisable dans un fil : ▶ ouvre un fil vierge avec son formulaire. */
+/**
+ * Workflow : un clic ouvre son canvas. Avec des entrées « À fournir », ▶ le lance dans un
+ * fil vierge avec son formulaire.
+ */
 function WorkflowRow({ workflow: w }: { workflow: WorkflowSummary }) {
+  const detail = [
+    `${w.nodeCount} nœud${w.nodeCount > 1 ? 's' : ''}`,
+    w.usableInThread && `${w.inputCount} entrée${w.inputCount > 1 ? 's' : ''}`,
+    timeAgo(w.updatedAt),
+  ].filter(Boolean)
   return (
-    <Link
-      to="/nouveau"
-      search={{ workflow: w.id }}
+    <div
       data-testid="home-workflow"
-      className="group flex items-center gap-3 rounded-xl border border-border/50 bg-card/40 p-2.5 transition-colors hover:border-border hover:bg-card/70"
+      className="group relative flex items-center gap-3 rounded-xl border border-border/50 bg-card/40 p-2.5 transition-colors hover:border-border hover:bg-card/70"
     >
+      {/* Toute la ligne ouvre le canvas ; le ▶ passe par-dessus. */}
+      <Link
+        to="/workflows/$workflowId"
+        params={{ workflowId: w.id }}
+        aria-label={`Ouvrir ${w.name}`}
+        className="absolute inset-0 rounded-xl"
+      />
       <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted text-muted-foreground">
         {w.coverUrl ? (
           <img src={w.coverUrl} alt="" className="h-full w-full object-cover" />
@@ -270,17 +285,20 @@ function WorkflowRow({ workflow: w }: { workflow: WorkflowSummary }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14px] font-medium">{w.name}</span>
-        <span className="block text-xs text-muted-foreground">
-          {w.inputCount} entrée{w.inputCount > 1 ? 's' : ''}
-        </span>
+        <span className="block truncate text-xs text-muted-foreground">{detail.join(' · ')}</span>
       </span>
-      <span
-        aria-label={`Lancer ${w.name}`}
-        className="grid h-8 w-8 place-items-center rounded-full bg-white/[0.06] text-foreground transition-colors group-hover:bg-white/[0.12]"
-      >
-        <Play className="h-3.5 w-3.5 fill-current" />
-      </span>
-    </Link>
+      {w.usableInThread && (
+        <Link
+          to="/nouveau"
+          search={{ workflow: w.id }}
+          aria-label={`Lancer ${w.name} dans un fil`}
+          title="Lancer dans un nouveau fil"
+          className="relative grid h-8 w-8 place-items-center rounded-full bg-white/[0.06] text-foreground transition-colors hover:bg-white/[0.16]"
+        >
+          <Play className="h-3.5 w-3.5 fill-current" />
+        </Link>
+      )}
+    </div>
   )
 }
 

@@ -106,7 +106,7 @@ export function NodePalette({ collapsed }: { collapsed: boolean }) {
         <div className="shrink-0 px-4 pt-3 pb-1">
           <h2 className="text-sm font-medium">Nœuds</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Glisse un nœud sur le canvas, ou clique pour l’ajouter au centre.
+            Glisse un nœud sur le canvas pour l'ajouter.
           </p>
         </div>
         <ScrollArea className="min-h-0 w-72 flex-1">

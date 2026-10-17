@@ -126,7 +126,7 @@ test('éditeur : @image d’une entrée « À fournir » en jaune (fournie au la
   await field.click()
   await page.keyboard.press('End')
   await page.keyboard.type(' @')
-  await expect(page.getByRole('listbox', { name: 'Images à citer' })).toContainText('Logo d’origine · fournie au lancement')
+  await expect(page.getByRole('listbox', { name: 'Images et listes à citer' })).toContainText('Logo d’origine · fournie au lancement')
 })
 
 test('éditeur : « Max » règle le nombre d’images d’une entrée, le formulaire en accepte autant', async ({ app, page }) => {

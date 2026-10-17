@@ -8,6 +8,10 @@ import type {
   CatalogResponse,
   DictationTokenResponse,
   CivitaiSearchResponse,
+  CivitaiWildcardListsResponse,
+  CivitaiWildcardSearchResponse,
+  ListRewriteQuoteResponse,
+  ListRewriteResponse,
   CivitaiSort,
   CreateGenerationResponse,
   CreditsResponse,
@@ -156,6 +160,15 @@ export const civitaiApi = {
   status: () => apiFetch<{ enabled: boolean }>('/civitai/status'),
   search: (q: { family?: string; query?: string; sort: CivitaiSort; nsfw: boolean; cursor?: string }) =>
     apiFetch<CivitaiSearchResponse>('/civitai/search', { query: q }),
+  wildcards: (q: { query?: string; cursor?: string }) =>
+    apiFetch<CivitaiWildcardSearchResponse>('/civitai/wildcards', { query: q }),
+  wildcardLists: (versionId: number) => apiFetch<CivitaiWildcardListsResponse>(`/civitai/wildcards/${versionId}`),
+}
+
+export const listsApi = {
+  rewriteQuote: (items: string[]) =>
+    apiFetch<ListRewriteQuoteResponse>('/lists/rewrite/quote', { method: 'POST', body: { items } }),
+  rewrite: (items: string[]) => apiFetch<ListRewriteResponse>('/lists/rewrite', { method: 'POST', body: { items } }),
 }
 
 export const libraryApi = {

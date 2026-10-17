@@ -32,13 +32,18 @@ import {
   WORKFLOW_NODES,
   WORKFLOW_TEXT_MODEL_DEFAULT,
   INPUT_MAX_IMAGES,
+  LIST_LIMITS,
   imageSlots,
+  listMaxOf,
+  listSlots,
+  type ListEntry,
   imagesCarried,
   resolveTask,
   type Asset,
   type CatalogFamily,
   type MediaKind,
   type TaskKind,
+  type WorkflowNodeResult,
   type WorkflowNodeType,
 } from '@sublime/shared'
 
@@ -57,10 +62,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { NodeShell, graphOf } from './NodeShell'
+import { NodeShell, graphOf, useListInfo } from './NodeShell'
+import { LotSelector, MediaLot, parseRatio } from './NodeLots'
+import { ListEditorDialog, ListRows, rawEntries } from './ListEditor'
+import { ListImportDialog, importedEntries } from './ListImport'
 import { MentionTextarea, type MentionOption } from './MentionTextarea'
 import { useDraft } from './useDraft'
-import { pickActive, useNodeResults, useWorkflowRun } from './WorkflowRun'
+import { doneLots, pickActive, resultOutputs, useNodeResults, useWorkflowRun } from './WorkflowRun'
 import { MediaViewer } from '@/components/thread/MediaViewer'
 import { formatUsd } from '@/lib/format'
 
@@ -225,7 +233,13 @@ function useMentionOptions(id: string): MentionOption[] | null {
   )
   if (!target) return null
   const graph = graphOf(nodes, edges)
-  return imageSlots(graph, target.target).map((slot) => {
+  // Listes reçues : « @liste1 », avec le nom affiché sous la liste.
+  const lists: MentionOption[] = listSlots(graph, target.target).map((slot) => {
+    const source = nodes.find((n) => n.id === slot.sourceId)
+    const name = source?.type === 'list' ? str(source.data.label).trim() : ''
+    return { kind: 'list', n: slot.n, label: name || (source ? WORKFLOW_NODES[source.type as WorkflowNodeType].label : 'Liste') }
+  })
+  const images: MentionOption[] = imageSlots(graph, target.target).map((slot) => {
     const source = nodes.find((n) => n.id === slot.sourceId)
     const type = source?.type as WorkflowNodeType | undefined
     // Entrée « À fournir » : son libellé, l'image arrivera au lancement.
@@ -238,6 +252,16 @@ function useMentionOptions(id: string): MentionOption[] | null {
           : 'Image'
     return { n: slot.n, label, pending: slot.pending }
   })
+  return [...images, ...lists]
+}
+
+/** « Tape @ pour citer une image (1 à 2) ou une liste (1). » */
+function MentionHint({ options }: { options: MentionOption[] }) {
+  const range = (n: number) => (n > 1 ? `1 à ${n}` : '1')
+  const images = options.filter((o) => o.kind !== 'list').length
+  const lists = options.filter((o) => o.kind === 'list').length
+  const parts = [images && `une image (${range(images)})`, lists && `une liste (${range(lists)})`].filter(Boolean)
+  return <p className="text-[11px] text-muted-foreground">Tape @ pour citer {parts.join(' ou ')}.</p>
 }
 
 function TextNode({ id, data, selected }: NodeProps) {
@@ -257,12 +281,7 @@ function TextNode({ id, data, selected }: NodeProps) {
         options={options}
         placeholder="Écris un prompt ou une consigne…"
       />
-      {options && options.length > 0 && (
-        <p className="text-[11px] text-muted-foreground">
-          Tape @ pour citer une image (
-          {options.length > 1 ? `1 à ${options.length}` : '1'}).
-        </p>
-      )}
+      {options && options.length > 0 && <MentionHint options={options} />}
       <ExposedField id={id} data={data} />
     </NodeShell>
   )
@@ -533,6 +552,85 @@ function LlmNode({ id, data, selected }: NodeProps) {
   )
 }
 
+// ── Liste ────────────────────────────────────────────────────
+
+/**
+ * Nœud Liste : des éléments écrits à la main (un par ligne), ou la réponse d'un Texte IA
+ * découpée en éléments. Le nœud qui la reçoit fait une passe par élément.
+ */
+function ListNode({ id, data, selected }: NodeProps) {
+  const set = useNodeData(id)
+  const edges = useEdges()
+  const { getNodes, getEdges } = useReactFlow()
+  const [editing, setEditing] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const fed = edges.some((e) => e.target === id && e.targetHandle === 'text')
+  const entries = rawEntries(data.items)
+  const setEntries = (items: ListEntry[]) => set({ items })
+  const max = listMaxOf({ id, type: 'list', position: { x: 0, y: 0 }, data })
+  const name = str(data.label).trim()
+  return (
+    <NodeShell id={id} type="list" selected={selected} caption={name || undefined}>
+      {fed ? (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-muted-foreground">
+            La réponse du Texte IA est découpée : un élément par ligne.
+          </p>
+          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            Au plus
+            <input
+              type="number"
+              aria-label="Nombre maximum d’éléments"
+              min={1}
+              max={LIST_LIMITS.max}
+              value={max}
+              onChange={(e) => set({ max: Number(e.target.value) })}
+              className={cn(FIELD, 'w-16 py-1 tabular-nums')}
+            />
+            éléments
+          </label>
+        </div>
+      ) : (
+        <>
+          <ListRows
+            entries={entries}
+            onChange={setEntries}
+            onOpen={() => setEditing(true)}
+            onImport={() => setImporting(true)}
+          />
+          <ListEditorDialog
+            open={editing}
+            onClose={() => setEditing(false)}
+            name={name}
+            onRename={(label) => set({ label })}
+            entries={entries}
+            onChange={setEntries}
+            listId={id}
+            getGraph={() => graphOf(getNodes(), getEdges())}
+            onImport={() => setImporting(true)}
+          />
+          <ListImportDialog
+            open={importing}
+            onClose={() => setImporting(false)}
+            hasEntries={entries.some((e) => e.text.trim())}
+            onImport={(lines, mode, imported) => {
+              const added = importedEntries(lines)
+              const kept = mode === 'append' ? entries.filter((e) => e.text.trim()) : []
+              set({
+                items: [...kept, ...added].slice(0, LIST_LIMITS.entries),
+                // Le nom vient de l'import : celui du pack, sauf si la liste en a déjà un.
+                ...(imported && (mode === 'replace' || !name) ? { label: imported } : {}),
+              })
+              // La modale montre ce qui a été activé, à ajuster.
+              setEditing(true)
+            }}
+          />
+        </>
+      )}
+    </NodeShell>
+  )
+}
+
 // ── Génération ───────────────────────────────────────────────
 
 /** Tâche déduite des entrées reliées (même règle que le composer). */
@@ -583,6 +681,15 @@ function GenerateNode({
     : Object.values(family?.tasks ?? {})[0]?.schema
   const fields = editableFields(schema)
   const changed = fields.filter(([k]) => params[k] !== undefined).length
+  // Forme de la zone d'image : le format choisi, sinon celui par défaut du modèle, sinon
+  // celui du dernier résultat, sinon carré.
+  const last = pickActive(useNodeResults(id), data.activeResultId)
+  const lastMedia = last ? resultOutputs(last)[0] : undefined
+  const ratio =
+    parseRatio(params.aspect_ratio) ??
+    parseRatio(schema?.properties?.aspect_ratio?.default) ??
+    (lastMedia?.width && lastMedia.height ? lastMedia.width / lastMedia.height : null) ??
+    (media === 'video' ? 16 / 9 : 1)
 
   return (
     <NodeShell
@@ -591,7 +698,8 @@ function GenerateNode({
       selected={selected}
     >
       <div className="flex items-center gap-1.5">
-        <div className="min-w-0 flex-1 rounded-lg border border-border/60 [&>button]:w-full [&>button]:justify-between">
+        {/* Le fond de survol du bouton suit l'arrondi du cadre. */}
+        <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border/60 [&>button]:w-full [&>button]:justify-between [&>button]:rounded-[7px]">
           <ModelPicker
             families={families}
             media={media}
@@ -656,7 +764,7 @@ function GenerateNode({
           </PopoverContent>
         </Popover>
       </div>
-      <NodeResults id={id} activeResultId={str(data.activeResultId)} />
+      <NodeResults id={id} activeResultId={str(data.activeResultId)} ratio={ratio} media={media} />
       {!familyId ? (
         <p className="text-[11px] text-muted-foreground">Choisis un modèle.</p>
       ) : task && !task.ok ? (
@@ -673,128 +781,71 @@ function GenerateNode({
 }
 
 /**
- * Résultats d'un nœud de génération : état de la dernière exécution, aperçu du
- * résultat actif (celui qui part aux nœuds suivants), puis l'historique en vignettes.
+ * Résultats d'un nœud de génération : état de la dernière exécution, puis le lot actif
+ * (celui qui part aux nœuds suivants) dans sa zone réservée, et le sélecteur de lots.
+ * Pendant une exécution du nœud, c'est le lot en cours qui s'affiche, rempli au fil de l'eau.
  */
 function NodeResults({
   id,
   activeResultId,
+  ratio,
+  media,
 }: {
   id: string
   activeResultId: string
+  ratio: number
+  media: MediaKind
 }) {
   const set = useNodeData(id)
   const results = useNodeResults(id)
-  const [viewing, setViewing] = useState(false)
+  const list = useListInfo(id)
   const latest = results[0]
-  const done = results.filter(
-    (r) => r.status === 'succeeded' && r.generation?.outputs.length,
-  )
+  const busy = latest?.status === 'pending' || latest?.status === 'running'
   const active = pickActive(results, activeResultId)
-  const media = active?.generation?.outputs[0]
+  const shown = busy ? latest : active
 
   return (
     <div className="space-y-2" data-testid="node-results">
-      {latest &&
-        (latest.status === 'pending' || latest.status === 'running') && (
-          <p className="flex items-center gap-1.5 text-[11px] text-sky-300">
-            <Loader2 className="h-3 w-3 animate-spin" />{' '}
-            {latest.status === 'pending'
-              ? 'En attente…'
-              : 'Génération en cours…'}
-          </p>
-        )}
-      {latest &&
-        (latest.status === 'failed' || latest.status === 'skipped') && (
-          <p
-            role="alert"
-            className="flex items-start gap-1.5 text-[11px] text-red-300"
-          >
-            <TriangleAlert className="mt-px h-3 w-3 shrink-0" />{' '}
-            {latest.errorMessage ?? 'Échec.'}
-          </p>
-        )}
-      {media && (
-        <>
-          <button
-            type="button"
-            onClick={() => setViewing(true)}
-            aria-label="Voir le résultat en grand"
-            className="block w-full overflow-hidden rounded-lg border border-border/40 bg-black/20"
-          >
-            {media.mediaType === 'video' ? (
-              <video
-                src={media.url}
-                muted
-                playsInline
-                loop
-                autoPlay
-                className="max-h-64 w-full object-contain"
-              />
-            ) : (
-              <img
-                src={media.url}
-                alt="Résultat"
-                draggable={false}
-                className="max-h-64 w-full object-contain"
-              />
-            )}
-          </button>
-          <MediaViewer
-            asset={viewing ? media : null}
-            onClose={() => setViewing(false)}
-          />
-        </>
+      {busy && (
+        <p className="flex items-center gap-1.5 text-[11px] text-sky-300">
+          <Loader2 className="h-3 w-3 animate-spin" />{' '}
+          {latest.status === 'pending' ? 'En attente…' : 'Génération en cours…'}
+        </p>
       )}
-      {done.length > 1 && (
-        <div
-          className="flex gap-1.5 overflow-x-auto pb-0.5"
-          aria-label="Historique des résultats"
-        >
-          {done.slice(0, 12).map((r) => {
-            const a = r.generation!.outputs[0]
-            const on = r.id === active?.id
-            return (
-              <button
-                key={r.id}
-                type="button"
-                aria-pressed={on}
-                aria-label="Utiliser ce résultat"
-                title="Utiliser ce résultat pour la suite"
-                onClick={() => set({ activeResultId: r.id })}
-                className={cn(
-                  'h-11 w-11 shrink-0 overflow-hidden rounded-md border-2 transition',
-                  on
-                    ? 'border-sky-400'
-                    : 'border-transparent opacity-60 hover:opacity-100',
-                )}
-              >
-                {a.mediaType === 'video' ? (
-                  <video
-                    src={a.url}
-                    muted
-                    preload="metadata"
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <img
-                    src={a.url}
-                    alt=""
-                    draggable={false}
-                    className="h-full w-full object-cover"
-                  />
-                )}
-              </button>
-            )
-          })}
-        </div>
+      <ResultError result={latest} />
+      {!busy && (
+        <LotSelector
+          lots={doneLots(results)}
+          activeId={active?.id}
+          onPick={(id) => set({ activeResultId: id })}
+          unit={media === 'video' ? 'vidéo' : 'image'}
+        />
       )}
-      {active?.cost && (
+      <MediaLot lot={shown} ratio={ratio} expected={list.ports.length ? list.size : null} />
+      {shown?.cost && !busy && (
         <p className="text-[11px] text-muted-foreground tabular-nums">
-          {formatUsd(active.cost)}
+          {formatUsd(shown.cost)}
         </p>
       )}
     </div>
+  )
+}
+
+/** Dernière exécution en échec (message rouge), ou lot réussi en partie (message orangé). */
+function ResultError({ result }: { result: WorkflowNodeResult | undefined }) {
+  if (!result?.errorMessage) return null
+  const failed = result.status === 'failed' || result.status === 'skipped'
+  if (!failed && result.status !== 'succeeded') return null
+  return (
+    <p
+      role="alert"
+      className={cn(
+        'flex items-start gap-1.5 text-[11px]',
+        failed ? 'text-red-300' : 'text-amber-300',
+      )}
+    >
+      <TriangleAlert className="mt-px h-3 w-3 shrink-0" /> {result.errorMessage}
+    </p>
   )
 }
 
@@ -812,9 +863,11 @@ function TextResults({
   const set = useNodeData(id)
   const results = useNodeResults(id)
   const latest = results[0]
-  const done = results.filter((r) => r.status === 'succeeded' && r.text)
   const active = pickActive(results, activeResultId)
   const [textFocused, setTextFocused] = useState(false)
+  // Lot d'une liste : un texte par élément.
+  const texts = active?.items?.filter((i) => i.status === 'succeeded' && i.text)
+  const copy = active?.text ?? texts?.map((i) => i.text).join('\n\n') ?? ''
   return (
     <div className="space-y-2" data-testid="node-results">
       {latest &&
@@ -826,17 +879,14 @@ function TextResults({
               : 'Rédaction en cours…'}
           </p>
         )}
-      {latest &&
-        (latest.status === 'failed' || latest.status === 'skipped') && (
-          <p
-            role="alert"
-            className="flex items-start gap-1.5 text-[11px] text-red-300"
-          >
-            <TriangleAlert className="mt-px h-3 w-3 shrink-0" />{' '}
-            {latest.errorMessage ?? 'Échec.'}
-          </p>
-        )}
-      {active?.text && (
+      <ResultError result={latest} />
+      <LotSelector
+        lots={doneLots(results)}
+        activeId={active?.id}
+        onPick={(id) => set({ activeResultId: id })}
+        unit="texte"
+      />
+      {copy && (
         <div className="relative">
           <p
             data-testid="node-text-result"
@@ -849,12 +899,19 @@ function TextResults({
               textFocused && 'nowheel',
             )}
           >
-            {active.text}
+            {texts
+              ? texts.map((i, n) => (
+                  <span key={n} className="block border-b border-border/30 py-1 first:pt-0 last:border-0 last:pb-0">
+                    <span className="block text-[10px] text-orange-400">{i.label}</span>
+                    {i.text}
+                  </span>
+                ))
+              : active?.text}
           </p>
           <button
             type="button"
             onClick={() => {
-              void navigator.clipboard.writeText(active.text!)
+              void navigator.clipboard.writeText(copy)
               toast.success('Texte copié')
             }}
             aria-label="Copier le texte"
@@ -863,27 +920,6 @@ function TextResults({
           >
             <Copy className="h-3 w-3" />
           </button>
-        </div>
-      )}
-      {done.length > 1 && (
-        <div className="flex flex-wrap gap-1" aria-label="Versions du texte">
-          {[...done].reverse().map((r, i) => (
-            <button
-              key={r.id}
-              type="button"
-              aria-pressed={r.id === active?.id}
-              aria-label={`Utiliser la version ${i + 1}`}
-              onClick={() => set({ activeResultId: r.id })}
-              className={cn(
-                'h-6 min-w-6 rounded-md px-1.5 text-[11px] tabular-nums transition',
-                r.id === active?.id
-                  ? 'bg-sky-400 text-black'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
-            >
-              v{i + 1}
-            </button>
-          ))}
         </div>
       )}
       {active?.cost && (
@@ -921,10 +957,8 @@ function useFinalMedia(id: string): Asset[] {
       } else {
         const results =
           state?.results.filter((r) => r.nodeId === source.id) ?? []
-        media.push(
-          ...(pickActive(results, source.data.activeResultId)?.generation
-            ?.outputs ?? []),
-        )
+        const active = pickActive(results, source.data.activeResultId)
+        if (active) media.push(...resultOutputs(active))
       }
     }
   }
@@ -990,6 +1024,7 @@ function OutputNode({ id, selected }: NodeProps) {
             </div>
           )}
           <MediaViewer
+            addReference
             asset={viewing !== null ? (media[viewing] ?? null) : null}
             onClose={() => setViewing(null)}
             onPrev={
@@ -1028,6 +1063,7 @@ export const nodeTypes: NodeTypes & Record<WorkflowNodeType, unknown> = {
   'image-gen': ImageGenNode,
   'video-gen': VideoGenNode,
   output: OutputNode,
+  list: ListNode,
 }
 
 /** Réglages d'un nœud tout juste ajouté. */

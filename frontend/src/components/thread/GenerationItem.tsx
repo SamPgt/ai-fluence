@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
-  BookmarkPlus,
   Clapperboard,
   Download,
   Loader2,
@@ -23,7 +22,7 @@ import {
   type GenerationRequest,
 } from '@sublime/shared'
 
-import { assetsApi, generationsApi } from '@/lib/api'
+import { generationsApi } from '@/lib/api'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +42,7 @@ import { AssetThumb } from '@/components/composer/ReferencePicker'
 import { formatOption } from '@/components/composer/ParamFields'
 import { ProviderLogo } from '@/components/composer/ModelPicker'
 import { MediaViewer } from './MediaViewer'
+import { AddReferenceMenu } from './AddReferenceMenu'
 import { outputKey, refKey, useThreadMedia } from './ThreadMedia'
 import { UpscaleDialog } from './UpscaleDialog'
 import { RelaunchDialog } from './RelaunchDialog'
@@ -146,22 +146,6 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
         ? `≈ ${formatUsd(estimate)}`
         : null
 
-  // « Ajouter aux références » : d'un persona choisi dans le menu, ou de Général.
-  const toReference = useMutation({
-    mutationFn: ({
-      asset,
-      owner,
-    }: {
-      asset: Asset
-      owner: { id: string; name: string }
-    }) => assetsApi.setReference(asset.id, owner.id, true),
-    onSuccess: (_, { owner }) => {
-      toast.success(`Ajoutée aux références : ${owner.name}`)
-      queryClient.invalidateQueries({ queryKey: ['references'] })
-      queryClient.invalidateQueries({ queryKey: qk.personas })
-    },
-    onError: (e) => toast.error((e as Error).message),
-  })
 
   const families = catalog?.families.filter((f) => f.available) ?? []
   /**
@@ -252,29 +236,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
           </ActionButton>
         </>
       )}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            title="Ajouter aux références"
-            aria-label="Ajouter aux références"
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition hover:bg-black/80"
-          >
-            <BookmarkPlus className="h-3.5 w-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-44">
-          {[...personas, { id: 'general', name: 'Général' }].map((o) => (
-            <DropdownMenuItem
-              key={o.id}
-              onSelect={() => toReference.mutate({ asset, owner: o })}
-              className="text-xs"
-            >
-              {o.name}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <AddReferenceMenu
+        asset={asset}
+        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition hover:bg-black/80"
+      />
       <a
         href={`${asset.url}?download=1`}
         title="Télécharger"

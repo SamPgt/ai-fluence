@@ -23,6 +23,8 @@ export interface ChatRequest {
   text: string;
   /** Images (ids de médias du compte), lues par le modèle. */
   imageIds: string[];
+  /** Longueur maximale de la réponse (par défaut, celle d'une description). */
+  maxTokens?: number;
 }
 
 /**
@@ -36,7 +38,7 @@ export async function estimateChat(userId: string, req: ChatRequest): Promise<st
   if (!model?.enabled) throw new HTTPException(400, { message: `Le modèle de texte ${req.model} n’est pas disponible avec cette clé.` });
   const pricing = (model.pricing ?? []) as { unit?: string; price?: string }[];
   const per1k = Number(pricing.find(p => p.unit === 'per_1k_tokens')?.price ?? 0);
-  const tokens = 500 + req.text.length / 3 + req.imageIds.length * 1000 + MAX_TOKENS;
+  const tokens = 500 + req.text.length / 3 + req.imageIds.length * 1000 + (req.maxTokens ?? MAX_TOKENS);
   return String(Number(((tokens / 1000) * per1k).toFixed(6)));
 }
 
@@ -69,7 +71,7 @@ export async function runChat(userId: string, req: ChatRequest): Promise<{ text:
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: req.model,
-      max_tokens: MAX_TOKENS,
+      max_tokens: req.maxTokens ?? MAX_TOKENS,
       messages: [
         { role: 'system', content: req.system },
         {
