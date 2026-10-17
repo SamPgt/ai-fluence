@@ -145,3 +145,31 @@ test('visionneuse de la galerie : les flèches passent d’une image à l’autr
   await expect(viewer.locator('img')).toHaveAttribute('src', first!)
   await expect(viewer.getByRole('button', { name: 'Précédente' })).toBeDisabled()
 })
+
+test('depuis l’Accueil, une image ouvre la galerie posée sur elle, en haut de l’écran', async ({ app, page }) => {
+  for (let i = 1; i <= 8; i++) await app.generate({ prompt: `image ${i}` })
+  // Écran bas : la plus ancienne des huit images de l'Accueil est hors de la première vue de la galerie.
+  await page.setViewportSize({ width: 900, height: 420 })
+  await page.goto('/')
+  const target = page.locator('a[href^="/galerie?a="]').filter({ has: page.locator('img[alt="image 1"]') })
+  const href = (await target.getAttribute('href'))!
+  const id = new URL(href, 'http://x').searchParams.get('a')!
+  await target.click()
+  await expect(page).toHaveURL(new RegExp(`/galerie\\?a=${id}`))
+  const offset = () =>
+    page.evaluate((a) => {
+      const zone = document.querySelector('[data-testid="gallery-scroll"]')
+      const node = document.querySelector(`[data-asset-id="${a}"]`)
+      // Galerie pas encore affichée.
+      if (!zone || !node) return { top: Infinity, scrolled: 0 }
+      return { top: node.getBoundingClientRect().top - zone.getBoundingClientRect().top, scrolled: zone.scrollTop }
+    }, id)
+  // Posée en haut, avec une petite marge ; et elle y reste pendant le chargement des images.
+  await expect.poll(async () => (await offset()).top).toBeLessThan(12)
+  await page.waitForTimeout(600)
+  const { top, scrolled } = await offset()
+  expect(top).toBeGreaterThanOrEqual(0)
+  // Moins que l'écart entre deux images : la rangée du dessus n'apparaît pas.
+  expect(top).toBeLessThan(12)
+  expect(scrolled).toBeGreaterThan(0)
+})

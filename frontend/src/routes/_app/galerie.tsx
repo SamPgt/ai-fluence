@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Film, Loader2, Workflow } from 'lucide-react'
@@ -23,8 +23,14 @@ const GALLERY_CAPTION =
   'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 pt-6 pb-2 text-[11px] text-white/90 opacity-0 transition group-hover:opacity-100'
 
 export const Route = createFileRoute('/_app/galerie')({
+  // Arrivée depuis une image (?a=<id> : Accueil) : la galerie s'ouvre sur elle.
+  validateSearch: (search: Record<string, unknown>): { a?: string } =>
+    typeof search.a === 'string' && search.a ? { a: search.a } : {},
   component: GalleryPage,
 })
+
+/** Pages chargées au plus pour retrouver l'image visée. */
+const TARGET_MAX_PAGES = 5
 
 function GalleryPage() {
   const [personaId, setPersonaId] = useState<string | null>(null)
@@ -45,6 +51,57 @@ function GalleryPage() {
     getNextPageParam: (last) => last.nextBefore,
   })
   const items = query.data?.pages.flatMap((p) => p.items) ?? []
+
+  // Image visée : posée en haut de la zone (petite marge), et gardée là pendant que les
+  // images au-dessus se chargent (elles changent la mise en page), jusqu'au premier geste.
+  const { a: target } = Route.useSearch()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const pinned = useRef<string | null>(null)
+  // Image déjà atteinte : un rechargement des données ne ramène plus dessus.
+  const reached = useRef<string | null>(null)
+  const goToTarget = (id: string) => {
+    const el = scrollRef.current
+    const node = el?.querySelector<HTMLElement>(`[data-asset-id="${CSS.escape(id)}"]`)
+    if (!el || !node) return false
+    // Marge plus petite que l'écart entre deux images (12 px) : l'image du dessus ne dépasse pas.
+    el.scrollTop += node.getBoundingClientRect().top - el.getBoundingClientRect().top - 6
+    return true
+  }
+  useEffect(() => {
+    if (!target || !query.data || reached.current === target) return
+    if (goToTarget(target)) {
+      reached.current = target
+      pinned.current = target
+    } else if (query.hasNextPage && !query.isFetchingNextPage && query.data.pages.length < TARGET_MAX_PAGES) {
+      // Plus ancienne que la première page : on charge la suite.
+      void query.fetchNextPage()
+    }
+  }, [target, query.data]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const el = scrollRef.current
+    const content = contentRef.current
+    if (!el || !content) return
+    const release = () => {
+      pinned.current = null
+    }
+    const observer = new ResizeObserver(() => {
+      if (pinned.current) goToTarget(pinned.current)
+    })
+    observer.observe(content)
+    el.addEventListener('wheel', release, { passive: true })
+    el.addEventListener('touchstart', release, { passive: true })
+    el.addEventListener('keydown', release)
+    el.addEventListener('pointerdown', release)
+    return () => {
+      observer.disconnect()
+      el.removeEventListener('wheel', release)
+      el.removeEventListener('touchstart', release)
+      el.removeEventListener('keydown', release)
+      el.removeEventListener('pointerdown', release)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const viewIndex = viewing
     ? items.findIndex((i) => i.asset.id === viewing)
     : -1
@@ -98,7 +155,7 @@ function GalleryPage() {
       >
         <span className="text-sm font-medium">Galerie</span>
       </PageHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div ref={scrollRef} data-testid="gallery-scroll" className="min-h-0 flex-1 overflow-y-auto p-4">
         {query.isLoading && (
           <Loader2 className="mx-auto mt-20 h-5 w-5 animate-spin text-muted-foreground" />
         )}
@@ -107,11 +164,12 @@ function GalleryPage() {
             Rien ici pour l’instant.
           </p>
         )}
-        <div className="columns-2 gap-3 sm:columns-3 lg:columns-4 xl:columns-5">
+        <div ref={contentRef} className="columns-2 gap-3 sm:columns-3 lg:columns-4 xl:columns-5">
           {items.map(({ asset, generation }) => (
             <div
               key={asset.id}
               data-testid="gallery-item"
+              data-asset-id={asset.id}
               className="group relative mb-3 break-inside-avoid overflow-hidden rounded-xl border border-border/40"
             >
               <button

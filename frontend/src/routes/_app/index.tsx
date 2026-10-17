@@ -128,15 +128,9 @@ function HomePage() {
                   {latest.map(({ asset, generation }) => (
                     <Link
                       key={asset.id}
-                      to={generation?.threadId ? '/t/$threadId' : '/galerie'}
-                      params={
-                        generation?.threadId
-                          ? { threadId: generation.threadId }
-                          : undefined
-                      }
-                      search={
-                        generation?.threadId ? { g: generation.id } : undefined
-                      }
+                      // La galerie s'ouvre sur cette image.
+                      to="/galerie"
+                      search={{ a: asset.id }}
                       className="aspect-[4/3] overflow-hidden rounded-xl bg-muted"
                     >
                       <img
