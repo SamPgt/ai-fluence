@@ -63,8 +63,7 @@ import {
   ResolutionToggle,
   Stepper,
 } from './ComposerControls'
-import { formatOption, ParamsPopover } from './ParamFields'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ParamsPopover } from './ParamFields'
 import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 import { TraitPicker } from './TraitPicker'
@@ -936,7 +935,6 @@ ${prompt}` : prompt)
   // Réglages rapides de la barre (les autres restent dans le panneau Paramètres).
   const resolutionProp = schema?.properties?.resolution
   const ratioProp = schema?.properties?.aspect_ratio
-  const modelProp = schema?.properties?.model
   const duration = durationControl(
     schema?.properties?.duration_seconds,
     params.duration_seconds,
@@ -1612,7 +1610,12 @@ ${prompt}` : prompt)
                 media={media}
                 families={families}
                 value={state.family}
-                onChange={composer.setFamily}
+                model={typeof params.model === 'string' ? params.model : null}
+                onChange={(id, file) => {
+                  composer.setFamily(id)
+                  // Variante d'un modèle local, choisie sous sa ligne dans le menu.
+                  if (file) composer.setParam(id, 'model', file)
+                }}
                 // Pastille seulement si ce persona a des LoRA pour ce modèle.
                 lora={
                   personaLoras.length
@@ -1644,24 +1647,6 @@ ${prompt}` : prompt)
                   }
                   onChange={(v) => setParam('resolution', v)}
                 />
-              )}
-              {/* Modèle local : variante du fichier de diffusion (Paramètres → Modèles locaux), s'il y a le choix. */}
-              {modelProp?.enum && modelProp.enum.length > 1 && (
-                <Select
-                  value={String(params.model ?? modelProp.default ?? modelProp.enum[0])}
-                  onValueChange={(v) => setParam('model', v)}
-                >
-                  <SelectTrigger size="sm" className="h-8 max-w-44 rounded-full text-xs" title="Variante du modèle (fichier de ComfyUI)">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modelProp.enum.map((m) => (
-                      <SelectItem key={String(m)} value={String(m)}>
-                        {formatOption('model', m)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               )}
               {ratioProp?.enum && (
                 <AspectRatioPicker

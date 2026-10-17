@@ -25,6 +25,7 @@ import {
 } from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
+import { formatOption } from './ParamFields'
 import { useUiPref } from '@/components/providers/ui-prefs'
 import {
   Popover,
@@ -148,31 +149,49 @@ function MiniBadge({
   )
 }
 
+/** Fichiers au choix d'un modèle local (Paramètres → Modèles locaux), le préféré en premier ; vide s'il n'y en a qu'un. */
+function variantsOf(f: CatalogFamily): string[] {
+  const prop = Object.values(f.tasks)[0]?.schema.properties?.model
+  const files = (prop?.enum ?? []).map(String)
+  return files.length > 1 ? files : []
+}
+
 function ModelRow({
   family: f,
   selected,
   pinned,
   onSelect,
   onTogglePin,
+  model,
+  onSelectVariant,
 }: {
   family: CatalogFamily
   selected: boolean
   pinned: boolean
   onSelect: () => void
   onTogglePin: () => void
+  /** Fichier choisi pour ce modèle (modèle local sélectionné). */
+  model?: string | null
+  /** Modèle local à plusieurs fichiers : la ligne se déplie sur ses variantes. */
+  onSelectVariant?: (file: string) => void
 }) {
   const refs = imageInputInfo(f.media, f.tasks, 'reference').max
   const voices = f.media === 'video' ? audioInputInfo(f.tasks) : null
+  const variants = onSelectVariant ? variantsOf(f) : []
+  const [expanded, setExpanded] = useState(false)
+  // Clic : déplie les variantes s'il y en a (le choix se fait dessous), sinon choisit le modèle.
+  const activate = variants.length ? () => setExpanded((e) => !e) : onSelect
   return (
+    <>
     <div
       role="menuitemradio"
       aria-checked={selected}
       tabIndex={0}
-      onClick={onSelect}
+      onClick={activate}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          onSelect()
+          activate()
         }
       }}
       className="group/row mx-1 flex h-[53px] cursor-pointer items-start gap-2 rounded-xl p-2 outline-none hover:bg-white/[0.05] focus-visible:bg-white/[0.05]"
@@ -230,9 +249,36 @@ function ModelRow({
         >
           <Pin className={cn('size-3.5', pinned && 'fill-current')} />
         </button>
-        {selected && <Check className="size-4 shrink-0" />}
+        {variants.length > 0 ? (
+          <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')} />
+        ) : (
+          selected && <Check className="size-4 shrink-0" />
+        )}
       </div>
     </div>
+    {expanded && (
+      <div className="mx-1 mb-1 ml-11 flex flex-col border-l border-border/60 pl-1.5">
+        {variants.map((file, i) => {
+          const chosen = selected && (model ? model === file : i === 0)
+          return (
+            <button
+              key={file}
+              type="button"
+              onClick={() => onSelectVariant!(file)}
+              className="flex h-8 items-center justify-between gap-2 rounded-lg px-2 text-left text-[12px] text-foreground/90 hover:bg-white/[0.05]"
+              title={file}
+            >
+              <span className="truncate">
+                {formatOption('model', file)}
+                {i === 0 && <span className="ml-1.5 text-muted-foreground">· par défaut</span>}
+              </span>
+              {chosen && <Check className="size-3.5 shrink-0" />}
+            </button>
+          )
+        })}
+      </div>
+    )}
+    </>
   )
 }
 
@@ -318,6 +364,7 @@ export function ModelPicker({
   families,
   media,
   value,
+  model,
   onChange,
   lora,
   trigger,
@@ -327,7 +374,10 @@ export function ModelPicker({
   /** Seuls les modèles de ce type sont proposés (la bascule photo / vidéo choisit le type). */
   media: MediaKind
   value: string | null
-  onChange: (id: string) => void
+  /** Fichier choisi pour le modèle local sélectionné (variantes affichées sous sa ligne). */
+  model?: string | null
+  /** `model` : variante choisie d'un modèle local (absent : celle par défaut). */
+  onChange: (id: string, model?: string) => void
   /** Le persona a des LoRA pour ce modèle : pastille violette. `active` = mots des LoRA cochées. */
   lora?: { active: string[] } | null
   /** Bouton d'ouverture personnalisé (ex. champ de modèle par défaut). */
@@ -344,8 +394,8 @@ export function ModelPicker({
   const current = families.find((f) => f.id === value)
   const isLora = (f: CatalogFamily) => f.badges.includes('LORA')
 
-  const choose = (id: string) => {
-    onChange(id)
+  const choose = (id: string, file?: string) => {
+    onChange(id, file)
     setOpen(false)
     setSub(null)
     setQuery('')
@@ -365,6 +415,8 @@ export function ModelPicker({
       pinned={pinnedIds.includes(f.id)}
       onSelect={() => choose(f.id)}
       onTogglePin={() => togglePin(f.id)}
+      model={f.id === value ? model : null}
+      onSelectVariant={f.runtime === 'comfy' ? (file) => choose(f.id, file) : undefined}
     />
   )
 
@@ -428,6 +480,11 @@ export function ModelPicker({
             <span className="max-w-40 truncate">
               {current?.label ?? TEXT.choose}
             </span>
+            {current && model && variantsOf(current).length > 0 && model !== variantsOf(current)[0] && (
+              <span className="max-w-28 truncate text-muted-foreground" title={model}>
+                {formatOption('model', model)}
+              </span>
+            )}
             {lora && (
               <span
                 title={
