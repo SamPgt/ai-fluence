@@ -16,7 +16,7 @@ import {
   type Generation,
   type Persona,
   type ReferencePose,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { assetsApi, mastersApi } from '@/lib/api'
 import { qk } from '@/lib/queries'

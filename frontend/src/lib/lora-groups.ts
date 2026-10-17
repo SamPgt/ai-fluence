@@ -6,7 +6,7 @@ import type {
   CivitaiLora,
   PersonaLora,
   PersonaLoraGroup,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 type Available = PersonaLoraGroup['available'][number]
 

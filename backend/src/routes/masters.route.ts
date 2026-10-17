@@ -14,7 +14,7 @@ import {
   type MasterVariant,
   REFERENCE_POSES,
   type ReferencePoses,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, generations, libraryOptions, personas, places, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';

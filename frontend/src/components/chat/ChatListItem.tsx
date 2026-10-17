@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ImageIcon, Pin, Trash2 } from 'lucide-react'
-import type { Thread } from '@ai-fluence/shared'
+import type { Thread } from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
-import { formatUsd } from '@/lib/format'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { InlineEdit } from '@/components/ui/inline-edit'
 import { useRenameThread } from '@/components/thread/useRenameThread'
@@ -44,7 +43,7 @@ export function ChatListItem({
         className={cn(
           // Focus clavier doux, comme les champs texte des modales, tracé à l'intérieur :
           // la zone de défilement (overflow obligatoire pour scroller) ne peut plus le couper.
-          'relative flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-[color,background-color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
+          'relative flex items-center gap-2.5 rounded-lg px-2 py-1 text-sm transition-[color,background-color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset',
           isActive
             ? 'bg-accent text-accent-foreground'
             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
@@ -54,12 +53,12 @@ export function ChatListItem({
           <img
             src={thread.coverUrl}
             alt=""
-            className="h-8 w-8 shrink-0 rounded-md object-cover"
+            className="h-6.5 w-6.5 shrink-0 rounded-md object-cover"
             loading="lazy"
           />
         ) : (
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
-            <ImageIcon className="h-3.5 w-3.5" />
+          <span className="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-md bg-muted">
+            <ImageIcon className="h-3 w-3" />
           </span>
         )}
         <span className="min-w-0 flex-1">
@@ -78,11 +77,6 @@ export function ChatListItem({
               {thread.title}
             </span>
           )}
-          <span className="block text-[11px] text-muted-foreground/70">
-            {thread.generationCount} génération
-            {thread.generationCount > 1 ? 's' : ''} ·{' '}
-            {formatUsd(thread.totalCost)}
-          </span>
         </span>
       </Link>
 

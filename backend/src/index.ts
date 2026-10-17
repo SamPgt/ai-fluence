@@ -4,14 +4,22 @@ import { sql } from 'drizzle-orm';
 import app from './app.js';
 import { env } from './env.js';
 import { client, db } from './db/index.js';
+import { runMigrations } from './db/migrate.js';
 import { resumeWatchers } from './services/generation.service.js';
 import { pollThumbnails } from './services/thumbnail.service.js';
 import { schedulePurge } from './services/trash.service.js';
+import { resumeRuns } from './services/workflow-runner.service.js';
 
 async function main() {
+  // Garde-fou : un serveur de test ne parle jamais au vrai SpicyAPI (aucun coût).
+  if (env.NODE_ENV === 'test' && !env.SPICY_FAKE) {
+    throw new Error('Refus : en NODE_ENV=test, SPICY_FAKE doit être actif.');
+  }
   await db.execute(sql`select 1`);
   const dbUrl = new URL(env.DATABASE_URL);
   console.log(`Connecté à PostgreSQL (${dbUrl.pathname.slice(1)}@${dbUrl.hostname})`);
+  // Avant tout le reste : le code qui suit peut compter sur les dernières tables.
+  await runMigrations();
 
   await mkdir(env.DATA_DIR, { recursive: true });
   console.log(`📁 Données locales : ${env.DATA_DIR}`);
@@ -21,6 +29,7 @@ async function main() {
 
   await resumeWatchers();
   void pollThumbnails();
+  await resumeRuns();
   schedulePurge();
 
   const shutdown = async () => {

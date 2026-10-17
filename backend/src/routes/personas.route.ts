@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { CONTEXT_BLOCK_MAX } from '@ai-fluence/shared';
+import { CONTEXT_BLOCK_STORED_MAX } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, personas } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
@@ -12,7 +12,8 @@ import { trashPersona } from '../services/trash.service.js';
 import { cancelCreation, convertSpeech, copyVoice, createVoice, decideCandidate, importVoice, listVoices, getVoice, listenSpeech, previewVoice, updateVoice } from '../services/voice.service.js';
 import type { AppEnv } from '../types.js';
 
-const loraSchema = z.object({
+/** LoRA d'un persona, ou de Général (settings.route). */
+export const loraSchema = z.object({
   id: z.string().optional(),
   label: z.string().trim().max(60).default(''),
   path: z.url({ protocol: /^https$/, message: 'Lien https direct vers le .safetensors' }),
@@ -44,23 +45,54 @@ const loraSchema = z.object({
 const contextBlockSchema = z.object({
   id: z.string().optional(),
   title: z.string().trim().max(60).default(''),
-  text: z.string().max(CONTEXT_BLOCK_MAX).default(''),
+  text: z.string().max(CONTEXT_BLOCK_STORED_MAX).default(''),
 });
 
-const personaSchema = z.object({
-  name: z.string().trim().min(1).max(40),
-  // Sans valeur par défaut : une mise à jour partielle ne doit pas l'effacer.
-  gender: z.enum(['female', 'male']).nullable().optional(),
-  color: z.string().regex(/^#[0-9a-f]{6}$/i).default('#8b5cf6'),
-  avatarAssetId: z.uuid().nullable().default(null),
-  contextBlocks: z.array(contextBlockSchema).max(10).default([]),
-  loras: z.array(loraSchema).max(12).default([]),
-  defaultImageFamily: z.string().nullable().default(null),
-  defaultVideoFamily: z.string().nullable().default(null),
+const voiceSchema = z.object({
+  id: z.string().optional(),
+  voiceId: z.string().trim().min(1).max(100),
+  publicOwnerId: z.string().trim().max(200).optional(),
+  name: z.string().trim().min(1).max(100),
+  previewUrl: z.url({ protocol: /^https$/ }).nullable().default(null),
+  labels: z.record(z.string().max(40), z.string().max(80)).default({}),
+  description: z.string().max(500).optional(),
 });
+
+const personaFields = {
+  name: z.string().trim().min(1).max(40),
+  kind: z.enum(['influencer', 'artistic']),
+  /** Genre du personnage (créateur de personnage) : accorde le prompt et choisit les miniatures des traits. */
+  gender: z.enum(['female', 'male']).nullable(),
+  color: z.string().regex(/^#[0-9a-f]{6}$/i),
+  avatarAssetId: z.uuid().nullable(),
+  contextBlocks: z.array(contextBlockSchema).max(10),
+  loras: z.array(loraSchema).max(12),
+  /** Pas de limite métier : borne technique seulement. */
+  voices: z.array(voiceSchema).max(100),
+  defaultImageFamily: z.string().nullable(),
+  defaultVideoFamily: z.string().nullable(),
+};
+
+/** Création : valeurs par défaut pour les champs absents. */
+const personaSchema = z.object({
+  ...personaFields,
+  kind: personaFields.kind.default('influencer'),
+  // Sans valeur par défaut : absent, il reste non précisé.
+  gender: personaFields.gender.optional(),
+  color: personaFields.color.default('#8b5cf6'),
+  avatarAssetId: personaFields.avatarAssetId.default(null),
+  contextBlocks: personaFields.contextBlocks.default([]),
+  loras: personaFields.loras.default([]),
+  voices: personaFields.voices.default([]),
+  defaultImageFamily: personaFields.defaultImageFamily.default(null),
+  defaultVideoFamily: personaFields.defaultVideoFamily.default(null),
+});
+
+/** Modification : seuls les champs envoyés changent (aucune valeur par défaut). */
+const personaUpdateSchema = z.object(personaFields).partial();
 
 /** Garantit un id stable à chaque LoRA et à chaque bloc de contexte. */
-const withIds = <T extends { id?: string }>(items: T[]) => items.map(i => ({ ...i, id: i.id || randomUUID() }));
+export const withIds = <T extends { id?: string }>(items: T[]) => items.map(i => ({ ...i, id: i.id || randomUUID() }));
 
 const refCount = sql<number>`(select count(*)::int from assets a where a.persona_id = "personas"."id" and a.is_reference)`;
 
@@ -95,13 +127,14 @@ const personasRoutes = new Hono<AppEnv>()
         ...body,
         loras: withIds(body.loras),
         contextBlocks: withIds(body.contextBlocks),
+        voices: withIds(body.voices),
         userId: user.id,
         position,
       })
       .returning();
     return c.json({ persona: toPersona(row) }, 201);
   })
-  .patch('/:id', zValidator('json', personaSchema.partial()), async c => {
+  .patch('/:id', zValidator('json', personaUpdateSchema), async c => {
     const user = c.get('user');
     // Avec Zod 4, `.partial()` applique les valeurs par défaut aux champs absents : sans ce filtre,
     // renommer un persona remettrait à zéro son type, sa couleur, sa description… On ne garde que les champs envoyés.
@@ -110,13 +143,14 @@ const personasRoutes = new Hono<AppEnv>()
       typeof c.req.valid<'json'>
     >;
     if (!(await assertAvatar(user.id, body.avatarAssetId))) return c.json({ error: 'Avatar introuvable.' }, 400);
-    const { loras, contextBlocks, ...rest } = body;
+    const { loras, contextBlocks, voices, ...rest } = body;
     const [row] = await db
       .update(personas)
       .set({
         ...rest,
         ...(loras ? { loras: withIds(loras) } : {}),
         ...(contextBlocks ? { contextBlocks: withIds(contextBlocks) } : {}),
+        ...(voices ? { voices: withIds(voices) } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(personas.id, c.req.param('id')), eq(personas.userId, user.id), isNull(personas.deletedAt)))

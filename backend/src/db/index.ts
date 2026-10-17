@@ -7,6 +7,8 @@ const client = postgres(env.DATABASE_URL, {
   max: 10,
   idle_timeout: 20,
   connect_timeout: 10,
+  // Pas de NOTICE Postgres dans la console (« relation already exists, skipping »… à chaque démarrage).
+  onnotice: () => {},
 });
 
 export const db = drizzle(client, { schema });

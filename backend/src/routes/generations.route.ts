@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import type { PriceChangedResponse } from '@ai-fluence/shared';
+import type { PriceChangedResponse } from '@sublime/shared';
+import { and, eq, isNull } from 'drizzle-orm';
+import { db } from '../db/index.js';
+import { generations, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import {
   PriceChangedError,
@@ -16,8 +19,9 @@ import { autofixImage, detectParts, retouchImage } from '../services/retouch.ser
 import type { AppEnv } from '../types.js';
 
 const generationSchema = z.object({
-  threadId: z.uuid().nullable().optional(),
+  // Personnage actif du composer (facultatif) : son genre, sa voix. Le fil, lui, n'appartient à aucun persona.
   personaId: z.uuid().nullable().optional(),
+  threadId: z.uuid().nullable().optional(),
   family: z.string().min(3),
   refMode: z.enum(['start-frame', 'reference']).optional(),
   // Sans espaces ni retours à la ligne aux extrémités (sinon une ligne vide apparaît dans la bulle).
@@ -39,6 +43,8 @@ const generationSchema = z.object({
   loraIds: z.array(z.string().max(64)).max(12).optional(),
   loraWords: z.record(z.string().max(64), z.array(z.string().max(60)).max(20)).optional(),
   expectedCost: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+  /** Voix du persona (id dans le persona), envoyée comme référence si le modèle l'accepte. */
+  voiceId: z.string().max(64).optional(),
 });
 
 const upscaleSchema = z.object({
@@ -127,10 +133,41 @@ const generationsRoutes = new Hono<AppEnv>()
     if (!generation) return c.json({ error: 'Génération introuvable.' }, 404);
     return c.json({ generation });
   })
-  /** Retire la demande et ses résultats de l'app (les fichiers restent sur le disque). */
-  .delete('/:id', async c => {
+  /**
+   * Supprimer le résultat (ou tout le lot avec `?batch=true`) du fil : la demande
+   * reste, ses images sont masquées partout. Réversible (restore).
+   */
+  .delete('/:id', zValidator('query', z.object({ batch: z.stringbool().optional() })), async c => {
+    const ids = await setRemoved(c.get('user').id, c.req.param('id'), Boolean(c.req.valid('query').batch), new Date());
+    if (!ids) return c.json({ error: 'Génération introuvable.' }, 404);
+    return c.json({ ids });
+  })
+  /** Arrête une génération locale en cours : annulée dans ComfyUI, retirée de l'app (les fichiers restent sur le disque). */
+  .post('/:id/cancel', async c => {
     await deleteGeneration(c.get('user'), c.req.param('id'));
     return c.json({ ok: true });
+  })
+  .post('/:id/restore', zValidator('query', z.object({ batch: z.stringbool().optional() })), async c => {
+    const ids = await setRemoved(c.get('user').id, c.req.param('id'), Boolean(c.req.valid('query').batch), null);
+    if (!ids) return c.json({ error: 'Génération introuvable.' }, 404);
+    return c.json({ ids });
   });
+
+/** Marque (ou démarque) une génération, ou tout son lot, comme supprimée du fil. */
+async function setRemoved(userId: string, id: string, batch: boolean, removedAt: Date | null): Promise<string[] | null> {
+  const [row] = await db
+    .select({ id: generations.id, batchId: generations.batchId, threadId: generations.threadId })
+    .from(generations)
+    .innerJoin(threads, eq(threads.id, generations.threadId))
+    .where(and(eq(generations.id, id), eq(generations.userId, userId), isNull(threads.deletedAt)))
+    .limit(1);
+  if (!row) return null;
+  const target =
+    batch && row.batchId
+      ? and(eq(generations.userId, userId), eq(generations.batchId, row.batchId))
+      : eq(generations.id, row.id);
+  const updated = await db.update(generations).set({ removedAt }).where(target).returning({ id: generations.id });
+  return updated.map(r => r.id);
+}
 
 export default generationsRoutes;

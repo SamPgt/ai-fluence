@@ -1,10 +1,11 @@
 /**
  * Menu des modèles : recherche, épinglés, recommandés, puis fournisseurs et groupes
  * (Low cost, LoRA) en sous-menus. Pas de tags : seuls la durée habituelle et le nombre
- * d'images de référence sont affichés. Même menu dans le composer et dans « Relancer avec… ».
+ * d'images de référence sont affichés.
  */
 import { useEffect, useRef, useState } from 'react'
 import {
+  AudioLines,
   Check,
   ChevronDown,
   ChevronRight,
@@ -16,11 +17,12 @@ import {
 } from 'lucide-react'
 import {
   PROVIDERS,
+  audioInputInfo,
   imageInputInfo,
   type CatalogFamily,
   type MediaKind,
   type ProviderId,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { cn } from '@/lib/utils'
 import { useUiPref } from '@/components/providers/ui-prefs'
@@ -56,6 +58,10 @@ const TEXT = {
   duration:
     'Durée habituelle d’une génération avec ce modèle, d’après tes dernières générations.',
   images: (n: number) => `Jusqu’à ${n} image${n > 1 ? 's' : ''} de référence`,
+  voices: (n: number, lipsync: boolean) =>
+    lipsync
+      ? 'Accepte une voix qui guide les lèvres'
+      : `Accepte jusqu’à ${n} voix de référence`,
   pin: 'Épingler',
   unpin: 'Désépingler',
 }
@@ -156,6 +162,7 @@ function ModelRow({
   onTogglePin: () => void
 }) {
   const refs = imageInputInfo(f.media, f.tasks, 'reference').max
+  const voices = f.media === 'video' ? audioInputInfo(f.tasks) : null
   return (
     <div
       role="menuitemradio"
@@ -186,6 +193,14 @@ function ModelRow({
               <MiniBadge tip={TEXT.images(refs)}>
                 <ImageIcon className="size-2.5" />
                 {refs}
+              </MiniBadge>
+            )}
+            {voices && voices.max > 0 && (
+              <MiniBadge
+                tip={TEXT.voices(voices.max, voices.mode === 'lipsync')}
+              >
+                <AudioLines className="size-2.5" />
+                {voices.max}
               </MiniBadge>
             )}
           </span>
@@ -290,6 +305,7 @@ function SubMenu({
           onOpenChange(false)
           onClickOutside(e.target)
         }}
+        data-testid="model-submenu"
         className="thin-scrollbar max-h-96 w-80 overflow-y-auto rounded-2xl p-0 py-1 pr-1"
       >
         {children}
@@ -314,7 +330,7 @@ export function ModelPicker({
   onChange: (id: string) => void
   /** Le persona a des LoRA pour ce modèle : pastille violette. `active` = mots des LoRA cochées. */
   lora?: { active: string[] } | null
-  /** Bouton d'ouverture personnalisé (ex. « Relancer avec… »). */
+  /** Bouton d'ouverture personnalisé (ex. champ de modèle par défaut). */
   trigger?: React.ReactNode
   align?: 'start' | 'end'
 }) {
@@ -403,7 +419,11 @@ export function ModelPicker({
     >
       <PopoverTrigger asChild>
         {trigger ?? (
-          <button type="button" className={cn(BAR_BUTTON, 'pr-1.5')}>
+          <button
+            type="button"
+            data-testid="model-picker"
+            className={cn(BAR_BUTTON, 'pr-1.5')}
+          >
             {current && <ProviderLogo provider={current.provider} size="sm" />}
             <span className="max-w-40 truncate">
               {current?.label ?? TEXT.choose}
@@ -424,6 +444,7 @@ export function ModelPicker({
       </PopoverTrigger>
       <PopoverContent
         ref={contentRef}
+        data-testid="model-menu"
         side="top"
         align={align}
         className="w-80 overflow-hidden rounded-2xl p-0"

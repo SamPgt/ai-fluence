@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Brush, Loader2, Undo2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Asset } from '@ai-fluence/shared'
+import type { Asset } from '@sublime/shared'
 
 import { generationsApi } from '@/lib/api'
 import { qk } from '@/lib/queries'

@@ -253,6 +253,24 @@ export function schemaSupportsLoras(schema: InputSchema | undefined): boolean {
   return Boolean(p.loras || p.high_noise_loras || p.low_noise_loras);
 }
 
+export interface AudioInputInfo {
+  /** Nombre maximum de voix (clips audio) de référence. 0 = aucune. */
+  max: number;
+  /**
+   * reference : voix de référence, en mode « Références » (reference-to-video) ;
+   * lipsync : une piste audio qui guide les lèvres, avec ou sans image de départ.
+   */
+  mode: 'reference' | 'lipsync' | 'none';
+}
+
+/** Le modèle vidéo accepte-t-il une voix de référence, et combien ? Lu dans les schémas. */
+export function audioInputInfo(tasks: Partial<Record<TaskKind, { schema: InputSchema }>>): AudioInputInfo {
+  const ref = tasks['reference-to-video']?.schema.properties?.reference_audio_urls;
+  if (ref) return { max: ref.maxItems ?? 1, mode: 'reference' };
+  const lipsync = Object.values(tasks).some(t => t?.schema.properties?.audio_url);
+  return lipsync ? { max: 1, mode: 'lipsync' } : { max: 0, mode: 'none' };
+}
+
 export interface ImageInputInfo {
   /** Nombre maximum d'images acceptées, lu dans le schéma du modèle. 0 = aucune. */
   max: number;

@@ -1,11 +1,13 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Brush, ChevronLeft, ChevronRight, Download, Wand2, X } from 'lucide-react'
-import type { Asset } from '@ai-fluence/shared'
+import { Link } from '@tanstack/react-router'
+import { Brush, ChevronLeft, ChevronRight, Download, ExternalLink, Wand2, X } from 'lucide-react'
+import type { Asset } from '@sublime/shared'
 
 import { catalogQuery } from '@/lib/queries'
 import { Dialog, DialogOverlay, DialogPortal } from '@/components/ui/dialog'
+import { AddReferenceMenu } from './AddReferenceMenu'
 import { AutofixEditor } from './AutofixEditor'
 import { RetouchEditor } from './RetouchEditor'
 
@@ -24,11 +26,17 @@ export function MediaViewer({
   onClose,
   onPrev,
   onNext,
+  source,
+  addReference,
 }: {
   asset: Asset | null
   onClose: () => void
   onPrev?: () => void
   onNext?: () => void
+  /** Demande qui a produit ce média : lien vers elle (à sa hauteur dans le fil), ou vers son workflow. */
+  source?: { threadId: string | null; workflowId?: string | null; generationId: string } | null
+  /** Bouton « Ajouter aux références » (hors d'un fil, où chaque résultat a déjà le sien). */
+  addReference?: boolean
 }) {
   // Retouche au pinceau : possible si klein tourne en local.
   const { data: catalog } = useQuery(catalogQuery())
@@ -88,6 +96,38 @@ export function MediaViewer({
                   >
                     <Brush className="h-4 w-4" /> Retoucher
                   </button>
+                )}
+                {source?.workflowId && !source.threadId && (
+                  <Link
+                    to="/workflows/$workflowId"
+                    params={{ workflowId: source.workflowId }}
+                    onClick={onClose}
+                    className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"
+                    aria-label="Voir dans le workflow"
+                    title="Voir le workflow qui a produit ce média"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                )}
+                {source?.threadId && (
+                  <Link
+                    to="/t/$threadId"
+                    params={{ threadId: source.threadId }}
+                    search={{ g: source.generationId }}
+                    onClick={onClose}
+                    className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"
+                    aria-label="Voir la demande"
+                    title="Voir la demande qui a produit ce média"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                )}
+                {addReference && (
+                  <AddReferenceMenu
+                    asset={asset}
+                    iconClassName="h-4 w-4"
+                    className="rounded-full bg-white/10 p-2.5 text-white transition hover:bg-white/20"
+                  />
                 )}
                 <a
                   href={`${asset.url}?download=1`}

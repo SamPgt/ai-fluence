@@ -4,7 +4,7 @@
  */
 import type { ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
-import { masterAxis, REFERENCE_POSES, type Generation } from '@ai-fluence/shared'
+import { masterAxis, REFERENCE_POSES, type Generation } from '@sublime/shared'
 
 import { formatDuration } from '@/lib/format'
 import { cn } from '@/lib/utils'

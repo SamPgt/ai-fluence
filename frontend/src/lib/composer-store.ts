@@ -1,6 +1,6 @@
 /**
  * État du composer (modèle choisi, paramètres, pièces jointes, prompt).
- * Global pour que les actions d'un résultat (Éditer, Animer, Relancer avec…)
+ * Global pour que les actions d'un résultat (Éditer, Animer)
  * puissent pré-remplir le composer depuis n'importe où dans le fil.
  */
 import { Store } from '@tanstack/react-store'
@@ -11,7 +11,7 @@ import {
   type MediaKind,
   type TraitSlot,
   type VideoRefMode,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 /** Brouillon du composer : un par fil, plus un pour le nouveau fil. */
 export interface Draft {
@@ -48,6 +48,10 @@ export interface Draft {
   slots: TraitSlot[]
   /** Lieu récurrent : sa fiche entre dans le prompt. */
   placeId: string | null
+  /** Persona du fil : ses brouillons partent avec lui à la corbeille. */
+  personaId: string | null
+  /** Voix du persona choisie pour une vidéo (identifiant de la voix du persona). */
+  voiceId: string | null
 }
 
 export interface ComposerState extends Draft {
@@ -81,6 +85,8 @@ const BLANK: Draft = {
   traits: [],
   slots: [],
   placeId: null,
+  personaId: null,
+  voiceId: null,
 }
 
 /**
@@ -113,6 +119,15 @@ function readDrafts(): Record<string, Draft> {
   }
 }
 
+// Brouillons lus une seule fois, à la première action qui en a besoin (sur
+// n'importe quelle page : la corbeille d'un fil peut venir sans composer affiché).
+let hydrated = false
+function withStoredDrafts(s: ComposerState): ComposerState {
+  if (hydrated || typeof window === 'undefined') return s
+  hydrated = true
+  return { ...s, drafts: { ...readDrafts(), ...s.drafts } }
+}
+
 /** Nouveau modèle courant, mémorisé pour son type. */
 function withFamily(s: Draft, family: string): Partial<Draft> {
   const media = getFamily(family)?.media
@@ -134,23 +149,34 @@ export const composerStore = new Store<ComposerState>({
 
 // Brouillons enregistrés dans le navigateur (survivent au rechargement).
 // Un brouillon vide n'est pas gardé : on repartira du générique.
-let persistTimer: ReturnType<typeof setTimeout> | undefined
-composerStore.subscribe(() => {
-  if (typeof window === 'undefined') return
-  clearTimeout(persistTimer)
-  persistTimer = setTimeout(() => {
-    const s = composerStore.state
-    if (!s.threadKey) return
-    const drafts = { ...s.drafts }
+function persistDrafts() {
+  // Jamais avant la lecture : on écraserait les brouillons enregistrés.
+  if (!hydrated) return
+  const s = composerStore.state
+  const drafts = { ...s.drafts }
+  if (s.threadKey) {
     if (isEmptyDraft(s)) delete drafts[s.threadKey]
     else drafts[s.threadKey] = draftOf(s)
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts))
-    } catch {
-      // Stockage indisponible (navigation privée…) : brouillons en mémoire seulement.
-    }
-  }, 300)
-})
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts))
+  } catch {
+    // Stockage indisponible (navigation privée…) : brouillons en mémoire seulement.
+  }
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | undefined
+if (typeof window !== 'undefined') {
+  composerStore.subscribe(() => {
+    clearTimeout(persistTimer)
+    persistTimer = setTimeout(persistDrafts, 300)
+  })
+  // Page quittée ou rechargée juste après une frappe : on enregistre tout de suite.
+  window.addEventListener('pagehide', () => {
+    clearTimeout(persistTimer)
+    persistDrafts()
+  })
+}
 
 export const composer = {
   setFamily: (family: string) =>
@@ -159,13 +185,13 @@ export const composer = {
    * Affiche le brouillon d'un fil (null = nouveau fil). Brouillon vide ou
    * absent : on repart du générique, le composer applique sa cascade de modèle.
    */
-  enterThread: (threadId: string | null) =>
-    composerStore.setState((s) => {
+  enterThread: (threadId: string | null, personaId: string | null = null) =>
+    composerStore.setState((prev) => {
+      const s = withStoredDrafts(prev)
       const key = threadId ?? NEW_THREAD
       if (s.keepOnEnter && s.threadKey === key)
         return { ...s, keepOnEnter: false }
-      // Premier affichage : on lit les brouillons enregistrés.
-      const drafts = s.threadKey ? { ...s.drafts } : readDrafts()
+      const drafts = { ...s.drafts }
       if (s.threadKey) {
         if (isEmptyDraft(s)) delete drafts[s.threadKey]
         else drafts[s.threadKey] = draftOf(s)
@@ -174,6 +200,8 @@ export const composer = {
       return {
         ...s,
         ...(saved && !isEmptyDraft(saved) ? saved : BLANK),
+        // Le nouveau fil n'a qu'un brouillon, quel que soit le persona choisi.
+        personaId: threadId ? personaId : null,
         threadKey: key,
         drafts,
         keepOnEnter: false,
@@ -188,10 +216,22 @@ export const composer = {
     }),
   /** Fil mis à la corbeille : son brouillon part avec lui. */
   dropDraft: (threadId: string) =>
-    composerStore.setState((s) => {
+    composerStore.setState((prev) => {
+      const s = withStoredDrafts(prev)
       const drafts = { ...s.drafts }
       delete drafts[threadId]
       return s.threadKey === threadId
+        ? { ...s, ...BLANK, personaId: s.personaId, drafts }
+        : { ...s, drafts }
+    }),
+  /** Persona mis à la corbeille (avec ses fils) : leurs brouillons partent aussi. */
+  dropPersonaDrafts: (personaId: string) =>
+    composerStore.setState((prev) => {
+      const s = withStoredDrafts(prev)
+      const drafts = Object.fromEntries(
+        Object.entries(s.drafts).filter(([, d]) => d.personaId !== personaId),
+      )
+      return s.personaId === personaId
         ? { ...s, ...BLANK, drafts }
         : { ...s, drafts }
     }),
@@ -207,6 +247,7 @@ export const composer = {
     composerStore.setState((s) => ({
       ...s,
       ...BLANK,
+      personaId: s.personaId,
       ...(family ? withFamily(BLANK, family) : {}),
       attachments: [asset],
       editAssetId: mode === 'edit' ? asset.id : null,
@@ -214,6 +255,28 @@ export const composer = {
       fromAction: true,
       focusTick: s.focusTick + 1,
     })),
+  /**
+   * Bouton « Réinitialiser » : composer remis à zéro (texte, images, raccourcis, LoRA,
+   * réglages, nombre d'images), sur le modèle par défaut donné. Renvoie l'état d'avant,
+   * pour « Annuler ».
+   */
+  reset: (family: string | null): { threadKey: string | null; draft: Draft } => {
+    const s = composerStore.state
+    const before = { threadKey: s.threadKey, draft: draftOf(s) }
+    composerStore.setState((prev) => ({
+      ...prev,
+      ...BLANK,
+      personaId: prev.personaId,
+      ...(family ? withFamily(BLANK, family) : {}),
+      focusTick: prev.focusTick + 1,
+    }))
+    return before
+  },
+  /** « Annuler » la réinitialisation, seulement sur le même brouillon. */
+  restore: (saved: { threadKey: string | null; draft: Draft }) =>
+    composerStore.setState((s) =>
+      s.threadKey === saved.threadKey ? { ...s, ...saved.draft, personaId: s.personaId } : s,
+    ),
   setPrompt: (prompt: string) =>
     composerStore.setState((s) => ({ ...s, prompt })),
   setParam: (family: string, key: string, value: unknown) =>
@@ -283,6 +346,8 @@ export const composer = {
       focusTick: s.focusTick + 1,
     })),
   setCount: (count: number) => composerStore.setState((s) => ({ ...s, count })),
+  setVoice: (voiceId: string | null) =>
+    composerStore.setState((s) => ({ ...s, voiceId })),
   setRefMode: (refMode: VideoRefMode) =>
     composerStore.setState((s) => ({ ...s, refMode })),
   toggleContext: (id: string) =>
@@ -312,6 +377,19 @@ export const composer = {
       return { ...s, loras }
     }),
   /**
+   * Envoi refusé (prix changé, erreur) : remet le texte et les images envoyés,
+   * seulement si l'on est toujours sur le même fil et que rien n'a été écrit depuis.
+   */
+  restoreAfterError: (
+    threadKey: string | null,
+    sent: Pick<Draft, 'prompt' | 'attachments' | 'editAssetId'>,
+  ) =>
+    composerStore.setState((s) =>
+      s.threadKey === threadKey && !s.prompt.trim() && !s.attachments.length
+        ? { ...s, ...sent, fromAction: false }
+        : s,
+    ),
+  /**
    * Après l'envoi : seul le prompt est vidé. Les images jointes (références, visage) restent pour la demande
    * suivante, on les retire d'un clic sur leur croix.
    */
@@ -322,7 +400,7 @@ export const composer = {
       editAssetId: null,
       fromAction: false,
     })),
-  /** Pré-remplit le composer (Modifier la demande, Relancer avec…). */
+  /** Pré-remplit le composer (Modifier la demande). */
   load: (
     patch: Partial<
       Pick<

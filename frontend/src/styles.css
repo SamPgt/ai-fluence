@@ -143,6 +143,14 @@ code {
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Barres de défilement : même gris que le menu des modèles (.thin-scrollbar). */
+    scrollbar-color: rgb(255 255 255 / 0.14) transparent;
+  }
+
+  /* App en sombre uniquement : les barres de défilement natives (y compris au
+     survol) suivent le thème sombre au lieu du clair du système. */
+  :root {
+    color-scheme: dark;
   }
 
   body {
@@ -198,6 +206,48 @@ code {
     color: var(--brand-foreground);
   }
 
+  /* Pastilles des voix : plusieurs couleurs mêlées + grain, même ordre sur toutes les pages. */
+  .voice-orb {
+    background-blend-mode: overlay, normal, normal, normal, normal;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+  }
+  .voice-orb-0 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 20% 25%, #ff8fab 0%, transparent 52%), radial-gradient(circle at 80% 30%, #6a4cff 0%, transparent 55%), radial-gradient(circle at 45% 85%, #38d9a9 0%, transparent 58%), linear-gradient(0deg, #6a4cff, #1a1033);
+  }
+  .voice-orb-1 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 75% 20%, #ffd166 0%, transparent 52%), radial-gradient(circle at 20% 70%, #ef476f 0%, transparent 55%), radial-gradient(circle at 85% 85%, #118ab2 0%, transparent 58%), linear-gradient(47deg, #ef476f, #14102a);
+  }
+  .voice-orb-2 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 30% 80%, #a0e7e5 0%, transparent 52%), radial-gradient(circle at 70% 15%, #b4a7ff 0%, transparent 55%), radial-gradient(circle at 15% 30%, #ff9ecb 0%, transparent 58%), linear-gradient(94deg, #b4a7ff, #121a2e);
+  }
+  .voice-orb-3 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 50% 15%, #f9c74f 0%, transparent 52%), radial-gradient(circle at 15% 60%, #43aa8b 0%, transparent 55%), radial-gradient(circle at 85% 70%, #577590 0%, transparent 58%), linear-gradient(141deg, #43aa8b, #0f1a1c);
+  }
+  .voice-orb-4 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 20% 25%, #ff6b6b 0%, transparent 52%), radial-gradient(circle at 80% 30%, #ffd93d 0%, transparent 55%), radial-gradient(circle at 45% 85%, #6bcBef 0%, transparent 58%), linear-gradient(188deg, #ffd93d, #1d0f1a);
+  }
+  .voice-orb-5 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 75% 20%, #c77dff 0%, transparent 52%), radial-gradient(circle at 20% 70%, #48cae4 0%, transparent 55%), radial-gradient(circle at 85% 85%, #ffb4a2 0%, transparent 58%), linear-gradient(235deg, #48cae4, #140f24);
+  }
+  .voice-orb-6 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 30% 80%, #80ffdb 0%, transparent 52%), radial-gradient(circle at 70% 15%, #5390d9 0%, transparent 55%), radial-gradient(circle at 15% 30%, #ff70a6 0%, transparent 58%), linear-gradient(282deg, #5390d9, #0b1426);
+  }
+  .voice-orb-7 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 50% 15%, #ffa62b 0%, transparent 52%), radial-gradient(circle at 15% 60%, #82c0cc 0%, transparent 55%), radial-gradient(circle at 85% 70%, #9b5de5 0%, transparent 58%), linear-gradient(329deg, #82c0cc, #1a1208);
+  }
+  .voice-orb-8 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 20% 25%, #f15bb5 0%, transparent 52%), radial-gradient(circle at 80% 30%, #fee440 0%, transparent 55%), radial-gradient(circle at 45% 85%, #00bbf9 0%, transparent 58%), linear-gradient(16deg, #fee440, #160a1c);
+  }
+  .voice-orb-9 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 75% 20%, #caffbf 0%, transparent 52%), radial-gradient(circle at 20% 70%, #ffc6ff 0%, transparent 55%), radial-gradient(circle at 85% 85%, #9bf6ff 0%, transparent 58%), linear-gradient(63deg, #ffc6ff, #121c18);
+  }
+  .voice-orb-10 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 30% 80%, #ff9f1c 0%, transparent 52%), radial-gradient(circle at 70% 15%, #2ec4b6 0%, transparent 55%), radial-gradient(circle at 15% 30%, #e71d36 0%, transparent 58%), linear-gradient(110deg, #2ec4b6, #140c08);
+  }
+  .voice-orb-11 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), radial-gradient(circle at 50% 15%, #bdb2ff 0%, transparent 52%), radial-gradient(circle at 15% 60%, #ffadad 0%, transparent 55%), radial-gradient(circle at 85% 70%, #fdffb6 0%, transparent 58%), linear-gradient(157deg, #ffadad, #16142a);
+  }
+
   /* Badges du dropdown de modèles */
   .badge-lora {
     @apply bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30;
@@ -241,5 +291,38 @@ code {
   }
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/*
+ * Workflows : nos nœuds dessinent leur propre carte. Le type intégré « output » de
+ * React Flow ajouterait une carte grise sous la nôtre (sa feuille de style est chargée
+ * après celle-ci, d'où la spécificité renforcée).
+ */
+.react-flow .react-flow__node.react-flow__node-output,
+.react-flow .react-flow__node.react-flow__node-output.selected,
+.react-flow .react-flow__node.react-flow__node-output:focus,
+.react-flow .react-flow__node.react-flow__node-output:focus-visible,
+.react-flow .react-flow__node.react-flow__node-output.selectable:hover {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
+  padding: 0;
+  width: auto;
+  box-shadow: none !important;
+  outline: none !important;
+  color: inherit;
+  text-align: left;
+}
+
+/* Trois points de chargement (LoadingValue, variante « dots ») : chacun s'allume à son tour. */
+@keyframes loading-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 0.9;
   }
 }

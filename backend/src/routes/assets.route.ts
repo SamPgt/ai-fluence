@@ -1,38 +1,47 @@
+import { basename } from 'node:path';
 import { createReadStream } from 'node:fs';
-import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/index.js';
-import { assets, generations, personas } from '../db/schema.js';
+import { assets, generations } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import { deleteOutput } from '../services/generation.service.js';
 import { describeImage } from '../services/describe.service.js';
 import { toAsset } from '../services/serialize.js';
-import { getSettingsRow, mediaDirOf, slug } from '../services/settings.service.js';
 import {
   ACCEPTED_UPLOAD_MIMES,
   MAX_IMAGE_BYTES,
   MAX_VIDEO_BYTES,
-  extFor,
   fileSize,
-  join,
   mediaTypeOf,
-  saveFile,
 } from '../services/storage.service.js';
+import { ownedPersona, storeUpload } from '../services/upload.service.js';
 import type { AppEnv } from '../types.js';
 
-async function ownedPersona(userId: string, personaId: string | null | undefined) {
-  if (!personaId) return null;
-  const [p] = await db
-    .select()
-    .from(personas)
-    .where(and(eq(personas.id, personaId), eq(personas.userId, userId)))
-    .limit(1);
-  return p ?? null;
+/** Propriétaire d'une référence : un persona, ou `general` (aucun persona). */
+const referenceOwner = z.union([z.literal('general'), z.uuid()]);
+const ownerIs = (owner: string) => (owner === 'general' ? isNull(assets.personaId) : eq(assets.personaId, owner));
+
+const PG_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?([+-]\d{2}(:?\d{2})?|Z)?$/;
+
+/** Curseur de la galerie : date exacte (à la microseconde, en texte Postgres) et id. */
+function encodeCursor(at: string, id: string): string {
+  return Buffer.from(JSON.stringify([at, id])).toString('base64url');
 }
+function decodeCursor(raw: string): { at: string; id: string } | null {
+  try {
+    const [at, id] = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (typeof at !== 'string' || !PG_TIMESTAMP_RE.test(at) || !UUID_RE.test(String(id))) return null;
+    return { at, id };
+  } catch {
+    return null;
+  }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const assetsRoutes = new Hono<AppEnv>()
   .use(auth)
@@ -49,43 +58,23 @@ export const assetsRoutes = new Hono<AppEnv>()
     if (file.size > (mediaType === 'video' ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES)) {
       return c.json({ error: mediaType === 'video' ? 'Vidéo trop lourde (90 Mo max).' : 'Image trop lourde (10 Mo max).' }, 400);
     }
-    const persona = await ownedPersona(user.id, typeof body.personaId === 'string' ? body.personaId : null);
-    const dir = join(
-      mediaDirOf(user, await getSettingsRow(user.id)),
-      'references',
-      persona ? slug(persona.name) : 'divers',
-    );
-    const saved = await saveFile(
-      join(dir, `${randomUUID().slice(0, 12)}.${extFor(file.type)}`),
-      new Uint8Array(await file.arrayBuffer()),
-    );
-    const [row] = await db
-      .insert(assets)
-      .values({
-        userId: user.id,
-        personaId: persona?.id ?? null,
-        kind: 'upload',
-        mediaType,
-        mime: file.type,
-        filePath: saved.path,
-        bytes: saved.bytes,
-        isReference: body.isReference === 'true' && Boolean(persona),
-      })
-      .returning();
+    const personaId = typeof body.personaId === 'string' && body.personaId ? body.personaId : null;
+    // Un id mal formé ferait planter Postgres : refusé avant.
+    if (personaId && !UUID_RE.test(personaId)) return c.json({ error: 'Persona invalide.' }, 400);
+    const row = await storeUpload(user, {
+      personaId,
+      mime: file.type,
+      data: new Uint8Array(await file.arrayBuffer()),
+      isReference: body.isReference === 'true',
+    });
     return c.json({ asset: toAsset(row) }, 201);
   })
-  /** Bibliothèque de références d'un persona. */
-  .get('/references', zValidator('query', z.object({ personaId: z.uuid() })), async c => {
+  /** Références d'un persona, ou de Général (`general` : rangées dans aucun persona). */
+  .get('/references', zValidator('query', z.object({ personaId: referenceOwner })), async c => {
     const rows = await db
       .select()
       .from(assets)
-      .where(
-        and(
-          eq(assets.userId, c.get('user').id),
-          eq(assets.personaId, c.req.valid('query').personaId),
-          eq(assets.isReference, true),
-        ),
-      )
+      .where(and(eq(assets.userId, c.get('user').id), ownerIs(c.req.valid('query').personaId), eq(assets.isReference, true)))
       // Ordre choisi par glisser-déposer ; les nouvelles (sans position) en premier.
       .orderBy(sql`${assets.referencePosition} asc nulls first`, desc(assets.createdAt));
     return c.json({ assets: rows.map(toAsset) });
@@ -93,17 +82,17 @@ export const assetsRoutes = new Hono<AppEnv>()
   /** Nouvel ordre de la bibliothèque de références d'un persona. */
   .put(
     '/references/order',
-    zValidator('json', z.object({ personaId: z.uuid(), ids: z.array(z.uuid()).max(500) })),
+    zValidator('json', z.object({ personaId: referenceOwner, ids: z.array(z.uuid()).max(500) })),
     async c => {
       const user = c.get('user');
       const { personaId, ids } = c.req.valid('json');
-      if (!(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
+      if (personaId !== 'general' && !(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
       await db.transaction(async tx => {
         for (const [position, id] of ids.entries()) {
           await tx
             .update(assets)
             .set({ referencePosition: position })
-            .where(and(eq(assets.id, id), eq(assets.userId, user.id), eq(assets.personaId, personaId)));
+            .where(and(eq(assets.id, id), eq(assets.userId, user.id), ownerIs(personaId)));
         }
       });
       return c.json({ ok: true });
@@ -112,15 +101,15 @@ export const assetsRoutes = new Hono<AppEnv>()
   /** Ajoute ou retire un média de la bibliothèque de références d'un persona. */
   .patch(
     '/:id/reference',
-    zValidator('json', z.object({ personaId: z.uuid(), isReference: z.boolean() })),
+    zValidator('json', z.object({ personaId: referenceOwner, isReference: z.boolean() })),
     async c => {
       const user = c.get('user');
       const { personaId, isReference } = c.req.valid('json');
-      if (!(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
+      if (personaId !== 'general' && !(await ownedPersona(user.id, personaId))) return c.json({ error: 'Persona introuvable.' }, 404);
       const [row] = await db
         .update(assets)
         // Retirée des références, une image n'est plus une master non plus.
-        .set({ isReference, personaId, ...(isReference ? {} : { isMaster: false }) })
+        .set({ isReference, personaId: personaId === 'general' ? null : personaId, ...(isReference ? {} : { isMaster: false }) })
         .where(and(eq(assets.id, c.req.param('id')), eq(assets.userId, user.id)))
         .returning();
       if (!row) return c.json({ error: 'Média introuvable.' }, 404);
@@ -142,7 +131,8 @@ export const assetsRoutes = new Hono<AppEnv>()
       z.object({
         personaId: z.uuid().optional(),
         media: z.enum(['image', 'video']).optional(),
-        before: z.iso.datetime().optional(),
+        /** Curseur opaque renvoyé par la page précédente (`nextBefore`). */
+        before: z.string().max(200).optional(),
       }),
     ),
     async c => {
@@ -154,28 +144,47 @@ export const assetsRoutes = new Hono<AppEnv>()
         // Variantes du créateur de personnage (fils masqués) : hors galerie.
         sql`not exists (select 1 from generations g join threads t on t.id = g.thread_id where g.id = ${assets.generationId} and t.hidden)`,
         // Pas les résultats des fils à la corbeille.
-        sql`not exists (select 1 from generations g inner join threads t on t.id = g.thread_id where g.id = ${assets.generationId} and t.deleted_at is not null)`,
+        sql`not exists (select 1 from generations g inner join threads t on t.id = g.thread_id where g.id = ${assets.generationId} and (t.deleted_at is not null or g.removed_at is not null))`,
+        // Ni ceux des workflows à la corbeille.
+        sql`not exists (select 1 from generations g inner join workflows w on w.id = g.workflow_id where g.id = ${assets.generationId} and (w.deleted_at is not null or g.removed_at is not null))`,
       ];
-      if (q.personaId) where.push(eq(assets.personaId, q.personaId));
+      // Persona : résultats des fils où une de ses références a servi (un fil n'appartient plus à un persona).
+      if (q.personaId)
+        where.push(
+          sql`exists (select 1 from generations g inner join generations g2 on g2.thread_id = g.thread_id inner join assets r on g2.reference_asset_ids ? r.id::text where g.id = ${assets.generationId} and r.persona_id = ${q.personaId})`,
+        );
       if (q.media) where.push(eq(assets.mediaType, q.media));
-      if (q.before) where.push(lt(assets.createdAt, new Date(q.before)));
+      if (q.before) {
+        const cursor = decodeCursor(q.before);
+        if (!cursor) return c.json({ error: 'Curseur invalide.' }, 400);
+        // (date, id) strictement avant le dernier élément de la page précédente :
+        // aucun saut, même pour des résultats créés dans la même milliseconde.
+        where.push(sql`(${assets.createdAt}, ${assets.id}) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)`);
+      }
       const rows = await db
-        .select()
+        .select({ asset: assets, at: sql<string>`${assets.createdAt}::text` })
         .from(assets)
         .where(and(...where))
-        .orderBy(desc(assets.createdAt))
-        .limit(60);
+        .orderBy(desc(assets.createdAt), desc(assets.id))
+        .limit(60)
+        .then(list => list.map(({ asset, at }) => Object.assign(asset, { cursorAt: at })));
       const genIds = [...new Set(rows.map(r => r.generationId).filter((id): id is string => Boolean(id)))];
       const gens = genIds.length
         ? await db
-            .select({ id: generations.id, threadId: generations.threadId, prompt: generations.prompt, family: generations.family })
+            .select({
+              id: generations.id,
+              threadId: generations.threadId,
+              workflowId: generations.workflowId,
+              prompt: generations.prompt,
+              family: generations.family,
+            })
             .from(generations)
             .where(inArray(generations.id, genIds))
         : [];
       const byGen = new Map(gens.map(g => [g.id, g]));
       return c.json({
         items: rows.map(r => ({ asset: toAsset(r), generation: r.generationId ? (byGen.get(r.generationId) ?? null) : null })),
-        nextBefore: rows.length === 60 ? rows[rows.length - 1].createdAt.toISOString() : null,
+        nextBefore: rows.length === 60 ? encodeCursor(rows[rows.length - 1].cursorAt, rows[rows.length - 1].id) : null,
       });
     },
   );
@@ -197,14 +206,16 @@ export const mediaRoutes = new Hono<AppEnv>().use(auth).get('/:id', async c => {
     'Cache-Control': 'private, max-age=31536000, immutable',
   };
   if (c.req.query('download')) {
-    headers['Content-Disposition'] = `attachment; filename="${row.filePath.split('/').pop()}"`;
+    headers['Content-Disposition'] = `attachment; filename="${basename(row.filePath)}"`;
   }
 
   const range = c.req.header('range');
   const match = range && /bytes=(\d*)-(\d*)/.exec(range);
   if (match) {
-    const start = match[1] ? Number(match[1]) : 0;
-    const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+    // `bytes=-N` : les N derniers octets ; `bytes=N-` : de N à la fin.
+    const suffix = !match[1] && match[2] ? Math.min(Number(match[2]), size) : null;
+    const start = suffix !== null ? size - suffix : match[1] ? Number(match[1]) : 0;
+    const end = suffix !== null ? size - 1 : match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
     if (start >= size || start > end) {
       return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
     }

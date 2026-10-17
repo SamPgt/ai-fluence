@@ -1,0 +1,1 @@
+ALTER TABLE "workflow_node_results" ADD COLUMN "items" jsonb;

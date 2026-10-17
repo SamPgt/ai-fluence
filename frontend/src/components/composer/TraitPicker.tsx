@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Check, Dice5, ImageIcon, Library, Loader2, Search, Star } from 'lucide-react'
-import { LIBRARY_ZONES, orderCategories, type Gender, type GenerationTrait, type LibraryCategory } from '@ai-fluence/shared'
+import { LIBRARY_ZONES, orderCategories, type Gender, type GenerationTrait, type LibraryCategory } from '@sublime/shared'
 
 import { libraryCategoriesQuery, libraryOptionsQuery, libraryThumbnailsQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -72,10 +72,10 @@ export function TraitPicker({
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <Library className="h-6 w-6 text-muted-foreground" />
             <p className="max-w-sm text-sm text-muted-foreground">
-              Ta bibliothèque est vide. Importe des wildcards (coiffures, tenues, lieux…) pour les choisir ici.
+              Ta liste de traits est vide. Importe des wildcards (coiffures, tenues, lieux…) pour les choisir ici.
             </p>
-            <Link to="/bibliotheque" onClick={onClose} className="text-sm text-brand hover:underline">
-              Ouvrir la bibliothèque
+            <Link to="/traits" onClick={onClose} className="text-sm text-brand hover:underline">
+              Ouvrir les traits
             </Link>
           </div>
         ) : (

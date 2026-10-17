@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { HTTPException } from 'hono/http-exception';
 import { and, eq, isNull } from 'drizzle-orm';
-import type { PersonaVoice } from '@ai-fluence/shared';
+import type { PersonaLocalVoice } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, personas, type PersonaVoiceRow } from '../db/schema.js';
 import { env } from '../env.js';
@@ -94,10 +94,11 @@ async function voicePost(path: string, body: unknown, timeoutMs = 30_000): Promi
  * Dictée : le texte d'un enregistrement (WAV), par Whisper sur le serveur de voix. Rien n'est écrit sur le disque :
  * l'audio passe dans le corps de la requête.
  */
-export async function transcribe(wav: Uint8Array, language?: string): Promise<string> {
+export async function transcribe(wav: Uint8Array, language?: string, prompt?: string): Promise<string> {
   await ensureServer();
   const url = new URL('/transcribe', env.VOICE_URL);
   if (language) url.searchParams.set('language', language);
+  if (prompt) url.searchParams.set('prompt', prompt);
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'audio/wav' },
@@ -201,7 +202,7 @@ async function voiceDir(user: Pick<SessionUser, 'id' | 'email'>, persona: Person
   return join(mediaDirOf(user, await getSettingsRow(user.id)), slug(persona.name), 'voix');
 }
 
-async function toVoice(voice: PersonaVoiceRow): Promise<PersonaVoice> {
+async function toVoice(voice: PersonaVoiceRow): Promise<PersonaLocalVoice> {
   const current = await assetRow(voice.assetId);
   return {
     enabled: isVoiceEnabled(),
@@ -218,7 +219,7 @@ async function toVoice(voice: PersonaVoiceRow): Promise<PersonaVoice> {
 }
 
 /** État de la voix ; une création en cours est relue dans ComfyUI (et rapatriée si elle est terminée). */
-export async function getVoice(user: SessionUser, personaId: string): Promise<PersonaVoice> {
+export async function getVoice(user: SessionUser, personaId: string): Promise<PersonaLocalVoice> {
   const persona = await ownedPersona(user.id, personaId);
   const voice = voiceOf(persona);
   if (voice.job && !voice.job.error) await followCreation(user, persona, voice).catch(err => {
@@ -294,7 +295,7 @@ export async function createVoice(
   description: string,
   resolution: '512p' | '720p' = '512p',
   language: 'fr' | 'en' = 'fr',
-): Promise<PersonaVoice> {
+): Promise<PersonaLocalVoice> {
   if (!isVoiceEnabled()) throw new HTTPException(400, { message: 'Voix non configurée (VOICE_URL, COMFYUI_URL).' });
   const persona = await ownedPersona(user.id, personaId);
   const voice = voiceOf(persona);
@@ -346,7 +347,7 @@ export async function createVoice(
 }
 
 /** Arrête une création de voix en cours (annulée dans ComfyUI). */
-export async function cancelCreation(user: SessionUser, personaId: string): Promise<PersonaVoice> {
+export async function cancelCreation(user: SessionUser, personaId: string): Promise<PersonaLocalVoice> {
   const persona = await ownedPersona(user.id, personaId);
   const voice = voiceOf(persona);
   if (voice.job && !voice.job.error) await cancelPrompt(voice.job.promptId).catch(() => undefined);
@@ -359,7 +360,7 @@ export async function cancelCreation(user: SessionUser, personaId: string): Prom
 export const VOICE_IMPORT_EXTENSIONS = ['wav', 'mp3', 'flac', 'ogg'];
 
 /** Enregistre un extrait de voix (10 s au plus, sans silences aux bords) comme voix proposée. */
-async function proposeReference(user: SessionUser, persona: PersonaRow, source: string, stamp: number): Promise<PersonaVoice> {
+async function proposeReference(user: SessionUser, persona: PersonaRow, source: string, stamp: number): Promise<PersonaLocalVoice> {
   const voice = voiceOf(persona);
   const refPath = join(await voiceDir(user, persona), `voix-${stamp}.wav`);
   const res = await voicePost('/reference', { source, output: refPath, max_seconds: 10 });
@@ -389,7 +390,7 @@ export async function importVoice(
   user: SessionUser,
   personaId: string,
   file: { name: string; data: Uint8Array },
-): Promise<PersonaVoice> {
+): Promise<PersonaLocalVoice> {
   if (!isVoiceEnabled()) throw new HTTPException(400, { message: 'Voix non configurée (VOICE_URL, COMFYUI_URL).' });
   const persona = await ownedPersona(user.id, personaId);
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
@@ -402,7 +403,7 @@ export async function importVoice(
 }
 
 /** Propose la voix d'un autre personnage (même extrait de référence, partagé). */
-export async function copyVoice(user: SessionUser, personaId: string, fromPersonaId: string): Promise<PersonaVoice> {
+export async function copyVoice(user: SessionUser, personaId: string, fromPersonaId: string): Promise<PersonaLocalVoice> {
   const persona = await ownedPersona(user.id, personaId);
   const from = await ownedPersona(user.id, fromPersonaId);
   const source = voiceOf(from).assetId;
@@ -426,7 +427,7 @@ export async function listVoices(user: SessionUser): Promise<{ personaId: string
 }
 
 /** Adopte la voix proposée, ou l'écarte. */
-export async function decideCandidate(user: SessionUser, personaId: string, keep: boolean): Promise<PersonaVoice> {
+export async function decideCandidate(user: SessionUser, personaId: string, keep: boolean): Promise<PersonaLocalVoice> {
   const persona = await ownedPersona(user.id, personaId);
   const voice = voiceOf(persona);
   if (!voice.candidateAssetId) throw new HTTPException(400, { message: 'Aucune voix proposée.' });

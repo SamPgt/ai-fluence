@@ -7,7 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { LocalModelFile, LocalModelsResponse } from '@ai-fluence/shared'
+import type { LocalModelFile, LocalModelsResponse } from '@sublime/shared'
 
 import { settingsApi } from '@/lib/api'
 import { comfyStatusQuery, qk } from '@/lib/queries'

@@ -11,8 +11,6 @@
 export interface UiPrefs {
   /** Panneau des fils replié. */
   sidebarCollapsed: boolean
-  /** Persona sélectionné dans la barre de bulles ('' = tous). */
-  personaId: string
   /** Modèles épinglés dans le menu des modèles (ids séparés par des virgules). */
   pinnedModels: string
 }
@@ -34,7 +32,6 @@ function stringPref(cookie: string, def: string): PrefSpec<string> {
 
 export const UI_PREFS: { [K in keyof UiPrefs]: PrefSpec<UiPrefs[K]> } = {
   sidebarCollapsed: boolPref('aif-ui-sidebar-collapsed', false),
-  personaId: stringPref('aif-ui-persona', ''),
   pinnedModels: stringPref('aif-ui-pinned-models', ''),
 }
 

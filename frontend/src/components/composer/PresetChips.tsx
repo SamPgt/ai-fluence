@@ -8,7 +8,7 @@ import {
   type MediaKind,
   type PersonaLora,
   type PromptPreset,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { presetsQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -51,14 +51,13 @@ const LORA_TAG =
   'flex h-6 shrink-0 items-center rounded-[5px] border border-violet-500/30 bg-violet-500/10 px-2 text-[11px] text-violet-300 transition-colors hover:border-violet-400/60 hover:text-violet-200'
 
 /**
- * LoRA du persona (en tête, en violet) et contexte supplémentaire (tags neutres).
+ * LoRA (en tête, en violet) et contexte supplémentaire (tags neutres).
  * Seuls les éléments sélectionnés s'affichent.
  * Le « + » (ou un clic sur un tag) ouvre la liste à cocher, avec recherche.
  * Au survol d'un tag, une croix à gauche permet de le retirer.
  */
 export function ContextChips({
   media,
-  personaId,
   activeIds,
   onToggle,
   loras = [],
@@ -67,11 +66,9 @@ export function ContextChips({
   onToggleLoraWord,
 }: {
   media: MediaKind
-  /** Persona du fil : ses raccourcis s'ajoutent à ceux disponibles partout. */
-  personaId: string | null
   activeIds: string[]
   onToggle: (id: string) => void
-  /** LoRA du persona compatibles avec le modèle choisi. */
+  /** LoRA (Général et personas présents) compatibles avec le modèle choisi. */
   loras?: PersonaLora[]
   /** LoRA cochées → mots déclencheurs choisis. */
   activeLoras?: Record<string, string[]>
@@ -87,7 +84,6 @@ export function ContextChips({
   const available = contexts.filter(
     (c) =>
       c.enabled &&
-      (c.personaId === null || c.personaId === personaId) &&
       (c.media === 'all' || c.media === media),
   )
   const selected = available.filter((c) => activeIds.includes(c.id))
@@ -263,18 +259,16 @@ export function ContextChips({
           </CommandList>
           <div className="flex h-10 items-center justify-between border-t border-border/60 px-4 text-[12px] text-muted-foreground">
             <Link
-              to="/parametres"
+              to="/bibliotheque/general"
               search={{ tab: 'shortcuts' }}
               onClick={() => setOpen(false)}
               className="hover:text-foreground"
             >
               Gérer les raccourcis
             </Link>
-            {personaId && loras.length > 0 && (
+            {loras.length > 0 && (
               <Link
-                to="/personas/$personaId"
-                params={{ personaId }}
-                search={{ tab: 'lora' }}
+                to="/bibliotheque"
                 onClick={() => setOpen(false)}
                 className="hover:text-foreground"
               >
@@ -298,7 +292,11 @@ function ContextTag({
   onRemove: () => void
 }) {
   return (
-    <span className={cn(TAG, 'group/tag gap-1 px-1.5')} title={context.text}>
+    <span
+      data-testid="context-tag"
+      className={cn(TAG, 'group/tag gap-1 px-1.5')}
+      title={context.text}
+    >
       {/* Croix au survol, à gauche : retire ce contexte. */}
       <button
         type="button"

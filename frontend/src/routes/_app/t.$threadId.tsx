@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Generation } from '@ai-fluence/shared'
+import type { Generation, ThreadWorkflowRun } from '@sublime/shared'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
@@ -10,11 +10,16 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { PersonaAvatar } from '@/components/personas/PersonaAvatar'
 import { Composer } from '@/components/composer/Composer'
+import { ThreadMediaProvider } from '@/components/thread/ThreadMedia'
 import { GenerationItem } from '@/components/thread/GenerationItem'
+import { WorkflowRunItem } from '@/components/thread/WorkflowRunItem'
 import { useRenameThread } from '@/components/thread/useRenameThread'
 import { InlineEdit } from '@/components/ui/inline-edit'
 
 export const Route = createFileRoute('/_app/t/$threadId')({
+  // `g` : id d'une génération, pour arriver sur la demande qui l'a produite.
+  validateSearch: (search: Record<string, unknown>): { g?: string } =>
+    typeof search.g === 'string' && search.g ? { g: search.g } : {},
   component: ThreadPage,
 })
 
@@ -25,12 +30,13 @@ function ThreadPage() {
   const rename = useRenameThread()
   useEffect(() => setEditingTitle(false), [threadId])
   const { data: personas = [] } = useQuery(personasQuery())
-  const persona = personas.find((p) => p.id === data?.thread.personaId) ?? null
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
-  /** Collé en bas : vrai à l'ouverture, faux dès que l'utilisateur remonte dans le fil. */
-  const stickRef = useRef(true)
-  const count = data?.generations.length ?? 0
+  // Personas dont une référence a servi dans ce fil (bulles à droite du titre).
+  const threadPersonas = personas.filter((p) =>
+    data?.thread.personaIds.includes(p.id),
+  )
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const count =
+    (data?.generations.length ?? 0) + (data?.workflowRuns.length ?? 0)
 
   // Une série (demande ×N) s'affiche en un seul bloc : ses générations sont regroupées.
   const groups = useMemo(() => {
@@ -43,34 +49,120 @@ function ThreadPage() {
     return out
   }, [data?.generations])
 
-  // Reste en bas du fil pendant que son contenu grandit (images qui se chargent après l'ouverture,
-  // nouvelle génération), sauf si l'utilisateur est remonté lire plus haut.
+  const items = useMemo(() => {
+    const list: (
+      | { kind: 'group'; at: string; group: Generation[] }
+      | { kind: 'run'; at: string; run: ThreadWorkflowRun }
+    )[] = [
+      ...groups.map((group) => ({
+        kind: 'group' as const,
+        at: group[0].createdAt,
+        group,
+      })),
+      ...(data?.workflowRuns ?? []).map((run) => ({
+        kind: 'run' as const,
+        at: run.createdAt,
+        run,
+      })),
+    ]
+    return list.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+  }, [groups, data?.workflowRuns])
+
+  // Défilement : tout en bas à l'ouverture du fil, et on y reste pendant que les
+  // images se chargent (elles agrandissent la page). Si la personne remonte, on
+  // la laisse ; une nouvelle génération ramène en bas, en douceur.
+  // Arrivée depuis un média (?g=<id>) : on s'arrête sur la demande qui l'a
+  // produit, et on la garde en vue pendant le chargement des images au-dessus.
+  const { g: target } = Route.useSearch()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const stick = useRef(true)
+  const pinned = useRef<string | null>(null)
+  const shownCount = useRef<{ threadId: string; count: number } | null>(null)
+  const targetNode = (id: string) =>
+    scrollRef.current?.querySelector<HTMLElement>(
+      `[data-generation-ids~="${CSS.escape(id)}"]`,
+    ) ?? null
+  const goToTarget = (id: string) => {
+    const node = targetNode(id)
+    if (!node) return false
+    // Demande alignée en haut (avec une petite marge) : ses images de
+    // référence, sa bulle et le début de son résultat restent visibles.
+    const el = scrollRef.current!
+    el.scrollTop +=
+      node.getBoundingClientRect().top - el.getBoundingClientRect().top - 16
+    return true
+  }
   useEffect(() => {
-    stickRef.current = true
-  }, [threadId])
-  useEffect(() => {
-    stickRef.current = true
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [count, threadId])
+    if (!el || !count) return
+    const opened = shownCount.current?.threadId !== threadId
+    const grew = !opened && count > shownCount.current!.count
+    shownCount.current = { threadId, count }
+    if (opened) {
+      if (target && goToTarget(target)) {
+        stick.current = false
+        pinned.current = target
+        return
+      }
+      stick.current = true
+      el.scrollTop = el.scrollHeight
+    } else if (grew) {
+      pinned.current = null
+      stick.current = true
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [count, threadId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Même fil, nouveau repère (lien depuis la visionneuse du fil).
+  useEffect(() => {
+    if (!target || !count || shownCount.current?.threadId !== threadId) return
+    if (goToTarget(target)) {
+      stick.current = false
+      pinned.current = target
+    }
+  }, [target]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = scrollRef.current
     const content = contentRef.current
     if (!el || !content) return
-    const follow = () => {
-      if (stickRef.current) el.scrollTop = el.scrollHeight
+    // Seul un geste de la personne (molette, doigt, clavier, barre de défilement)
+    // décide de suivre le bas ou non : un défilement causé par la page elle-même
+    // (composer qui grandit, image chargée) ne la décroche pas du bas.
+    let userScrollUntil = 0
+    const markUser = () => {
+      userScrollUntil = Date.now() + 1000
     }
-    const observer = new ResizeObserver(follow)
+    const onScroll = () => {
+      if (Date.now() > userScrollUntil) return
+      if (!pinned.current)
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    }
+    // Geste de la personne : on ne la retient plus sur la demande visée.
+    const release = () => {
+      markUser()
+      pinned.current = null
+    }
+    const observer = new ResizeObserver(() => {
+      if (pinned.current) goToTarget(pinned.current)
+      else if (stick.current) el.scrollTop = el.scrollHeight
+    })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('wheel', release, { passive: true })
+    el.addEventListener('touchstart', release, { passive: true })
+    el.addEventListener('keydown', release)
+    el.addEventListener('pointerdown', release)
+    // Le contenu qui grandit (images) et la zone qui rétrécit (composer qui s'agrandit).
     observer.observe(content)
-    // Le cadre aussi : il rapetisse quand le composer apparaît sous le fil.
     observer.observe(el)
-    // Chaque image chargée (l'évènement ne remonte pas : on l'écoute en capture).
-    content.addEventListener('load', follow, true)
     return () => {
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('wheel', release)
+      el.removeEventListener('touchstart', release)
+      el.removeEventListener('keydown', release)
+      el.removeEventListener('pointerdown', release)
       observer.disconnect()
-      content.removeEventListener('load', follow, true)
     }
-  }, [threadId])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -86,15 +178,6 @@ function ThreadPage() {
           )
         }
       >
-        {persona && (
-          <Link
-            to="/personas/$personaId"
-            params={{ personaId: persona.id }}
-            className="flex items-center gap-2"
-          >
-            <PersonaAvatar persona={persona} size={24} className="rounded-md" />
-          </Link>
-        )}
         {/* Clic sur le titre : renommer le fil. Le conteneur porte padding, police et hauteur de ligne,
             pour que le texte ne bouge pas d'un pixel entre l'affichage et l'édition. */}
         <div
@@ -124,48 +207,72 @@ function ThreadPage() {
             </button>
           )}
         </div>
+        {threadPersonas.length > 0 && !editingTitle && (
+          <div
+            data-testid="thread-personas"
+            className="flex shrink-0 items-center -space-x-1.5"
+          >
+            {threadPersonas.map((p) => (
+              <Link
+                key={p.id}
+                to="/personas/$personaId"
+                params={{ personaId: p.id }}
+                title={p.name}
+                aria-label={p.name}
+                className="rounded-full ring-2 ring-background transition-transform hover:z-10 hover:scale-110"
+              >
+                <PersonaAvatar persona={p} size={22} className="rounded-full" />
+              </Link>
+            ))}
+          </div>
+        )}
       </PageHeader>
 
       <div
         ref={scrollRef}
+        data-testid="thread-scroll"
         className="min-h-0 flex-1 overflow-y-auto"
-        // Seul un geste de l'utilisateur décroche du bas ; revenir en bas raccroche.
-        onWheel={(e) => {
-          if (e.deltaY < 0) stickRef.current = false
-        }}
-        onTouchMove={() => {
-          stickRef.current = false
-        }}
-        onPointerDown={(e) => {
-          // Clic sur la barre de défilement (le cadre lui-même, pas son contenu).
-          if (e.target === e.currentTarget) stickRef.current = false
-        }}
-        onKeyDown={(e) => {
-          if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) stickRef.current = false
-        }}
-        onScroll={(e) => {
-          const el = e.currentTarget
-          if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) stickRef.current = true
-        }}
       >
-        <div ref={contentRef} className="mx-auto max-w-4xl space-y-8 px-4 py-6">
+        <div
+          ref={contentRef}
+          className="mx-auto max-w-[855px] space-y-8 px-4 py-6"
+        >
           {isLoading && (
             <div className="flex justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           )}
-          {error && <p className="py-20 text-center text-sm text-muted-foreground">{(error as Error).message}</p>}
-          {groups.map((group) => (
-            <GenerationItem key={group[0].id} generations={group} />
-          ))}
+          {error && (
+            <p className="py-20 text-center text-sm text-muted-foreground">
+              {(error as Error).message}
+            </p>
+          )}
+          <ThreadMediaProvider groups={groups}>
+            {/* Demandes et workflows lancés depuis le fil, dans l'ordre chronologique. */}
+            {items.map((item) =>
+              item.kind === 'group' ? (
+                <GenerationItem
+                  key={item.group[0].id}
+                  generations={item.group}
+                />
+              ) : (
+                <WorkflowRunItem
+                  key={item.run.id}
+                  run={item.run}
+                  threadId={threadId}
+                />
+              ),
+            )}
+          </ThreadMediaProvider>
+          <div ref={bottomRef} />
         </div>
       </div>
 
-      {/* Monté une fois le fil chargé : le persona et le modèle par défaut en dépendent. */}
+      {/* Monté une fois le fil chargé : le modèle par défaut et les LoRA proposées en dépendent. */}
       {data && (
         <Composer
           threadId={threadId}
-          personaId={data.thread.personaId}
+          threadPersonaIds={data.thread.personaIds}
           suggestedFamily={data.generations.at(-1)?.family ?? null}
         />
       )}

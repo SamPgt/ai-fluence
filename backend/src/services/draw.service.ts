@@ -5,7 +5,7 @@
  */
 import { randomInt } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
-import type { Gender, TraitSlot } from '@ai-fluence/shared';
+import type { Gender, TraitSlot } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { libraryCategories, libraryOptions } from '../db/schema.js';
 

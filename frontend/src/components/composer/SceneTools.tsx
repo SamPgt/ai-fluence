@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, Loader2, MapPin, ScanFace, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Persona, Place } from '@ai-fluence/shared'
+import type { Persona, Place } from '@sublime/shared'
 
 import { assetsApi, mastersApi, scenesApi } from '@/lib/api'
 import { composer, composerStore } from '@/lib/composer-store'

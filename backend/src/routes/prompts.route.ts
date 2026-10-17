@@ -2,8 +2,9 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import type { EnhancePromptResponse } from '@ai-fluence/shared';
+import type { EnhancePromptResponse } from '@sublime/shared';
 import { auth } from '../middleware/auth.js';
+import { env } from '../env.js';
 import { getSettingsRow, requireApiKey } from '../services/settings.service.js';
 import type { AppEnv } from '../types.js';
 
@@ -32,7 +33,6 @@ const promptsRoutes = new Hono<AppEnv>().use(auth).post(
     'json',
     z.object({
       prompt: z.string().trim().min(1).max(3000),
-      personaId: z.uuid().nullable().optional(),
       media: z.enum(['image', 'video']),
     }),
   ),
@@ -41,6 +41,8 @@ const promptsRoutes = new Hono<AppEnv>().use(auth).post(
     const body = c.req.valid('json');
     const apiKey = await requireApiKey(user.id);
     const settings = await getSettingsRow(user.id);
+    // Tests : réponse simulée, aucun appel réseau ni coût.
+    if (env.SPICY_FAKE) return c.json({ prompt: `${body.prompt.trim()} (reformulé)` } satisfies EnhancePromptResponse);
     const messages = [
       { role: 'system', content: systemPrompt(body.media) },
       { role: 'user', content: body.prompt },

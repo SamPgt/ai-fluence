@@ -6,7 +6,7 @@
  * français pour la relire.
  */
 import { HTTPException } from 'hono/http-exception';
-import type { AssistStatus, RewritePromptRequest, RewritePromptResponse } from '@ai-fluence/shared';
+import type { AssistStatus, RewritePromptRequest, RewritePromptResponse } from '@sublime/shared';
 import { env } from '../env.js';
 import { freeComfyMemory, waitForVram } from './comfy.service.js';
 import { chatJson, llmModel, llmState } from './llm.service.js';

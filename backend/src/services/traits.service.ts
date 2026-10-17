@@ -8,7 +8,7 @@
  * Sans point final : le texte libre de l'utilisateur la prolonge (« …, reading a book »).
  */
 import { and, eq, inArray } from 'drizzle-orm';
-import { LIBRARY_ZONES, type Gender, type GenerationTrait, type LibraryZone } from '@ai-fluence/shared';
+import { LIBRARY_ZONES, type Gender, type GenerationTrait, type LibraryZone } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { libraryCategories, libraryOptions, libraryThumbnails } from '../db/schema.js';
 import { mediaUrl } from './serialize.js';

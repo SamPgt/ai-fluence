@@ -1,8 +1,8 @@
-# AI Fluence
+# Sublime
 
-AI Fluence est un studio local pour créer du contenu d'**influenceurs IA** et de **pages art** (images et vidéos), dans une interface de type chat.
+Sublime est un studio local pour créer du contenu d'**influenceurs IA** et de **pages art** (images et vidéos), dans une interface de type chat.
 
-Chaque personnage ou page art est un **persona** : une bulle dans la barre de gauche, avec sa LoRA, ses images de référence, sa personnalité et ses prompts automatiques. Tu écris une idée, tu ajoutes des références si besoin, tu choisis un modèle, et le résultat arrive dans le fil, avec son coût.
+Chaque personnage ou page art est un **persona**, rangé dans la Bibliothèque avec ses images de référence et ses LoRA. Dans un fil, tu écris une idée (ou tu la dictes), tu ajoutes les références voulues, tu choisis un modèle, et le résultat arrive dans le fil, avec son coût.
 
 Toutes les générations passent par [SpicyAPI](https://spicyapi.ai), qui donne accès à une centaine de modèles photo et vidéo avec une seule clé.
 
@@ -38,7 +38,7 @@ Monorepo npm workspaces. Le front est un fork de [rs-4/tanstack-ai-demo](https:/
 ## Prérequis
 
 - **Node.js 22.13 ou plus récent**
-- **PostgreSQL** en local, avec une base vide nommée `ai-fluence`
+- **PostgreSQL** en local, avec une base vide nommée `sublime`
 - **Un compte SpicyAPI** avec une clé API et un peu de crédit
 
 ## Installation
@@ -52,12 +52,14 @@ Puis remplir `backend/.env` :
 
 | Variable | Rôle |
 | --- | --- |
-| `DATABASE_URL` | Connexion Postgres, par exemple `postgresql://<user>@localhost:5432/ai-fluence` |
+| `DATABASE_URL` | Connexion Postgres, par exemple `postgresql://<user>@localhost:5432/sublime` |
 | `APP_SECRET` | 64 caractères hex, pour chiffrer les clés API en base (`openssl rand -hex 32`) |
 | `API_PORT` | Port de l'API Hono (3470 par défaut) |
 | `CLIENT_URL` | URL du front (http://localhost:3070 par défaut) |
 | `DATA_DIR` | Dossier des fichiers générés (`~/Documents/ai-influence-app` par défaut) |
 | `CIVITAI_KEY` | Optionnel. Active la bibliothèque LoRA Civitai et les téléchargements protégés. La clé reste dans le backend, SpicyAPI reçoit seulement un lien signé temporaire. |
+| `UNSPLASH_ACCESS_KEY` | Optionnel. Active la librairie de photos libres de droits Unsplash dans le bouton + du composer. La clé reste dans le backend. |
+| `PEXELS_API_KEY` | Optionnel. Active la librairie de photos libres de droits Pexels dans le bouton + du composer. La clé reste dans le backend. |
 | `spicyApiKey` | Facultatif, utilisé seulement par le serveur MCP SpicyAPI de `.mcp.json` |
 
 ## Lancer l'app
@@ -308,7 +310,7 @@ npm run typecheck     # shared + backend + frontend
 ## Structure
 
 ```
-ai-fluence/
+sublime/
 ├── frontend/   TanStack Start (routes, composer, fil, paramétrage, personas, galerie)
 ├── backend/    Hono (auth, SpicyAPI, suivi des tâches, médias, personas, fils)
 ├── shared/     modèles, logique d'input, types d'API

@@ -51,7 +51,10 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={pending}
             autoFocus={!destructive}
-            className={destructive ? 'bg-red-600 text-white hover:bg-red-500' : undefined}
+            variant={destructive ? 'primary' : 'default'}
+            className={
+              destructive ? 'bg-red-600 text-white hover:bg-red-500' : undefined
+            }
           >
             {pending && <Loader2 className="h-4 w-4 animate-spin" />}
             {confirmLabel}

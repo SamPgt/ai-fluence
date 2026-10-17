@@ -2,13 +2,13 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { PromptPreset } from '@ai-fluence/shared';
+import type { PromptPreset } from '@sublime/shared';
 import { db } from '../db/index.js';
-import { personas, promptPresets } from '../db/schema.js';
+import { promptPresets } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
 
-const DEFAULT_PRESETS: Omit<PromptPreset, 'id' | 'position' | 'enabled' | 'personaId'>[] = [
+const DEFAULT_PRESETS: Omit<PromptPreset, 'id' | 'position' | 'enabled'>[] = [
   { label: 'Photo iPhone', text: 'candid iPhone photo, natural daylight, slight grain, realistic skin texture', media: 'image' },
   { label: 'Lumière dorée', text: 'golden hour lighting, warm tones, soft shadows', media: 'all' },
   { label: 'Studio', text: 'studio portrait, softbox lighting, clean background, sharp focus', media: 'image' },
@@ -30,7 +30,6 @@ function toPreset(r: typeof promptPresets.$inferSelect): PromptPreset {
     text: r.text,
     media: r.media,
     enabled: r.enabled,
-    personaId: r.personaId,
     position: r.position,
   };
 }
@@ -40,8 +39,6 @@ const presetSchema = z.object({
   text: z.string().trim().min(1).max(1000),
   media: z.enum(['image', 'video', 'all']).default('all'),
   enabled: z.boolean().default(true),
-  /** Persona propriétaire ; absent ou null = disponible pour tous les personas. */
-  personaId: z.uuid().nullable().default(null),
 });
 
 const presetsRoutes = new Hono<AppEnv>()
@@ -55,16 +52,8 @@ const presetsRoutes = new Hono<AppEnv>()
     return c.json({ presets: rows.map(toPreset) });
   })
   .post('/', zValidator('json', presetSchema), async c => {
+    // Raccourcis généraux seulement : plus de raccourci propre à un persona.
     const userId = c.get('user').id;
-    const { personaId } = c.req.valid('json');
-    if (personaId) {
-      const [owned] = await db
-        .select({ id: personas.id })
-        .from(personas)
-        .where(and(eq(personas.id, personaId), eq(personas.userId, userId)))
-        .limit(1);
-      if (!owned) return c.json({ error: 'Persona introuvable.' }, 404);
-    }
     const count = await db.$count(promptPresets, eq(promptPresets.userId, userId));
     const [row] = await db
       .insert(promptPresets)
@@ -84,11 +73,12 @@ const presetsRoutes = new Hono<AppEnv>()
       }),
     ),
     async c => {
-    const [row] = await db
-      .update(promptPresets)
-      .set(c.req.valid('json'))
-      .where(and(eq(promptPresets.id, c.req.param('id')), eq(promptPresets.userId, c.get('user').id)))
-      .returning();
+    const patch = c.req.valid('json');
+    const owned = and(eq(promptPresets.id, c.req.param('id')), eq(promptPresets.userId, c.get('user').id));
+    // Rien à modifier : le raccourci tel quel (Drizzle refuse une mise à jour vide).
+    const [row] = Object.values(patch).some(v => v !== undefined)
+      ? await db.update(promptPresets).set(patch).where(owned).returning()
+      : await db.select().from(promptPresets).where(owned).limit(1);
     if (!row) return c.json({ error: 'Raccourci introuvable.' }, 404);
     return c.json({ preset: toPreset(row) });
   })

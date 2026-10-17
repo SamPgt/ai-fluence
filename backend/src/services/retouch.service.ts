@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { and, eq } from 'drizzle-orm';
 import { HTTPException } from 'hono/http-exception';
-import type { CreateGenerationResponse } from '@ai-fluence/shared';
+import type { CreateGenerationResponse } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, generations, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';

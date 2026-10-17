@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import bcrypt from 'bcrypt';
+import { env } from '../env.js';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { AuthResponse, User } from '@ai-fluence/shared';
+import type { AuthResponse, User } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, users } from '../db/schema.js';
 import { createSession, destroySession, getSessionUser } from '../lib/session.js';
@@ -44,7 +45,8 @@ const authRoutes = new Hono<AppEnv>()
     const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
     if (existing) return c.json({ error: 'Un compte existe déjà avec cet e-mail.' }, 409);
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    // Tests : coût minimal (des centaines de comptes créés), sinon le coût habituel.
+    const passwordHash = await bcrypt.hash(password, env.NODE_ENV === 'test' ? 4 : 10);
     const [user] = await db.insert(users).values({ email, name, passwordHash }).returning();
     await seedDefaultPresets(user.id);
     await createSession(c, user.id);
@@ -78,7 +80,10 @@ const authRoutes = new Hono<AppEnv>()
         .limit(1);
       if (!owned) return c.json({ error: 'Image introuvable.' }, 400);
     }
-    const [row] = await db.update(users).set(body).where(eq(users.id, user.id)).returning();
+    // Rien à modifier : l'utilisateur tel quel (Drizzle refuse une mise à jour vide).
+    const [row] = Object.values(body).some(v => v !== undefined)
+      ? await db.update(users).set(body).where(eq(users.id, user.id)).returning()
+      : await db.select().from(users).where(eq(users.id, user.id)).limit(1);
     return c.json({ user: toUser(row) } satisfies AuthResponse);
   });
 

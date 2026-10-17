@@ -16,3 +16,13 @@ frontend/src/routeTree.gen.ts
 # Serveur de voix (environnement Python local)
 voice-server/.venv/
 __pycache__/
+-commits
+# Tests E2E
+e2e/.auth
+.e2e-data
+test-results
+playwright-report
+
+.vitest-data
+.e2e-data-*
+private

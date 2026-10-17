@@ -11,7 +11,7 @@ import { randomInt } from 'node:crypto';
 import { join } from 'node:path';
 import { and, eq, inArray } from 'drizzle-orm';
 import { HTTPException } from 'hono/http-exception';
-import { getZone, type Gender, type LibraryThumbnail, type ThumbnailGender, type ThumbnailQuote } from '@ai-fluence/shared';
+import { getZone, type Gender, type LibraryThumbnail, type ThumbnailGender, type ThumbnailQuote } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, generations, libraryCategories, libraryOptions, libraryThumbnails, threads, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';

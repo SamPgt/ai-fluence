@@ -2,31 +2,37 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
-  BookmarkPlus,
   Clapperboard,
-  CopyPlus,
   Download,
   Loader2,
   Mic,
   Pencil,
   RefreshCw,
-  Shuffle,
   Square,
   ImageUpscale,
+  RotateCcw,
+  Ellipsis,
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { undoToast } from '@/lib/undo-toast'
 import {
   APP_DEFAULT_FAMILY,
   getFamily,
   type Asset,
   type Generation,
   type GenerationRequest,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
-import { assetsApi, generationsApi } from '@/lib/api'
+import { generationsApi } from '@/lib/api'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { composer } from '@/lib/composer-store'
-import { catalogQuery, personasQuery, qk } from '@/lib/queries'
+import { catalogQuery, personasQuery, qk, settingsQuery } from '@/lib/queries'
 import { formatDuration, formatUsd, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import {
@@ -34,11 +40,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { AssetThumb } from '@/components/composer/ReferencePicker'
 import { formatOption } from '@/components/composer/ParamFields'
-import { ModelPicker, ProviderLogo } from '@/components/composer/ModelPicker'
+import { ProviderLogo } from '@/components/composer/ModelPicker'
 import { MediaViewer } from './MediaViewer'
+import { AddReferenceMenu } from './AddReferenceMenu'
+import { outputKey, refKey, useThreadMedia } from './ThreadMedia'
 import { UpscaleDialog } from './UpscaleDialog'
 import { RelaunchDialog } from './RelaunchDialog'
 
@@ -97,21 +104,29 @@ function useTick(active: boolean) {
 export function GenerationItem({ generations }: { generations: Generation[] }) {
   const g = generations[0]
   const series = generations.length > 1
+  // Résultat (ou lot) supprimé du fil : la demande reste, un emplacement remplace les images.
+  const removed = generations.every((x) => x.removedAt)
+  const hasResult = generations.some((x) => x.status === 'succeeded')
   const queryClient = useQueryClient()
+  // Visionneuse du fil (flèches entre tous les médias), sinon une locale.
+  const threadMedia = useThreadMedia()
   const [viewing, setViewing] = useState<Asset | null>(null)
+  const view = (key: string, asset: Asset) =>
+    threadMedia ? threadMedia(key) : setViewing(asset)
   const [upscaling, setUpscaling] = useState<Asset | null>(null)
+  // Composant des fils : une génération affichée ici a toujours son fil.
+  const threadId = g.threadId!
   const isUpscale = g.task === 'upscale'
   const [relaunch, setRelaunch] = useState<GenerationRequest | null>(null)
-  const [deleting, setDeleting] = useState<{ kind: 'generation' } | { kind: 'asset'; asset: Asset } | null>(null)
-  const anyPending = generations.some(isPending)
   const local = g.runtime === 'comfy'
-  /** Même demande (nouveau seed), sur ce modèle ou un autre. */
-  const relaunchRequest = (family: string): GenerationRequest => {
+  const speech = typeof g.params.speech === 'string' ? g.params.speech.trim() : ''
+  /** Même demande, même modèle, nouveau seed. */
+  const relaunchRequest = (): GenerationRequest => {
+    const family = g.family
     const params = { ...g.params }
     delete params.seed
     return {
       threadId: g.threadId,
-      personaId: g.personaId,
       family,
       refMode: g.refMode,
       prompt: g.prompt,
@@ -126,12 +141,14 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       // Les traits tirés au hasard sont retirés au hasard (dans toute la catégorie).
       traitIds: g.traits.filter((t) => !t.random).map((t) => t.optionId),
       traitSlots: g.traits.filter((t) => t.random).map((t) => ({ categoryId: t.categoryId, drawFrom: 'all' as const, pool: [] })),
+      // Même voix de référence que la demande d'origine.
+      voiceId: g.voiceId ?? undefined,
     }
   }
   const keepFace = (family: string) => Boolean(g.face && catalog?.families.find((f) => f.id === family)?.supportsFace)
   const { data: catalog } = useQuery(catalogQuery())
   const { data: personas = [] } = useQuery(personasQuery())
-  const persona = personas.find((p) => p.id === g.personaId) ?? null
+  const { data: settings } = useQuery(settingsQuery())
   const def = getFamily(g.family)
   const pending = generations.some(isPending)
   // Coût réel une fois connu, sinon l'estimation pendant la génération.
@@ -140,30 +157,19 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     (sum, m) => sum + Number(m.estimatedCost ?? 0),
     0,
   )
-  // Génération locale (ComfyUI) : gratuite, pas de coût affiché.
-  const costText =
-    g.runtime === 'comfy'
-      ? null
-      : generations.some((m) => m.cost) && !pending
+  // Contenu supprimé, ou génération locale (gratuite) : plus de coût affiché.
+  const costText = removed || local
+    ? null
+    : generations.some((m) => m.cost) && !pending
       ? formatUsd(realCost)
       : estimate > 0
         ? `≈ ${formatUsd(estimate)}`
         : null
 
-  const toReference = useMutation({
-    mutationFn: (asset: Asset) =>
-      assetsApi.setReference(asset.id, persona!.id, true),
-    onSuccess: () => {
-      toast.success(`Ajoutée aux références de ${persona!.name}`)
-      queryClient.invalidateQueries({ queryKey: qk.references(persona!.id) })
-      queryClient.invalidateQueries({ queryKey: qk.personas })
-    },
-    onError: (e) => toast.error((e as Error).message),
-  })
 
-  // Suppression : retire de l'app (fil, galerie), les fichiers restent sur le disque. En local, annule dans ComfyUI.
+  // Arrêt d'une génération locale : annulée dans ComfyUI, la demande quitte le fil (les fichiers restent sur le disque).
   const removeGenerations = async (ids: string[]) => {
-    const results = await Promise.allSettled(ids.map((id) => generationsApi.remove(id)))
+    const results = await Promise.allSettled(ids.map((id) => generationsApi.cancel(id)))
     const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
     if (failed) throw failed.reason
   }
@@ -172,21 +178,8 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
     mutationFn: () => removeGenerations(generations.filter(isPending).map((m) => m.id)),
     onSuccess: () => {
       toast.success('Génération arrêtée.')
-      queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) })
+      queryClient.invalidateQueries({ queryKey: qk.thread(threadId) })
       queryClient.invalidateQueries({ queryKey: qk.threadsAll })
-    },
-    onError: (e) => toast.error((e as Error).message),
-  })
-  const remove = useMutation({
-    mutationFn: async (target: NonNullable<typeof deleting>) => {
-      if (target.kind === 'generation') await removeGenerations(generations.map((m) => m.id))
-      else await assetsApi.remove(target.asset.id)
-    },
-    onSuccess: () => {
-      setDeleting(null)
-      queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) })
-      queryClient.invalidateQueries({ queryKey: qk.threadsAll })
-      queryClient.invalidateQueries({ queryKey: ['gallery'] })
     },
     onError: (e) => toast.error((e as Error).message),
   })
@@ -195,7 +188,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
   /**
    * Modèle pour Éditer (image → image) ou Animer (image → vidéo) : le modèle de
    * cette génération s'il sait faire l'action (éditer = même demande, petite
-   * modification), sinon celui du persona, sinon celui de l'app.
+   * modification), sinon celui de Paramétrage, sinon celui de l'app.
    */
   const pickFamily = (
     media: 'image' | 'video',
@@ -207,8 +200,8 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       ok(g.family) ??
       ok(
         media === 'image'
-          ? persona?.defaultImageFamily
-          : persona?.defaultVideoFamily,
+          ? settings?.defaultImageFamily
+          : settings?.defaultVideoFamily,
       ) ??
       ok(APP_DEFAULT_FAMILY[media]) ??
       // Filet de sécurité : le modèle de l'app a été retiré du catalogue.
@@ -218,13 +211,13 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
 
   /**
    * LoRA de cette génération, avec les mots envoyés. Anciennes générations : les
-   * LoRA du persona pour ce modèle, sans mot (on ne réinjecte rien d'office).
+   * LoRA de leur persona d'origine pour ce modèle, sans mot (on ne réinjecte rien d'office).
    */
   const lorasOf = (family: string): Record<string, string[]> => {
     if (family !== g.family) return {}
     if (!g.loras.length && g.lorasApplied > 0) {
       return Object.fromEntries(
-        (persona?.loras ?? [])
+        (personas.find((p) => p.id === g.personaId)?.loras ?? [])
           .filter((l) => l.family === family)
           .map((l) => [l.id, []]),
       )
@@ -288,14 +281,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
           </ActionButton>
         </>
       )}
-      {persona && (
-        <ActionButton
-          onClick={() => toReference.mutate(asset)}
-          title={`Ajouter aux références de ${persona.name}`}
-        >
-          <BookmarkPlus className="h-3.5 w-3.5" />
-        </ActionButton>
-      )}
+      <AddReferenceMenu
+        asset={asset}
+        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition hover:bg-black/80"
+      />
       <a
         href={`${asset.url}?download=1`}
         title="Télécharger"
@@ -303,88 +292,113 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       >
         <Download className="h-3.5 w-3.5" />
       </a>
-      <ActionButton onClick={() => setDeleting({ kind: 'asset', asset })} title="Supprimer ce résultat">
-        <Trash2 className="h-3.5 w-3.5" />
-      </ActionButton>
     </div>
   )
   // Visionneuse : passer d'un résultat à l'autre de la demande (toute la série ×N).
   const allOutputs = generations.flatMap((m) => m.outputs).filter((a) => a.mediaType === 'image')
   const viewingIndex = viewing ? allOutputs.findIndex((a) => a.id === viewing.id) : -1
 
+  // Supprimer le résultat ou le lot : masqué tout de suite, « Annuler » le remet.
+  const remove = useMutation({
+    mutationFn: () => generationsApi.remove(g.id, series),
+    onSuccess: () => {
+      const refresh = () => {
+        queryClient.invalidateQueries({ queryKey: qk.thread(threadId) })
+        queryClient.invalidateQueries({ queryKey: ['gallery'] })
+        queryClient.invalidateQueries({ queryKey: qk.threadsAll })
+      }
+      refresh()
+      toast.success(
+        series ? 'Lot supprimé' : 'Résultat supprimé',
+        undoToast(() => generationsApi.restore(g.id, series).then(refresh)),
+      )
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
   return (
-    <div className="space-y-3">
-      {/* Demande (côté utilisateur) : la bulle ne contient que les références et le texte,
-          les actions et les infos du modèle sont en dessous, sur le fond. */}
+    // Repère pour arriver sur cette demande depuis un média (?g=<id> dans l'adresse).
+    <div
+      className="space-y-3"
+      data-generation-ids={generations.map((x) => x.id).join(' ')}
+    >
+      {/* Demande (côté utilisateur) : les images sources au-dessus, sur le fond,
+          puis la bulle réservée au texte ; actions et infos du modèle en dessous. */}
       <div className="ml-auto flex w-fit max-w-[85%] flex-col items-end gap-1.5">
-        {(g.references.length > 0 || g.face || g.prompt.trim() || g.traits.length > 0 || Boolean(g.params.speech)) && (
-          <div className="space-y-2 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3">
-            {g.traits.length > 0 && (
-              <div className="flex flex-wrap justify-end gap-1.5">
-                {g.traits.map((t) =>
-                  t.random && series ? (
-                    // Série : chaque image a son propre tirage, affiché sous l'image.
-                    <span
-                      key={t.optionId}
-                      className="flex h-7 items-center gap-1.5 rounded-full border border-dashed border-brand/50 px-2.5 text-xs"
-                      title="Tirée au hasard pour chaque image"
-                    >
-                      🎲 {t.categoryLabel}
-                    </span>
+        {g.traits.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {g.traits.map((t) =>
+              t.random && series ? (
+                // Série : chaque image a son propre tirage, affiché sous l'image.
+                <span
+                  key={t.optionId}
+                  className="flex h-7 items-center gap-1.5 rounded-full border border-dashed border-brand/50 px-2.5 text-xs"
+                  title="Tirée au hasard pour chaque image"
+                >
+                  🎲 {t.categoryLabel}
+                </span>
+              ) : (
+                <span
+                  key={t.optionId}
+                  className="flex h-7 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] pr-2.5 pl-0.5 text-xs"
+                  title={`${t.categoryLabel} : ${t.fragment}${t.random ? ' (tiré au hasard)' : ''}`}
+                >
+                  {t.thumbnailUrl ? (
+                    <img src={t.thumbnailUrl} alt="" className="h-6 w-6 rounded-full object-cover" />
                   ) : (
-                    <span
-                      key={t.optionId}
-                      className="flex h-7 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/[0.06] pr-2.5 pl-0.5 text-xs"
-                      title={`${t.categoryLabel} : ${t.fragment}${t.random ? ' (tiré au hasard)' : ''}`}
-                    >
-                      {t.thumbnailUrl ? (
-                        <img src={t.thumbnailUrl} alt="" className="h-6 w-6 rounded-full object-cover" />
-                      ) : (
-                        <span className="h-6 w-6 rounded-full bg-secondary" />
-                      )}
-                      {t.random && '🎲 '}
-                      {t.label ?? t.fragment}
-                    </span>
-                  ),
-                )}
-              </div>
+                    <span className="h-6 w-6 rounded-full bg-secondary" />
+                  )}
+                  {t.random && '🎲 '}
+                  {t.label ?? t.fragment}
+                </span>
+              ),
             )}
-            {(g.references.length > 0 || g.face) && (
-              <div className="flex flex-wrap justify-end gap-1.5">
-                {g.references.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => setViewing(r)}
-                    className="overflow-hidden rounded-lg"
-                  >
-                    <AssetThumb asset={r} className="h-14 w-14" />
-                  </button>
-                ))}
-                {g.face && (
-                  <button
-                    onClick={() => setViewing(g.face)}
-                    className="relative overflow-hidden rounded-lg"
-                    title="Visage appliqué au résultat (ReActor)"
-                  >
-                    <AssetThumb asset={g.face} className="h-14 w-14" />
-                    <span className="absolute bottom-0.5 left-0.5 rounded bg-brand px-1 text-[9px] font-semibold text-white">Visage</span>
-                  </button>
-                )}
-              </div>
+          </div>
+        )}
+        {(g.references.length > 0 || g.face) && (
+          <div
+            data-testid="request-references"
+            className="flex flex-wrap justify-end gap-1.5"
+          >
+            {g.references.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => view(refKey(g.id, r.id), r)}
+                className="overflow-hidden rounded-xl"
+              >
+                <AssetThumb asset={r} className="h-16 w-16" />
+              </button>
+            ))}
+            {g.face && (
+              <button
+                onClick={() => view(refKey(g.id, g.face!.id), g.face!)}
+                className="relative overflow-hidden rounded-xl"
+                title="Visage appliqué au résultat (ReActor)"
+              >
+                <AssetThumb asset={g.face} className="h-16 w-16" />
+                <span className="absolute bottom-0.5 left-0.5 rounded bg-brand px-1 text-[9px] font-semibold text-white">Visage</span>
+              </button>
             )}
-            {g.prompt.trim() && (
-              <p className="text-[15px] whitespace-pre-wrap">
-                {g.prompt.trim()}
-              </p>
-            )}
-            {typeof g.params.speech === 'string' && g.params.speech.trim() && (
+          </div>
+        )}
+        {(g.prompt.trim() || speech) && (
+          <div
+            data-testid="request-bubble"
+            className="space-y-1.5 rounded-2xl rounded-tr-sm bg-secondary/70 px-4 py-3"
+          >
+            {g.prompt.trim() && <p className="text-[15px] whitespace-pre-wrap">{g.prompt.trim()}</p>}
+            {/* Vidéo parlée : le texte dit avec la voix du personnage. */}
+            {speech && (
               <p className="flex items-start justify-end gap-1.5 text-sm text-muted-foreground" title="Texte dit avec la voix du personnage">
-                <Mic className="mt-0.5 h-3.5 w-3.5 shrink-0" />« {g.params.speech.trim()} »
+                <Mic className="mt-0.5 h-3.5 w-3.5 shrink-0" />« {speech} »
               </p>
             )}
           </div>
         )}
-        <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <div
+          data-testid="request-history"
+          className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-muted-foreground"
+        >
           {/* Modifier la demande | modèle, paramètres, puis tags */}
           <div className="flex flex-wrap items-center justify-end gap-1.5 pr-1">
             {!isUpscale && (
@@ -392,18 +406,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                 <button
                   onClick={() => rerun()}
                   className="rounded-md p-1 hover:bg-accent hover:text-foreground"
-                  title="Reprendre la demande : la remet dans le composer (prompt, bulles, images, réglages), sans la relancer"
-                  aria-label="Reprendre la demande"
+                  title="Modifier la demande : la remet dans le composer"
+                  aria-label="Modifier la demande"
                 >
-                  <CopyPlus className="size-[14px]" />
-                </button>
-                <button
-                  onClick={() => setDeleting({ kind: 'generation' })}
-                  className="rounded-md p-1 hover:bg-accent hover:text-destructive"
-                  title="Supprimer la demande et ses résultats"
-                  aria-label="Supprimer la demande"
-                >
-                  <Trash2 className="size-[14px]" />
+                  <RotateCcw className="size-[14px]" />
                 </button>
                 <span
                   aria-hidden
@@ -411,7 +417,10 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                 />
               </>
             )}
-            <span className="flex items-center gap-1.5 font-medium text-foreground/80">
+            <span
+              data-testid="request-model"
+              className="flex items-center gap-1.5 font-medium text-foreground/80"
+            >
               {def?.provider && (
                 <ProviderLogo
                   provider={def.provider}
@@ -444,27 +453,45 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
       {/* Résultat */}
       <div className="flex justify-start">
         <div className="w-full max-w-[85%] space-y-2">
-          {/* Au-dessus du résultat : coût, puis « Série · N images » pour une série. */}
-          {(costText || series) && (
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+          {/* Au-dessus du résultat : coût, puis « Série · N images » pour une série, puis le menu. */}
+          {(costText || (series && !removed) || (hasResult && !removed)) && (
+            <div
+              data-testid="result-cost"
+              className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums"
+            >
               {costText && <span>{costText}</span>}
-              {costText && series && (
+              {costText && series && !removed && (
                 <span
                   aria-hidden
                   className="h-3.5 w-px bg-muted-foreground/40"
                 />
               )}
-              {series && <span>Série · {generations.length} images</span>}
+              {series && !removed && (
+                <span>Série · {generations.length} images</span>
+              )}
+              {hasResult && !removed && (
+                <ResultMenu series={series} onRemove={() => remove.mutate()} />
+              )}
             </div>
           )}
-          {series && (
+          {removed && (
+            <div
+              data-testid="removed-result"
+              className="flex h-[38px] w-[190px] items-center justify-center rounded-md border border-border/60 bg-white/[0.03] text-xs text-muted-foreground"
+            >
+              Contenu supprimé
+            </div>
+          )}
+          {series && !removed && (
             <SeriesResults
               generations={generations}
               outputActions={outputActions}
-              onView={setViewing}
+              onView={(asset, generationId) =>
+                view(outputKey(generationId, asset.id), asset)
+              }
               onCancelRest={(ids) =>
                 removeGenerations(ids)
-                  .then(() => queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId) }))
+                  .then(() => queryClient.invalidateQueries({ queryKey: qk.thread(g.threadId!) }))
                   .catch((e) => toast.error((e as Error).message))
               }
             />
@@ -473,11 +500,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
             <div className="flex aspect-[4/3] max-w-md flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-muted/30">
               <Loader2 className="h-6 w-6 animate-spin text-brand" />
               <div className="text-center text-xs text-muted-foreground">
-                <div>
-                  {g.status === 'queued'
-                    ? 'En file d’attente…'
-                    : 'Génération en cours…'}
-                </div>
+                <div>Génération en cours</div>
                 <div className="tabular-nums">
                   <Elapsed since={g.createdAt} />
                   {local ? ' · sur ton GPU' : g.estimatedCost && ` · ≈ ${formatUsd(g.estimatedCost)}`}
@@ -512,7 +535,7 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
             </div>
           )}
 
-          {!series && g.status === 'succeeded' && (
+          {!series && !removed && g.status === 'succeeded' && (
             <div
               className={cn(
                 'grid gap-2',
@@ -533,14 +556,17 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
                       playsInline
                       preload="metadata"
                       // Hauteur plafonnée : une vidéo 9:16 tient entière à l'écran.
-                      className="block max-h-[70vh] w-auto max-w-full"
+                      className="block max-h-[64vh] w-auto max-w-full"
                     />
                   ) : (
-                    <button onClick={() => setViewing(asset)} className="block">
+                    <button
+                      onClick={() => view(outputKey(g.id, asset.id), asset)}
+                      className="block"
+                    >
                       <img
                         src={asset.url}
                         alt={g.prompt}
-                        className="block max-h-[70vh] w-auto max-w-full object-contain"
+                        className="block max-h-[64vh] w-auto max-w-full object-contain"
                         loading="lazy"
                       />
                     </button>
@@ -552,44 +578,20 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
           )}
 
           {/* Pied : actions à gauche, coût à droite (comme le prix du composer et le total du fil) */}
-          {!pending && (
+          {!pending && !removed && (
             <div
               // Une seule ligne quand la place le permet (le bloc déborde la largeur de l'image) ;
               // sinon passage à la ligne entre deux actions, jamais au milieu d'un libellé.
               className="flex flex-wrap items-center gap-1 text-[11px] whitespace-nowrap text-muted-foreground"
             >
               {!isUpscale && (
-                <>
-                  <button
-                    onClick={() => setRelaunch(relaunchRequest(g.family))}
-                    className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-                    title="Relancer la même demande"
-                  >
-                    <RefreshCw className="h-3 w-3" /> Relancer
-                  </button>
-                  <button
-                    onClick={() => rerun()}
-                    className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-                    title="Remet la demande dans le composer (prompt, bulles, images, réglages) pour la modifier, sans la relancer"
-                  >
-                    <CopyPlus className="h-3 w-3" /> Reprendre
-                  </button>
-                  {/* Même menu que le composer, limité au type de média de cette génération. */}
-                  <ModelPicker
-                    families={families}
-                    media={def?.media ?? 'image'}
-                    value={g.family}
-                    onChange={(id) => setRelaunch(relaunchRequest(id))}
-                    trigger={
-                      <button
-                        className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-                        title="Relancer la même demande avec un autre modèle"
-                      >
-                        <Shuffle className="h-3 w-3" /> Relancer avec…
-                      </button>
-                    }
-                  />
-                </>
+                <button
+                  onClick={() => setRelaunch(relaunchRequest())}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+                  title="Relancer la même demande"
+                >
+                  <RefreshCw className="h-3 w-3" /> Relancer
+                </button>
               )}
               {!series && (
                 <span className="flex items-center gap-1 px-1.5 tabular-nums">
@@ -624,23 +626,9 @@ export function GenerationItem({ generations }: { generations: Generation[] }) {
         onPrev={viewingIndex > 0 ? () => setViewing(allOutputs[viewingIndex - 1]) : undefined}
         onNext={viewingIndex >= 0 && viewingIndex < allOutputs.length - 1 ? () => setViewing(allOutputs[viewingIndex + 1]) : undefined}
       />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title={deleting?.kind === 'asset' ? 'Supprimer ce résultat ?' : 'Supprimer cette demande ?'}
-        description={
-          deleting?.kind === 'asset'
-            ? 'Il sera retiré du fil et de la galerie. Le fichier reste dans ton dossier local.'
-            : anyPending && local
-              ? `${series ? 'Les images en attente seront annulées' : 'La génération en cours sera annulée'} dans ComfyUI. La demande sera retirée du fil.`
-              : `Le prompt et ${series ? `les ${generations.length} images de la série` : 'ses résultats'} seront retirés du fil et de la galerie. Les fichiers restent dans ton dossier local.`
-        }
-        pending={remove.isPending}
-        onConfirm={() => deleting && remove.mutate(deleting)}
-      />
       <UpscaleDialog
         asset={upscaling}
-        threadId={g.threadId}
+        threadId={threadId}
         onClose={() => setUpscaling(null)}
       />
       <RelaunchDialog request={relaunch} onClose={() => setRelaunch(null)} />
@@ -657,7 +645,7 @@ function SeriesResults({
 }: {
   generations: Generation[]
   outputActions: (asset: Asset) => React.ReactNode
-  onView: (asset: Asset) => void
+  onView: (asset: Asset, generationId: string) => void
   onCancelRest: (ids: string[]) => void
 }) {
   const pending = generations.filter(isPending)
@@ -727,8 +715,16 @@ function SeriesResults({
                   {asset.mediaType === 'video' ? (
                     <video src={asset.url} controls loop playsInline preload="metadata" className="h-full w-full object-cover" />
                   ) : (
-                    <button onClick={() => onView(asset)} className="block h-full w-full">
-                      <img src={asset.url} alt={m.prompt} className="h-full w-full object-cover" loading="lazy" />
+                    <button
+                      onClick={() => onView(asset, m.id)}
+                      className="block h-full w-full"
+                    >
+                      <img
+                        src={asset.url}
+                        alt={m.prompt}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
                     </button>
                   )}
                   {outputActions(asset)}
@@ -862,5 +858,38 @@ function TagsChip<T extends { key: string }>({
         {tags.map(badge)}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** Menu « … » à droite du coût d'un résultat (aussi pour un résultat de workflow). */
+export function ResultMenu({
+  series,
+  onRemove,
+}: {
+  series: boolean
+  onRemove: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Options du résultat"
+          title="Options"
+          className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+        >
+          <Ellipsis className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem
+          onSelect={onRemove}
+          className="text-xs text-foreground"
+        >
+          <Trash2 className="size-3.5" />
+          {series ? 'Supprimer le lot' : 'Supprimer le résultat'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

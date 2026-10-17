@@ -16,7 +16,7 @@ import {
   MODEL_FAMILIES,
   type CivitaiLora,
   type CivitaiSort,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { civitaiApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -258,7 +258,7 @@ export function CivitaiBrowser({
   )
 }
 
-function FilterGroup({
+export function FilterGroup({
   title,
   children,
 }: {
@@ -275,7 +275,7 @@ function FilterGroup({
   )
 }
 
-function FilterOption({
+export function FilterOption({
   active,
   onClick,
   children,

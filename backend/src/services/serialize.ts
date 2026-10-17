@@ -1,4 +1,4 @@
-import type { Asset, Generation, Persona, Place, Thread } from '@ai-fluence/shared';
+import type { Asset, Generation, Persona, Place, Thread } from '@sublime/shared';
 import type { assets, generations, personas, places, threads } from '../db/schema.js';
 
 type AssetRow = typeof assets.$inferSelect;
@@ -35,6 +35,7 @@ export function toPersona(row: PersonaRow, referenceCount = 0): Persona {
     name: row.name,
     gender: row.gender ?? null,
     identity: row.identity,
+    kind: row.kind,
     color: row.color,
     avatarAssetId: row.avatarAssetId,
     avatarUrl: row.avatarAssetId ? mediaUrl(row.avatarAssetId) : null,
@@ -44,6 +45,7 @@ export function toPersona(row: PersonaRow, referenceCount = 0): Persona {
     defaultImageFamily: row.defaultImageFamily,
     defaultVideoFamily: row.defaultVideoFamily,
     referencePoses: row.referencePoses ?? {},
+    voices: row.voices ?? [],
     referenceCount,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -67,16 +69,23 @@ export function toPlace(row: typeof places.$inferSelect, personaIds: string[] = 
 
 export function toThread(
   row: ThreadRow,
-  agg: { totalCost?: string | null; generationCount?: number; coverAssetId?: string | null } = {},
+  agg: {
+    totalCost?: string | null;
+    generationCount?: number;
+    coverAssetId?: string | null;
+    personaIds?: string[] | null;
+    previewAssetIds?: string[] | null;
+  } = {},
 ): Thread {
   return {
     id: row.id,
     title: row.title,
-    personaId: row.personaId,
+    personaIds: agg.personaIds ?? [],
     isPinned: row.isPinned,
     totalCost: agg.totalCost ?? '0',
     generationCount: agg.generationCount ?? 0,
     coverUrl: agg.coverAssetId ? mediaUrl(agg.coverAssetId) : null,
+    previewUrls: (agg.previewAssetIds ?? []).map(mediaUrl),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -86,6 +95,9 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
   return {
     id: row.id,
     threadId: row.threadId,
+    workflowId: row.workflowId,
+    workflowNodeId: row.workflowNodeId,
+    voiceId: row.voiceId,
     personaId: row.personaId,
     prompt: row.prompt,
     finalPrompt: row.finalPrompt,
@@ -111,10 +123,12 @@ export function toGeneration(row: GenerationRow, references: Asset[], outputs: A
     settled: row.settled,
     seed: row.seed,
     durationMs: row.durationMs,
-    outputs,
     runtime: row.provider,
+    // Résultat supprimé : plus aucune image envoyée.
+    outputs: row.removedAt ? [] : outputs,
     spicyTaskId: row.spicyTaskId,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
+    removedAt: row.removedAt?.toISOString() ?? null,
   };
 }

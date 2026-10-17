@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { CharacterDraft, CharacterSlot, CreatorKind } from '@ai-fluence/shared';
+import type { CharacterDraft, CharacterSlot, CreatorKind } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { assets, characterDrafts, generations, libraryCategories, personas, places, threads } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';

@@ -31,6 +31,16 @@ const envSchema = z.object({
   OLLAMA_MODEL: optionalString(z.string()),
   /** Optionnel : bibliothèque LoRA Civitai (recherche + téléchargements protégés). Ne quitte jamais le backend. */
   CIVITAI_KEY: z.string().optional(),
+  /** Optionnel : librairie de photos libres de droits Unsplash (clé « Access Key »). Ne quitte jamais le backend. */
+  UNSPLASH_ACCESS_KEY: z.string().optional(),
+  /** Optionnel : librairie de photos libres de droits Pexels. Ne quitte jamais le backend. */
+  PEXELS_API_KEY: z.string().optional(),
+  /** Optionnel : dictée avec Deepgram Flux (clé au rôle « Member » pour les jetons temporaires). Ne quitte jamais le backend. */
+  deepgramApiKey: z.string().optional(),
+  /** Optionnel : dictée avec Cartesia Ink-2 (jetons temporaires « stt »). Ne quitte jamais le backend. */
+  cartesiaApiKey: z.string().optional(),
+  /** Tests uniquement : remplace SpicyAPI par un faux client (cf. services/spicy.fake). */
+  SPICY_FAKE: z.stringbool().default(false),
 });
 
 /** `VAR=` dans le .env donne une chaîne vide : on la traite comme absente. */

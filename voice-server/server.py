@@ -124,7 +124,7 @@ def unload_whisper():
                 torch.cuda.empty_cache()
 
 
-def transcribe(data: bytes, language: str | None) -> dict:
+def transcribe(data: bytes, language: str | None, prompt: str | None = None) -> dict:
     global whisper, whisper_used
     wav, _ = librosa.load(io.BytesIO(data), sr=16000, mono=True)
     if len(wav) < 16000 * 0.3:
@@ -139,6 +139,8 @@ def transcribe(data: bytes, language: str | None) -> dict:
             vad_filter=True,
             # Une dictée courte : pas de reprise du texte précédent (évite les répétitions en boucle de Whisper).
             condition_on_previous_text=False,
+            # Vocabulaire à bien écrire (noms des personas, modèles, jargon).
+            initial_prompt=prompt or None,
         )
         text = ' '.join(seg.text.strip() for seg in segments).strip()
         whisper_used = time.time()
@@ -274,8 +276,10 @@ class Handler(BaseHTTPRequestHandler):
             raw = self.rfile.read(length)
             if self.path.startswith('/transcribe'):
                 from urllib.parse import parse_qs, urlparse
-                language = parse_qs(urlparse(self.path).query).get('language', [None])[0]
-                return self.json(200, transcribe(raw, language))
+                query = parse_qs(urlparse(self.path).query)
+                language = query.get('language', [None])[0]
+                prompt = query.get('prompt', [None])[0]
+                return self.json(200, transcribe(raw, language, prompt))
             body = json.loads(raw or b'{}')
             if self.path == '/tts':
                 return self.reply(200, tts(body), 'audio/wav')

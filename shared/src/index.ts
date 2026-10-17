@@ -4,3 +4,5 @@ export * from './api';
 export * from './library';
 export * from './masters';
 export * from './split';
+export * from './workflow';
+export * from './dictation';

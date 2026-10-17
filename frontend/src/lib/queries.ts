@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { assistApi, catalogApi, comfyApi, libraryApi, personasApi, placesApi, presetsApi, scenesApi, settingsApi, threadsApi } from './api'
+import { ApiError, assetsApi, assistApi, catalogApi, comfyApi, personasApi, placesApi, presetsApi, scenesApi, settingsApi, threadsApi, traitsApi, workflowsApi } from './api'
 
 export const qk = {
   catalog: ['catalog'] as const,
@@ -23,6 +23,9 @@ export const qk = {
   scenes: ['scenes'] as const,
   trash: ['trash'] as const,
   gallery: (personaId: string | null, media: string | null) => ['gallery', personaId ?? 'all', media ?? 'all'] as const,
+  workflows: ['workflows'] as const,
+  workflow: (id: string) => ['workflow', id] as const,
+  workflowState: (id: string) => ['workflow-state', id] as const,
 }
 
 export const settingsQuery = () =>
@@ -72,23 +75,30 @@ export const assistStatusQuery = () =>
 export const libraryCategoriesQuery = () =>
   queryOptions({
     queryKey: qk.libraryCategories,
-    queryFn: () => libraryApi.categories().then((r) => r.categories),
+    queryFn: () => traitsApi.categories().then((r) => r.categories),
     staleTime: 60_000,
   })
 
 export const libraryOptionsQuery = (categoryId: string) =>
   queryOptions({
     queryKey: qk.libraryOptions(categoryId),
-    queryFn: () => libraryApi.options(categoryId).then((r) => r.options),
+    queryFn: () => traitsApi.options(categoryId).then((r) => r.options),
     staleTime: 60_000,
   })
 
 export const libraryThumbnailsQuery = (categoryId: string) =>
   queryOptions({
     queryKey: qk.libraryThumbnails(categoryId),
-    queryFn: () => libraryApi.thumbnails(categoryId).then((r) => r.thumbnails),
+    queryFn: () => traitsApi.thumbnails(categoryId).then((r) => r.thumbnails),
     // Suivi rapproché tant que des miniatures sont en file ou en cours.
     refetchInterval: (q) => (q.state.data?.some((t) => t.status === 'queued' || t.status === 'running') ? 1500 : false),
+  })
+
+/** Références d'un persona (dans l'ordre choisi). */
+export const referencesQuery = (personaId: string) =>
+  queryOptions({
+    queryKey: qk.references(personaId),
+    queryFn: () => assetsApi.references(personaId).then((r) => r.assets),
   })
 
 export const personasQuery = () =>
@@ -112,7 +122,29 @@ export const threadQuery = (id: string) =>
   queryOptions({
     queryKey: qk.thread(id),
     queryFn: () => threadsApi.get(id),
-    // Tant qu'une génération tourne, on rafraîchit le fil.
+    // Tant qu'une génération ou un workflow tourne, on rafraîchit le fil.
     refetchInterval: (q) =>
-      q.state.data?.generations.some((g) => g.status === 'queued' || g.status === 'running') ? 2500 : false,
+      q.state.data?.generations.some((g) => g.status === 'queued' || g.status === 'running') ||
+      q.state.data?.workflowRuns.some((r) => r.status === 'running')
+        ? 2500
+        : false,
+  })
+
+export const workflowsQuery = () =>
+  queryOptions({ queryKey: qk.workflows, queryFn: () => workflowsApi.list().then((r) => r.workflows), staleTime: 15_000 })
+
+export const workflowQuery = (id: string) =>
+  queryOptions({
+    queryKey: qk.workflow(id),
+    queryFn: () => workflowsApi.get(id).then((r) => r.workflow),
+    // Introuvable : inutile de réessayer.
+    retry: (n, e) => !(e instanceof ApiError && e.status === 404) && n < 2,
+  })
+
+/** Exécution et résultats d'un workflow ; rafraîchis tant qu'une exécution tourne. */
+export const workflowStateQuery = (id: string) =>
+  queryOptions({
+    queryKey: qk.workflowState(id),
+    queryFn: () => workflowsApi.state(id),
+    refetchInterval: (q) => (q.state.data?.run?.status === 'running' ? 1500 : false),
   })

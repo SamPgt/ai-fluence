@@ -14,27 +14,35 @@ import {
 import type {
   CharacterSlot,
   CreatorKind,
+  DictationProvider,
+  Gender,
   GenerationContext,
   GenerationLora,
   GenerationTrait,
   GenerationVariation,
-  Gender,
   LibraryZone,
+  LocalModelsConfig,
   ModelProvider,
   PersonaContextBlock,
-  LocalModelsConfig,
+  PersonaKind,
   PersonaLora,
+  PersonaVoice,
   ReferencePoses,
-  TraitSlot,
   TaskKind,
   ThumbnailGender,
   ThumbnailStatus,
-} from '@ai-fluence/shared';
+  TraitSlot,
+  WorkflowGraph,
+  WorkflowNodeStatus,
+  WorkflowRunInput,
+  WorkflowRunStatus,
+  WorkflowStoredItem,
+} from '@sublime/shared';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 const updatedAt = () => timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
 
-/** Voix d'un personnage, telle qu'enregistrée (cf. `PersonaVoice` pour l'API). */
+/** Voix d'un personnage, telle qu'enregistrée (cf. `PersonaLocalVoice` pour l’API). */
 export interface PersonaVoiceRow {
   /** Extrait de référence adopté (asset `voice`, audio). */
   assetId: string | null;
@@ -78,12 +86,22 @@ export const userSettings = pgTable('user_settings', {
   /** Clé SpicyAPI chiffrée (AES-256-GCM, cf. lib/crypto). */
   spicyApiKeyEnc: text('spicy_api_key_enc'),
   spicyApiKeyHint: text('spicy_api_key_hint'),
+  /** Clé ElevenLabs chiffrée (voix des personas). */
+  elevenLabsApiKeyEnc: text('elevenlabs_api_key_enc'),
+  elevenLabsApiKeyHint: text('elevenlabs_api_key_hint'),
   /** Dossier des médias ; null = dossier par défaut sous DATA_DIR. */
   mediaDir: text('media_dir'),
   // Modèle rapide (~5 s) : Grok 4.7 réfléchit longtemps (~30 s) pour une simple reformulation.
   enhanceModel: text('enhance_model').notNull().default('deepseek/v4.1-flash/chat'),
   /** Modèles locaux (Paramètres → Modèles locaux) : type choisi et visibilité, par fichier de ComfyUI. */
   localModels: jsonb('local_models').$type<LocalModelsConfig>().notNull().default({}),
+  /** Modèles proposés par défaut dans le composer (Paramétrage, onglet Modèles). */
+  defaultImageFamily: text('default_image_family'),
+  defaultVideoFamily: text('default_video_family'),
+  /** LoRA de Général (rangés dans aucun persona). */
+  loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
+  /** Fournisseur de la dictée du composer. */
+  dictationProvider: text('dictation_provider').$type<DictationProvider>().notNull().default('elevenlabs'),
   updatedAt: updatedAt(),
 });
 
@@ -101,11 +119,15 @@ export const personas = pgTable(
     identity: jsonb('identity').$type<GenerationTrait[]>().notNull().default([]),
     /** Fil masqué des variations (images master). Sans clé étrangère : fils et personas se référencent déjà. */
     masterThreadId: uuid('master_thread_id'),
+    /** influencer : une personne (voix proposées) ; artistic : un univers visuel. */
+    kind: text('kind').$type<PersonaKind>().notNull().default('influencer'),
     color: text('color').notNull().default('#8b5cf6'),
     avatarAssetId: uuid('avatar_asset_id'),
     /** Blocs de contexte (titre, texte), toujours envoyés au prompt. */
     contextBlocks: jsonb('context_blocks').$type<PersonaContextBlock[]>().notNull().default([]),
     loras: jsonb('loras').$type<PersonaLora[]>().notNull().default([]),
+    /** Voix ElevenLabs du persona (choisies dans leur catalogue). */
+    voices: jsonb('voices').$type<PersonaVoice[]>().notNull().default([]),
     defaultImageFamily: text('default_image_family'),
     defaultVideoFamily: text('default_video_family'),
     /** Voix (vidéos parlées, local) : extrait de référence, expressivité, création en cours. */
@@ -145,13 +167,17 @@ export const generations = pgTable(
   'generations',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    threadId: uuid('thread_id')
-      .notNull()
-      .references(() => threads.id, { onDelete: 'cascade' }),
+    /** Fil de la génération ; vide pour un résultat de workflow (cf. `workflowId`). */
+    threadId: uuid('thread_id').references(() => threads.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     personaId: uuid('persona_id').references(() => personas.id, { onDelete: 'set null' }),
+    /** Résultat d'un nœud de workflow (sans fil). */
+    workflowId: uuid('workflow_id').references((): AnyPgColumn => workflows.id, { onDelete: 'cascade' }),
+    workflowNodeId: text('workflow_node_id'),
+    /** Voix du persona envoyée comme référence (id de la voix dans le persona). */
+    voiceId: text('voice_id'),
     prompt: text('prompt').notNull(),
     finalPrompt: text('final_prompt').notNull(),
     family: text('family').notNull(),
@@ -193,9 +219,12 @@ export const generations = pgTable(
     errorMessage: text('error_message'),
     createdAt: createdAt(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    /** Résultat supprimé du fil par l'utilisateur : la demande reste, ses images sont masquées. */
+    removedAt: timestamp('removed_at', { withTimezone: true }),
   },
   t => [
     index('generations_thread_idx').on(t.threadId, t.createdAt),
+    index('generations_workflow_idx').on(t.workflowId, t.workflowNodeId),
     index('generations_status_idx').on(t.status),
   ],
 );
@@ -261,6 +290,106 @@ export const promptPresets = pgTable(
   },
   t => [index('prompt_presets_user_idx').on(t.userId)],
 );
+
+/**
+ * Cache partagé des librairies de photos (Unsplash, Pexels), aux quotas serrés.
+ * Clé préfixée par la source : `unsplash GET <chemin>` pour une réponse de l'API,
+ * `unsplash photo:<id>` pour les liens d'import d'une photo, `unsplash track:<id>`
+ * pour un téléchargement à signaler plus tard.
+ */
+export const libraryCache = pgTable('library_cache', {
+  key: text('key').primaryKey(),
+  data: jsonb('data').notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Workflow : graphe de nœuds (React Flow), global à l'utilisateur. */
+export const workflows = pgTable(
+  'workflows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    graph: jsonb('graph').$type<WorkflowGraph>().notNull().default({ nodes: [], edges: [] }),
+    /** Couverture choisie (sinon : la dernière image produite par le workflow). */
+    coverAssetId: uuid('cover_asset_id').references((): AnyPgColumn => assets.id, { onDelete: 'set null' }),
+    /** Corbeille : masqué de l'app, supprimé pour de bon après 7 jours. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  t => [index('workflows_user_idx').on(t.userId, t.updatedAt)],
+);
+
+/** Exécution d'un workflow : les nœuds payants lancés ensemble, dans l'ordre de leurs dépendances. */
+export const workflowRuns = pgTable(
+  'workflow_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => workflows.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: text('status').$type<WorkflowRunStatus>().notNull().default('running'),
+    /** Nœuds lancés par cette exécution. */
+    nodeIds: jsonb('node_ids').$type<string[]>().notNull().default([]),
+    /** Graphe au lancement (instantané : l'exécution ne suit pas les modifications faites pendant). */
+    graph: jsonb('graph').$type<WorkflowGraph>().notNull(),
+    /** Lancée depuis un fil : affichée dans ce fil, à sa place dans la conversation. */
+    threadId: uuid('thread_id').references(() => threads.id, { onDelete: 'set null' }),
+    /** Valeurs saisies dans le formulaire du fil (instantané, pour la bulle). */
+    inputs: jsonb('inputs').$type<WorkflowRunInput[]>().notNull().default([]),
+    /** Devis confirmé par l'utilisateur ; l'exécution s'arrête avant de le dépasser de plus de 20 %. */
+    estimatedCost: text('estimated_cost'),
+    errorMessage: text('error_message'),
+    createdAt: createdAt(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  t => [index('workflow_runs_workflow_idx').on(t.workflowId, t.createdAt)],
+);
+
+/** Résultat d'un nœud dans une exécution : une génération (image, vidéo) ou un texte. */
+export const workflowNodeResults = pgTable(
+  'workflow_node_results',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: 'cascade' }),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => workflows.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    status: text('status').$type<WorkflowNodeStatus>().notNull().default('pending'),
+    generationId: uuid('generation_id').references(() => generations.id, { onDelete: 'set null' }),
+    text: text('text'),
+    /** Nœud qui a reçu une liste : un résultat par élément (le lot). Null sinon. */
+    items: jsonb('items').$type<WorkflowStoredItem[]>(),
+    cost: text('cost'),
+    errorMessage: text('error_message'),
+    createdAt: createdAt(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  t => [index('workflow_node_results_node_idx').on(t.workflowId, t.nodeId, t.createdAt)],
+);
+
+/**
+ * Extrait de référence d'une voix ElevenLabs (une dizaine de secondes), généré une seule
+ * fois et partagé par tous les personas et comptes qui utilisent cette voix.
+ */
+export const voiceSamples = pgTable('voice_samples', {
+  /** Identifiant ElevenLabs de la voix. */
+  voiceId: text('voice_id').primaryKey(),
+  filePath: text('file_path').notNull(),
+  mime: text('mime').notNull(),
+  bytes: integer('bytes').notNull().default(0),
+  createdAt: createdAt(),
+});
+
 
 // ── Bibliothèque (wildcards) ─────────────────────────────────
 

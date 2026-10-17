@@ -7,7 +7,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, MapPin, Plus, Star, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Place } from '@ai-fluence/shared'
+import type { Place } from '@sublime/shared'
 
 import { placesApi } from '@/lib/api'
 import { personasQuery, placesQuery, qk } from '@/lib/queries'

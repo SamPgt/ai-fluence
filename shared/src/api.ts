@@ -6,6 +6,7 @@ import type { InputSchema, VideoRefMode } from './input';
 import type { MediaKind, ModelBadge, ModelProvider, ProviderId, TaskKind } from './models';
 import type { LibraryZone } from './library';
 import type { CreatorKind, GenerationVariation, MasterAxis, ReferencePoses } from './masters';
+import type { WorkflowGraph, WorkflowInputValue } from './workflow';
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -40,12 +41,82 @@ export interface Settings {
   apiKeyHint: string | null;
   mediaDir: string;
   defaultMediaDir: string;
+  hasElevenLabsKey: boolean;
+  /** Ex. `sk_••••1a2b`. Jamais la clé en clair. */
+  elevenLabsKeyHint: string | null;
   enhanceModel: string;
+  /** Modèles proposés par défaut dans le composer (null : celui de l'app). */
+  defaultImageFamily: string | null;
+  defaultVideoFamily: string | null;
+  /** LoRA de Général (rangés dans aucun persona). */
+  loras: PersonaLora[];
+  /** Fournisseur de la dictée du composer. */
+  dictationProvider: DictationProvider;
+  /** Fournisseurs de dictée utilisables (clé configurée sur le serveur ; ElevenLabs : clé du compte). */
+  dictationProviders: DictationProvider[];
+}
+
+/** Dictée en direct : ElevenLabs Scribe v2 Realtime, Deepgram Flux, Cartesia Ink-2, ou Whisper en local (serveur de voix). */
+export type DictationProvider = 'elevenlabs' | 'deepgram' | 'cartesia' | 'whisper';
+
+/** Modèles de dictée, rangés comme le menu des modèles : Rapide, Précis, Autre. */
+export const DICTATION_MODELS: {
+  id: DictationProvider;
+  label: string;
+  brand: string;
+  logo: string;
+  hint: string;
+  section: 'fast' | 'accurate' | 'other';
+}[] = [
+  {
+    id: 'deepgram',
+    label: 'Deepgram Flux',
+    brand: 'Deepgram',
+    logo: '/providers/deepgram.svg',
+    hint: 'Le texte arrive quasi instantanément',
+    section: 'fast',
+  },
+  {
+    id: 'cartesia',
+    label: 'Cartesia Ink-2',
+    brand: 'Cartesia',
+    logo: '/providers/cartesia.svg',
+    hint: 'Très précis, par petits morceaux',
+    section: 'accurate',
+  },
+  {
+    id: 'elevenlabs',
+    label: 'ElevenLabs Scribe v2 Realtime',
+    brand: 'ElevenLabs',
+    logo: '/providers/elevenlabs.svg',
+    hint: 'Très précis, texte provisoire en direct',
+    section: 'accurate',
+  },
+  {
+    id: 'whisper',
+    label: 'Whisper large-v3-turbo (local)',
+    brand: 'OpenAI · sur ton GPU',
+    logo: '/providers/openai.svg',
+    hint: 'Gratuit et privé, texte mis à jour chaque seconde',
+    section: 'other',
+  },
+];
+
+/** Jeton de dictée : le navigateur se connecte directement au fournisseur avec lui. */
+export interface DictationTokenResponse {
+  provider: DictationProvider;
+  token: string;
+  /** Tests : dictée simulée, sans micro ni réseau. */
+  fake: boolean;
 }
 
 export interface UpdateSettingsRequest {
   mediaDir?: string | null;
   enhanceModel?: string;
+  defaultImageFamily?: string | null;
+  defaultVideoFamily?: string | null;
+  loras?: PersonaLora[];
+  dictationProvider?: DictationProvider;
 }
 
 export interface SetApiKeyRequest {
@@ -232,8 +303,79 @@ export interface CivitaiSearchResponse {
   nextCursor: string | null;
 }
 
+/** Pack de wildcards Civitai (une archive de listes). */
+export interface CivitaiWildcard {
+  /** Version téléchargée (la plus récente). */
+  versionId: number;
+  modelId: number;
+  name: string;
+  creator: string | null;
+  downloads: number;
+  sizeKB: number;
+}
+
+export interface CivitaiWildcardSearchResponse {
+  items: CivitaiWildcard[];
+  nextCursor: string | null;
+}
+
+/** Une liste d'un pack de wildcards : `total` éléments, dont `items` gardés (2000 au plus). */
+export interface WildcardList {
+  name: string;
+  total: number;
+  items: string[];
+  /** `tags` : écrite pour Stable Diffusion (suites de tags) ; une reformulation est proposée. */
+  format: 'tags' | 'text';
+}
+
+/** Reformulation d'éléments de liste en phrases (modèle de texte, payant). */
+export interface ListRewriteQuoteResponse {
+  count: number;
+  estimatedCost: string;
+}
+
+export interface ListRewriteResponse {
+  items: string[];
+  cost: string | null;
+}
+
+export interface CivitaiWildcardListsResponse {
+  lists: WildcardList[];
+}
+
+// ── Librairies de photos libres de droits (Unsplash, Pexels) ──
+
+export type LibrarySource = 'unsplash' | 'pexels';
+
+export interface LibraryPhoto {
+  id: string;
+  description: string;
+  width: number;
+  height: number;
+  /** Couleur dominante, affichée pendant le chargement de l'image. */
+  color: string;
+  /** Image servie par le CDN de la source (affichage direct). */
+  thumbUrl: string;
+  /** Page de la photo sur la source (attribution). */
+  pageUrl: string;
+  /** Photographe : nom, pseudo (affiché « @pseudo », null si inconnu) et profil. */
+  author: { name: string; username: string | null; profileUrl: string };
+}
+
+export interface LibrarySearchResponse {
+  items: LibraryPhoto[];
+  /** Page suivante, ou null en fin de liste. */
+  nextPage: number | null;
+}
+
+/** Sources configurées (clé présente dans backend/.env). */
+export type LibraryStatus = Record<LibrarySource, boolean>;
+
 /** Taille maximale du texte d'un bloc de contexte. */
-export const CONTEXT_BLOCK_MAX = 600;
+/** Longueur maximale saisie dans un bloc de contexte. */
+export const CONTEXT_BLOCK_MAX = 500;
+/** Accepté par le serveur : marge au-delà de la saisie, pour les blocs plus longs déjà enregistrés. */
+export const CONTEXT_BLOCK_STORED_MAX = 600;
 
 /** Bloc du contexte du persona : envoyé à chaque génération de ce persona. */
 export interface PersonaContextBlock {
@@ -243,6 +385,41 @@ export interface PersonaContextBlock {
 }
 
 export type Gender = 'female' | 'male';
+/** Voix ElevenLabs choisie pour un persona (catalogue ElevenLabs). */
+export interface PersonaVoice {
+  id: string;
+  /** Identifiant ElevenLabs de la voix. */
+  voiceId: string;
+  publicOwnerId?: string;
+  name: string;
+  /** Extrait audio public (lecture dans l'interface). */
+  previewUrl: string | null;
+  /** Caractéristiques affichées : genre, âge, accent, usage… */
+  labels: Record<string, string>;
+  description?: string;
+}
+
+/** Voix du catalogue ElevenLabs (liste de sélection). */
+export interface VoiceLibraryItem {
+  voiceId: string;
+  /** Bibliothèque communautaire : propriétaire public (pour ajouter la voix au compte avant usage). */
+  publicOwnerId?: string;
+  /** default : voix proposée par ElevenLabs ; library : voix partagée par la communauté. */
+  source: 'default' | 'library';
+  name: string;
+  previewUrl: string | null;
+  labels: Record<string, string>;
+  description?: string;
+  category?: string;
+}
+
+export interface VoiceLibraryResponse {
+  voices: VoiceLibraryItem[];
+  hasMore: boolean;
+}
+
+/** Type de persona : il adapte la fiche (pas de voix pour un persona artistique). */
+export type PersonaKind = 'influencer' | 'artistic';
 
 export interface Persona {
   id: string;
@@ -251,6 +428,7 @@ export interface Persona {
   gender: Gender | null;
   /** Fiche d'identité (traits de la zone Personnage), ajoutée en bulles dans le composer. */
   identity: GenerationTrait[];
+  kind: PersonaKind;
   color: string;
   avatarAssetId: string | null;
   avatarUrl: string | null;
@@ -260,6 +438,7 @@ export interface Persona {
   defaultVideoFamily: string | null;
   /** Planche de références : l'image retenue pour chaque pose (face, trois-quarts, profil). */
   referencePoses: ReferencePoses;
+  voices: PersonaVoice[];
   referenceCount: number;
   createdAt: string;
   updatedAt: string;
@@ -269,7 +448,7 @@ export interface Persona {
  * Voix d'un personnage (vidéos parlées, outil local) : un extrait de référence que le serveur de voix imite.
  * « Créer une voix » génère une courte vidéo LTX dont on garde la voix, proposée avant d'être adoptée.
  */
-export interface PersonaVoice {
+export interface PersonaLocalVoice {
   /** Serveur de voix et ComfyUI configurés (sinon la carte est masquée). */
   enabled: boolean;
   /** Extrait de référence adopté (null : pas encore de voix). */
@@ -293,11 +472,14 @@ export type PersonaInput = Omit<
 export interface Thread {
   id: string;
   title: string;
-  personaId: string | null;
+  /** Personas dont une référence a servi dans le fil (bulles à droite du titre). */
+  personaIds: string[];
   isPinned: boolean;
   totalCost: string;
   generationCount: number;
   coverUrl: string | null;
+  /** Les 3 dernières images du fil, de la plus récente à la plus ancienne (cartes de l'Accueil). */
+  previewUrls: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -350,7 +532,12 @@ export type GenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 export interface Generation {
   id: string;
-  threadId: string;
+  /** Fil de la génération ; null pour un résultat de workflow. */
+  threadId: string | null;
+  workflowId: string | null;
+  workflowNodeId: string | null;
+  /** Voix du persona envoyée comme référence (id dans le persona). */
+  voiceId: string | null;
   personaId: string | null;
   prompt: string;
   /** Prompt réellement envoyé (avec mot déclencheur et suffixe persona). */
@@ -389,10 +576,13 @@ export interface Generation {
   spicyTaskId: string | null;
   createdAt: string;
   completedAt: string | null;
+  /** Résultat supprimé du fil : la demande reste affichée, ses images non (outputs vides). */
+  removedAt: string | null;
 }
 
 export interface GenerationRequest {
   threadId?: string | null;
+  /** Personnage choisi dans le composer (facultatif) : son genre, sa voix (« Texte dit »), sa planche. Le fil, lui, n'appartient à aucun persona. */
   personaId?: string | null;
   family: string;
   refMode?: VideoRefMode;
@@ -423,6 +613,8 @@ export interface GenerationRequest {
   loraWords?: Record<string, string[]>;
   /** Coût affiché à l'utilisateur au moment du clic (confirmation). */
   expectedCost?: string;
+  /** Voix du persona (id dans le persona) envoyée comme référence aux modèles vidéo qui l'acceptent. */
+  voiceId?: string;
 }
 
 export interface UpscaleRequest {
@@ -466,12 +658,16 @@ export interface PriceChangedResponse {
 export interface ThreadDetailResponse {
   thread: Thread;
   generations: Generation[];
+  /** Workflows lancés depuis ce fil (formulaire au-dessus du composer). */
+  workflowRuns: ThreadWorkflowRun[];
 }
 
 export interface SearchResult {
   threadId: string;
   threadTitle: string;
   matchedPrompt: string | null;
+  /** Demande dont le prompt correspond : on arrive dessus dans le fil (null si seul le titre correspond). */
+  matchedGenerationId: string | null;
 }
 
 // ── Contextes (textes ajoutés à la fin du prompt) ─────────────
@@ -484,14 +680,11 @@ export interface PromptPreset {
   media: MediaKind | 'all';
   /** Affiché dans le composer. */
   enabled: boolean;
-  /** Persona propriétaire, ou `null` pour un raccourci disponible partout. */
-  personaId: string | null;
   position: number;
 }
 
 export interface EnhancePromptRequest {
   prompt: string;
-  personaId?: string | null;
   media: MediaKind;
 }
 
@@ -692,8 +885,8 @@ export interface TrashedPersona {
   name: string;
   color: string;
   avatarUrl: string | null;
-  /** Fils partis à la corbeille avec ce persona. */
-  threadCount: number;
+  /** Références parties à la corbeille avec ce persona. */
+  referenceCount: number;
   deletedAt: string;
   /** Date de suppression définitive. */
   purgeAt: string;
@@ -702,8 +895,15 @@ export interface TrashedPersona {
 export interface TrashedThread {
   id: string;
   title: string;
-  personaName: string | null;
   coverUrl: string | null;
+  deletedAt: string;
+  purgeAt: string;
+}
+
+export interface TrashedWorkflow {
+  id: string;
+  name: string;
+  nodeCount: number;
   deletedAt: string;
   purgeAt: string;
 }
@@ -713,6 +913,154 @@ export interface TrashResponse {
   days: number;
   personas: TrashedPersona[];
   threads: TrashedThread[];
+  workflows: TrashedWorkflow[];
+}
+
+// ── Workflows ─────────────────────────────────────────────────
+
+export interface WorkflowSummary {
+  id: string;
+  name: string;
+  nodeCount: number;
+  /** Entrées « À fournir » : utilisable depuis un fil quand il y en a et que toutes ont un libellé. */
+  inputCount: number;
+  usableInThread: boolean;
+  /** Couverture choisie (null : aucune, la liste montre alors la dernière image produite). */
+  coverAssetId: string | null;
+  /** Image affichée en couverture : celle choisie, sinon la dernière produite par le workflow. */
+  coverUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Workflow extends WorkflowSummary {
+  graph: WorkflowGraph;
+}
+
+export interface UpdateWorkflowRequest {
+  name?: string;
+  graph?: WorkflowGraph;
+  /** Couverture : un média du compte, ou null pour revenir à la dernière image produite. */
+  coverAssetId?: string | null;
+}
+
+/** `stopped` : arrêtée par l'utilisateur (les étapes en attente ne sont pas parties). */
+export type WorkflowRunStatus = 'running' | 'succeeded' | 'failed' | 'stopped';
+export type WorkflowNodeStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+
+export interface WorkflowRun {
+  id: string;
+  status: WorkflowRunStatus;
+  nodeIds: string[];
+  estimatedCost: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/** Un élément d'un lot, tel qu'enregistré (colonne `items`). */
+export interface WorkflowStoredItem {
+  /** Élément de la liste de départ (« robe rouge »). */
+  label: string;
+  status: WorkflowNodeStatus;
+  generationId?: string | null;
+  text?: string | null;
+  cost?: string | null;
+  errorMessage?: string | null;
+}
+
+/** Un élément d'un lot, avec sa génération. */
+export interface WorkflowResultItem {
+  label: string;
+  status: WorkflowNodeStatus;
+  generation: Generation | null;
+  text: string | null;
+  cost: string | null;
+  errorMessage: string | null;
+}
+
+/**
+ * Résultat d'un nœud lors d'une exécution : un lot. Une image (ou un texte), ou, pour un
+ * nœud qui a reçu une liste, un élément par passe (`items`).
+ */
+export interface WorkflowNodeResult {
+  id: string;
+  runId: string;
+  nodeId: string;
+  status: WorkflowNodeStatus;
+  /** Génération (nœuds image et vidéo), avec ses médias. */
+  generation: Generation | null;
+  /** Texte produit (nœuds de texte). */
+  text: string | null;
+  /** Lot d'une liste : un élément par passe, dans l'ordre de la liste. Null hors liste. */
+  items: WorkflowResultItem[] | null;
+  cost: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/** État d'exécution d'un workflow : la dernière exécution et l'historique des résultats par nœud. */
+export interface WorkflowStateResponse {
+  run: WorkflowRun | null;
+  /** Du plus récent au plus ancien. */
+  results: WorkflowNodeResult[];
+}
+
+export interface WorkflowRunRequest {
+  /** Graphe tel qu'affiché (éditeur) : enregistré avant le lancement. Absent : le workflow enregistré. */
+  graph?: WorkflowGraph;
+  /** Nœuds à lancer (absent : tous les nœuds payants). */
+  nodeIds?: string[];
+  /** Devis confirmé par l'utilisateur. */
+  expectedCost?: string;
+  /** Valeurs des entrées « À fournir » (depuis un fil). */
+  inputs?: Record<string, WorkflowInputValue>;
+  /** Lancement depuis un fil : ce fil, ou null pour en créer un. */
+  thread?: { id: string | null };
+}
+
+export interface WorkflowRunStartResponse extends WorkflowStateResponse {
+  /** Fil où s'affiche l'exécution (créé au besoin). */
+  threadId: string | null;
+}
+
+/** Valeur saisie au lancement depuis un fil, telle qu'affichée dans la bulle. */
+export interface WorkflowRunInput {
+  nodeId: string;
+  label: string;
+  text?: string;
+  assetIds?: string[];
+}
+
+/** Exécution lancée depuis un fil, affichée à sa place dans la conversation. */
+export interface ThreadWorkflowRun {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  coverUrl: string | null;
+  status: WorkflowRunStatus;
+  inputs: (WorkflowRunInput & { assets: Asset[] })[];
+  /** Résultat final : médias des nœuds finaux de cette exécution. */
+  outputs: Asset[];
+  /** Résultat supprimé du fil (réversible) : il est masqué partout. */
+  removed: boolean;
+  cost: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
+export interface WorkflowQuoteResponse {
+  estimatedCost: string;
+  /** Tâche de chaque étape : génération (`text-to-image`…) ou modèle de texte (`text`). */
+  nodes: {
+    nodeId: string;
+    task: TaskKind | 'text';
+    /** Prix de l'étape : celui d'une passe × `count`. */
+    estimatedCost: string;
+    /** Nombre de passes : une par élément de la liste reçue, sinon 1. */
+    count: number;
+  }[];
 }
 
 /**

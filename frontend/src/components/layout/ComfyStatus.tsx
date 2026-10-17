@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Cpu, Loader2, Power } from 'lucide-react'
 import { toast } from 'sonner'
-import type { ComfyState, ComfyStatus as Status } from '@ai-fluence/shared'
+import type { ComfyState, ComfyStatus as Status } from '@sublime/shared'
 
 import { comfyApi } from '@/lib/api'
 import { comfyStatusQuery, qk } from '@/lib/queries'

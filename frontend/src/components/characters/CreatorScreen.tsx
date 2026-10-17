@@ -7,12 +7,11 @@ import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Dice5, ImageIcon, Loader2, Lock, LockOpen, MapPinPlus, Sparkles, UserPlus, X } from 'lucide-react'
 import { toast } from 'sonner'
-import type { CharacterDraft, CharacterSlot, CreatorKind, Gender, Generation, GenerationRequest, LibraryOption } from '@ai-fluence/shared'
+import type { CharacterDraft, CharacterSlot, CreatorKind, Gender, Generation, GenerationRequest, LibraryOption } from '@sublime/shared'
 
 import { charactersApi, generationsApi } from '@/lib/api'
 import { catalogQuery, libraryCategoriesQuery, libraryOptionsQuery, libraryThumbnailsQuery, qk, threadQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
-import { useUiPref } from '@/components/providers/ui-prefs'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { NewPersonaDialog } from '@/components/personas/NewPersonaDialog'
 import { TraitPicker } from '@/components/composer/TraitPicker'
@@ -67,7 +66,6 @@ function draw(options: LibraryOption[]): LibraryOption | null {
 export function CreatorScreen({ kind }: { kind: CreatorKind }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const [, setPersonaId] = useUiPref('personaId')
   const DRAFT_KEY = draftKey(kind)
   const text = TEXT[kind]
   const { data: draft } = useQuery({ queryKey: DRAFT_KEY, queryFn: () => charactersApi.current(kind).then((r) => r.draft) })
@@ -122,7 +120,6 @@ export function CreatorScreen({ kind }: { kind: CreatorKind }) {
             if (!persona) return
             const personaId = persona.id
             queryClient.invalidateQueries({ queryKey: qk.personas })
-            setPersonaId(personaId)
             // Suite logique : les images master du nouveau personnage.
             // Suite logique : sa planche de références (face, trois-quarts, profil), lancée d'office.
             navigate({ to: '/personnages/$personaId/masters', params: { personaId }, search: { planche: true } })
@@ -251,7 +248,7 @@ function Creator({
     onError: (e) => toast.error((e as Error).message),
   })
   const cancelLot = useMutation({
-    mutationFn: () => Promise.allSettled(lot.filter(isPending).map((g) => generationsApi.remove(g.id))),
+    mutationFn: () => Promise.allSettled(lot.filter(isPending).map((g) => generationsApi.cancel(g.id))),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: qk.thread(draft.threadId) }),
   })
 
@@ -366,7 +363,7 @@ function Creator({
           <div className="min-h-0 flex-1 overflow-y-auto">
             {sheetCategories.length === 0 && (
               <p className="p-4 text-xs leading-relaxed text-muted-foreground">
-                La fiche se construit à partir des catégories de la zone <b>{text.emptySheet[0]}</b> de ta bibliothèque (
+                La fiche se construit à partir des catégories de la zone <b>{text.emptySheet[0]}</b> de tes traits (
                 {text.emptySheet[1]}). Importe des wildcards dans cette zone pour commencer.
               </p>
             )}

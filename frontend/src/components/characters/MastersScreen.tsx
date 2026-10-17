@@ -16,7 +16,7 @@ import {
   type MasterAxis,
   type Persona,
   type PersonaMaster,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
 import { generationsApi, mastersApi } from '@/lib/api'
 import { catalogQuery, qk, threadQuery } from '@/lib/queries'
@@ -131,7 +131,7 @@ export function MastersScreen({
     onError: (e) => toast.error((e as Error).message),
   })
   const cancelLot = useMutation({
-    mutationFn: () => Promise.allSettled(lot.filter(isPending).map((g) => generationsApi.remove(g.id))),
+    mutationFn: () => Promise.allSettled(lot.filter(isPending).map((g) => generationsApi.cancel(g.id))),
     onSuccess: () => threadId && queryClient.invalidateQueries({ queryKey: qk.thread(threadId) }),
   })
   const toggle = useMutation({

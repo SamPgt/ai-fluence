@@ -7,14 +7,17 @@ import {
   type CatalogFamily,
   type CatalogResponse,
   type InputSchema,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { env } from '../env.js';
 import { getLocalFamilies } from './comfy-workflows.js';
 import { getSettingsRow, requireApiKey } from './settings.service.js';
+import { fakeSpicyClient } from './spicy.fake.js';
 
 export function clientFor(apiKey: string): SpicyClient {
+  // Tests : faux client, sans réseau ni coût.
+  if (env.SPICY_FAKE) return fakeSpicyClient;
   return new SpicyClient({ apiKey, apiBaseUrl: env.SPICY_API_BASE_URL });
 }
 
@@ -57,7 +60,9 @@ async function typicalDurations(userId: string): Promise<Map<string, number>> {
 
 export async function getCatalog(userId: string): Promise<CatalogResponse> {
   // Sans clé, les modèles SpicyAPI restent listés mais indisponibles : les modèles locaux suffisent à générer.
+  // Sans ComfyUI configuré non plus, rien n'est utilisable : erreur 412 (clé à ajouter), comme sans local.
   const hasKey = Boolean((await getSettingsRow(userId)).spicyApiKeyEnc);
+  if (!hasKey && !env.COMFYUI_URL) await requireApiKey(userId);
   const [models, durations] = await Promise.all([hasKey ? getModels(userId) : Promise.resolve([]), typicalDurations(userId)]);
   const families: CatalogFamily[] = MODEL_FAMILIES.map(def => {
     const tasks: CatalogFamily['tasks'] = {};

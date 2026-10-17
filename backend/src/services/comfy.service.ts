@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import type { ComfyStatus } from '@ai-fluence/shared';
+import type { ComfyStatus } from '@sublime/shared';
 import { env } from '../env.js';
 import { unloadLlm } from './llm.service.js';
 

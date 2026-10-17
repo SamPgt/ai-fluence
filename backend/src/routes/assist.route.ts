@@ -15,7 +15,9 @@ const assistRoutes = new Hono<AppEnv>()
     const data = new Uint8Array(await c.req.arrayBuffer());
     if (data.byteLength > 20 * 1024 * 1024) return c.json({ error: 'Dictée trop longue.' }, 400);
     const language = c.req.query('language');
-    return c.json({ text: await transcribe(data, language && /^[a-z]{2}$/.test(language) ? language : undefined) });
+    // Amorce : vocabulaire à bien transcrire (noms des personas, modèles…).
+    const prompt = c.req.query('prompt')?.slice(0, 500);
+    return c.json({ text: await transcribe(data, language && /^[a-z]{2}$/.test(language) ? language : undefined, prompt) });
   })
   .post(
     '/rewrite',

@@ -31,11 +31,13 @@ import {
   UPSCALERS,
   type TaskKind,
   type ModelProvider,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { db } from '../db/index.js';
+import { env } from '../env.js';
 import { assets, generations, personas, places, promptPresets, threads, users } from '../db/schema.js';
 import type { SessionUser } from '../types.js';
 import { getSettingsRow, mediaDirOf, slug } from './settings.service.js';
+import { assemblePrompt } from './prompt.js';
 import { callSpicy, clientForUser, getCatalog, getModels, toHttpError } from './spicy.service.js';
 import { MAX_SEED, buildGraph, localEndpoint } from './comfy-workflows.js';
 import { cancelPrompt, deleteOutputFile, downloadFile, getPromptState, queuePrompt, uploadImage } from './comfy.service.js';
@@ -44,6 +46,7 @@ import { LTX_FPS, ltxPlan, type RetouchBox } from './comfy-builders.js';
 import { resolveTraits } from './traits.service.js';
 import { drawSlots, resolveWildcards } from './draw.service.js';
 import { resolveLoraUrl } from './civitai.service.js';
+import { voiceSampleUri } from './voice-sample.service.js';
 import { dayFolder, extFor, mediaTypeOf, saveFile } from './storage.service.js';
 import { toAsset, toGeneration, toThread } from './serialize.js';
 
@@ -75,7 +78,6 @@ interface Prepared {
   modelId: string;
   input: Record<string, unknown>;
   finalPrompt: string;
-  persona: PersonaRow | null;
   references: AssetRow[];
   /** Image dont le visage est appliqué au résultat (ReActor). */
   face: AssetRow | null;
@@ -85,6 +87,10 @@ interface Prepared {
   unknownWildcards: string[];
   dropped: number;
   lorasApplied: number;
+  /** Voix du persona réellement envoyée (null : aucune). */
+  voiceId: string | null;
+  /** Personnage choisi dans le composer. */
+  persona: PersonaRow | null;
 }
 
 async function prepare(user: SessionUser, req: GenerationRequest, forCreate = false): Promise<Prepared> {
@@ -94,10 +100,18 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
   const catalog = await getCatalog(user.id);
   const family = catalog.families.find(f => f.id === req.family);
   if (!family?.available) {
-    throw new HTTPException(400, { message: `${def.label} : ${family?.unavailableReason ?? 'indisponible'}.` });
+    // Raison précise (clé manquante, ComfyUI arrêté, fichiers absents), sinon : absent de la clé SpicyAPI.
+    const reason = family?.unavailableReason;
+    throw new HTTPException(400, {
+      message: reason && reason !== 'Indisponible avec cette clé' ? `${def.label} : ${reason}.` : `${def.label} n'est pas disponible avec cette clé.`,
+    });
   }
   const local = family.runtime === 'comfy';
 
+  // Un fil n'appartient plus à un persona : LoRA et voix se cherchent parmi tous ceux du compte.
+  const kits = await userKits(user.id);
+
+  // Personnage choisi dans le composer (facultatif) : son genre accorde les traits, sa voix dit le « Texte dit ».
   let persona: PersonaRow | null = null;
   if (req.personaId) {
     [persona] = await db
@@ -142,9 +156,9 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
   if (!resolution.ok) throw new HTTPException(400, { message: resolution.reason });
   const endpoint = family.tasks[resolution.task]!;
 
-  // LoRA du persona entraînées pour ce modèle et cochées dans le composer (aucune par défaut, 3 max).
+  // LoRA (d'un persona ou de Général) entraînées pour ce modèle et cochées dans le composer (aucune par défaut, 3 max).
   const loraIds = new Set(req.loraIds ?? []);
-  const personaLoras = (persona?.loras ?? [])
+  const personaLoras = kits.loras
     .filter(l => l.family === req.family && l.path && loraIds.has(l.id))
     .slice(0, MAX_LORAS_PER_GENERATION);
   // Les liens Civitai sont résolus en lien signé temporaire seulement au lancement (le devis n'en a pas besoin).
@@ -232,41 +246,15 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     contexts = [];
   }
 
-  // Contexte du persona : toujours envoyé, en lignes étiquetées (sauf retouche).
-  const blocks = retouch ? [] : (persona?.contextBlocks ?? []).filter(b => b.text.trim());
-
-  // Prompt structuré par ordre d'importance : la LoRA d'abord (le mot déclencheur
-  // agit mieux en tête), puis la demande, les raccourcis et le contexte général.
-  const oneLine = (t: string) => t.trim().replace(/\s+/g, ' ');
-  const sections: [string, string][] = [
-    ['Lora', triggers.join(', ')],
-    ['Prompt (important)', body],
-    // « Éditer » : l'image à modifier est toujours la première envoyée. En anglais,
-    // mieux suivi par les modèles ; jamais affiché dans la bulle (seul finalPrompt la contient).
-    [
-      'Images',
-      req.editAssetId && images[0]?.id === req.editAssetId
-        ? 'Edit image 1: it is the image to modify. Any other images are references only.'
-        : '',
-    ],
-    [
-      'Détails',
-      contexts
-        .filter(c => c.text.trim())
-        .map(c => `${c.label.trim() ? `${c.label.trim()} : ` : ''}${oneLine(c.text)}`)
-        .join('\n'),
-    ],
-    [
-      'Contexte général',
-      blocks.map(b => `- ${b.title.trim() ? `${b.title.trim()} : ` : ''}${oneLine(b.text)}`).join('\n'),
-    ],
-  ];
-  const filled = sections.filter(([, body]) => body);
-  // Prompt seul : on l'envoie tel quel, sans titre.
-  const finalPrompt =
-    filled.length === 1 && filled[0][0] === 'Prompt (important)'
-      ? filled[0][1]
-      : filled.map(([title, body]) => `# ${title}\n${body}`).join('\n\n');
+  // Le contexte du persona n'est plus ajouté au prompt (choix de Sublime) : le personnage passe par ses
+  // références, sa planche, ses traits et sa voix.
+  const finalPrompt = assemblePrompt({
+    prompt: body,
+    triggers,
+    contexts,
+    // « Éditer » : l'image à modifier est toujours la première envoyée.
+    editFirstImage: Boolean(req.editAssetId && images[0]?.id === req.editAssetId),
+  });
 
   const built = buildInput({
     schema: endpoint.schema,
@@ -291,6 +279,15 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
   // Le visage ne passe pas par le schéma : il est ajouté au workflow au lancement.
   if (face) built.input.face_image_url = localAssetRef(face);
 
+  // Voix du persona : son extrait de référence, pour les modèles qui en acceptent un
+  // (mode références). Ailleurs (synchronisation des lèvres…), elle n'est pas envoyée.
+  const voice = req.voiceId ? kits.voices.find(v => v.id === req.voiceId) : undefined;
+  let voiceId: string | null = null;
+  if (client && voice && endpoint.schema.properties?.reference_audio_urls && resolution.task === 'reference-to-video') {
+    built.input.reference_audio_urls = [await voiceSampleUri(client, user.id, voice.voiceId)];
+    voiceId = voice.id;
+  }
+
   const required = endpoint.schema.required ?? [];
   if (required.includes('prompt') && !built.input.prompt) {
     throw new HTTPException(400, { message: 'Ce modèle a besoin d’un prompt.' });
@@ -307,7 +304,6 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     modelId: endpoint.modelId,
     input: built.input,
     finalPrompt,
-    persona,
     references,
     face,
     traits,
@@ -315,6 +311,8 @@ async function prepare(user: SessionUser, req: GenerationRequest, forCreate = fa
     unknownWildcards: wildcards.unknown,
     dropped: built.dropped,
     lorasApplied: built.lorasApplied,
+    voiceId,
+    persona,
   };
 }
 
@@ -405,9 +403,9 @@ export async function createGeneration(
     if (i > 0 && typeof params.seed === 'number') params.seed = (params.seed + i) % MAX_SEED;
     const pi = i === 0 ? p : await prepare(user, { ...req, params, prompt: promptFor(i), traitIds: traitsFor(i) }, true);
     const qi = i === 0 ? quote : await quoteFor(pi);
-    const res = await launch(user, pi, qi, {
+    const res = await launchInThread(user, pi, qi, {
       threadId,
-      personaId: pi.persona?.id ?? null,
+      personaId: p.persona?.id ?? null,
       family: req.family,
       prompt: promptFor(i),
       refMode: req.refMode ?? 'start-frame',
@@ -443,22 +441,24 @@ function toQuoteResponse(p: Prepared, quote: QuoteLike, count = 1): QuoteRespons
   };
 }
 
-/** Crée (ou reprend) le fil, enregistre la génération, lance la tâche et démarre son suivi. */
-async function launch(
+interface LaunchMeta {
+  threadId: string | null;
+  personaId: string | null;
+  family: string;
+  prompt: string;
+  refMode: 'start-frame' | 'reference';
+  params: Record<string, unknown>;
+  batchId?: string | null;
+  batchIndex?: number;
+  variation?: GenerationVariation | null;
+}
+
+/** Génération d'un fil : crée (ou reprend) le fil, puis lance. */
+async function launchInThread(
   user: SessionUser,
   p: Prepared,
   quote: QuoteLike,
-  meta: {
-    threadId: string | null;
-    personaId: string | null;
-    family: string;
-    prompt: string;
-    refMode: 'start-frame' | 'reference';
-    params: Record<string, unknown>;
-    batchId?: string | null;
-    batchIndex?: number;
-    variation?: GenerationVariation | null;
-  },
+  meta: LaunchMeta,
 ): Promise<CreateGenerationResponse> {
   // Fil : existant (vérifié) ou créé à partir du prompt.
   let thread: typeof threads.$inferSelect | undefined;
@@ -478,17 +478,68 @@ async function launch(
     const title = readable.slice(0, 60) || getFamily(meta.family)!.label;
     [thread] = await db
       .insert(threads)
-      .values({ userId: user.id, personaId: meta.personaId, title })
+      .values({ userId: user.id, title })
       .returning();
   }
 
+  const generation = await launch(user, p, quote, meta, { threadId: thread.id });
+  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, thread.id));
+  return { generation, thread: toThread(thread) };
+}
+
+/**
+ * Génération d'un nœud de workflow (sans fil). `maxCost` : plafond restant de
+ * l'exécution ; au-delà, rien n'est lancé.
+ */
+export async function createWorkflowGeneration(
+  user: SessionUser,
+  req: GenerationRequest,
+  owner: { workflowId: string; nodeId: string },
+  maxCost?: number,
+): Promise<Generation> {
+  const p = await prepare(user, req, true);
+  const quote = await quoteFor(p);
+  if (maxCost !== undefined && Number(quote.estimatedCost) > maxCost + 1e-9) {
+    throw new HTTPException(402, { message: 'Le coût dépasse le devis confirmé : exécution arrêtée.' });
+  }
+  return launch(
+    user,
+    p,
+    quote,
+    {
+      threadId: null,
+      personaId: null,
+      family: req.family,
+      prompt: req.prompt,
+      refMode: req.refMode ?? 'start-frame',
+      params: req.params ?? {},
+    },
+    { workflowId: owner.workflowId, workflowNodeId: owner.nodeId },
+  );
+}
+
+/** Devis d'une génération de workflow (même calcul que le composer). */
+export async function quoteWorkflowGeneration(user: SessionUser, req: GenerationRequest) {
+  const p = await prepare(user, req);
+  const quote = await quoteFor(p);
+  return { task: p.task, estimatedCost: quote.estimatedCost };
+}
+
+/** Enregistre la génération (dans un fil ou un nœud de workflow), lance la tâche et démarre son suivi. */
+async function launch(
+  user: SessionUser,
+  p: Prepared,
+  quote: QuoteLike,
+  meta: LaunchMeta,
+  owner: { threadId: string } | { workflowId: string; workflowNodeId: string },
+): Promise<Generation> {
   const idempotencyKey = randomUUID();
   const [row] = await db
     .insert(generations)
     .values({
-      threadId: thread.id,
+      ...owner,
       userId: user.id,
-      personaId: meta.personaId ?? thread.personaId,
+      personaId: meta.personaId,
       prompt: meta.prompt,
       finalPrompt: p.finalPrompt,
       family: meta.family,
@@ -507,6 +558,7 @@ async function launch(
       contexts: p.contexts,
       loras: p.loras,
       lorasApplied: p.lorasApplied,
+      voiceId: p.voiceId,
       idempotencyKey,
       estimatedCost: quote.estimatedCost,
     })
@@ -534,11 +586,10 @@ async function launch(
       .where(eq(generations.id, row.id));
   }
 
-  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, thread.id));
   void watchGeneration(row.id);
 
   const [generation] = await loadGenerations(user.id, { ids: [row.id] });
-  return { generation, thread: toThread(thread) };
+  return generation;
 }
 
 // ── ComfyUI (local) ───────────────────────────────────────────
@@ -682,7 +733,7 @@ async function watchComfy(row: GenerationRow, promptId: string): Promise<void> {
         .update(generations)
         .set({ status: 'succeeded', cost: '0', settled: true, seed, durationMs: state.durationMs, completedAt: new Date() })
         .where(eq(generations.id, row.id));
-      await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
+      if (row.threadId) await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
     } else {
       await db
         .update(generations)
@@ -805,6 +856,7 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
     .limit(1);
   if (!source) throw new HTTPException(404, { message: 'Génération d’origine introuvable.' });
   if (asset.mediaType === 'audio') throw new HTTPException(400, { message: 'Un fichier audio ne s’upscale pas.' });
+  if (!source.threadId) throw new HTTPException(400, { message: 'L’upscale d’un résultat de workflow arrive bientôt.' });
 
   const tool = UPSCALERS[asset.mediaType];
   const model = (await getModels(user.id)).find(m => m.model === tool.modelId);
@@ -832,7 +884,6 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
       modelId: tool.modelId,
       input,
       finalPrompt: '',
-      persona: null,
       references: [asset],
       randomized: false,
       unknownWildcards: [],
@@ -840,6 +891,8 @@ async function prepareUpscale(user: SessionUser, req: UpscaleRequest): Promise<P
       traits: [],
       dropped: 0,
       lorasApplied: 0,
+      voiceId: null,
+      persona: null,
     },
     threadId: source.threadId,
     personaId: source.personaId,
@@ -859,7 +912,7 @@ export async function createUpscale(user: SessionUser, req: UpscaleRequest): Pro
   if (req.expectedCost !== undefined && Number(quote.estimatedCost) > Number(req.expectedCost) + 1e-9) {
     throw new PriceChangedError(toQuoteResponse(u.p, quote));
   }
-  return launch(user, u.p, quote, {
+  return launchInThread(user, u.p, quote, {
     threadId: u.threadId,
     personaId: u.personaId,
     family: u.family,
@@ -976,7 +1029,8 @@ export async function watchGeneration(generationId: string): Promise<void> {
       .set({ status: 'failed', errorCode: 'timeout', errorMessage: 'Suivi interrompu : la tâche est trop longue.', completedAt: new Date() })
       .where(eq(generations.id, row.id));
   } catch (err) {
-    console.error(`[watch] ${generationId}:`, (err as Error).message);
+    // Pas de bruit dans la sortie des tests (les échecs simulés sont attendus).
+    if (env.NODE_ENV !== 'test') console.error(`[watch] ${generationId}:`, (err as Error).message);
     await db
       .update(generations)
       .set({ status: 'failed', errorCode: 'watch_failed', errorMessage: (err as Error).message, completedAt: new Date() })
@@ -1061,7 +1115,7 @@ async function handleSuccess(row: GenerationRow, record: TaskRecord) {
       completedAt: record.completedAt ? new Date(record.completedAt) : new Date(),
     })
     .where(eq(generations.id, row.id));
-  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
+  if (row.threadId) await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, row.threadId));
 }
 
 /** Le coût final peut arriver après la fin de la tâche : on le relit quelques fois. */
@@ -1104,4 +1158,19 @@ export async function resumeWatchers(): Promise<void> {
     .where(and(eq(generations.settled, false), isNotNull(generations.spicyTaskId), inArray(generations.status, ['succeeded', 'failed'])));
   for (const g of unsettled) void settleLater(g.id, g.userId, g.spicyTaskId!);
   if (pending.length) console.log(`↻ Reprise du suivi de ${pending.length} génération(s)`);
+}
+
+/** LoRA et voix du compte : ceux de chaque persona (hors corbeille) et ceux de Général. */
+async function userKits(userId: string) {
+  const [rows, settings] = await Promise.all([
+    db
+      .select({ loras: personas.loras, voices: personas.voices })
+      .from(personas)
+      .where(and(eq(personas.userId, userId), isNull(personas.deletedAt))),
+    getSettingsRow(userId),
+  ]);
+  return {
+    loras: [...(settings?.loras ?? []), ...rows.flatMap(r => r.loras)],
+    voices: rows.flatMap(r => r.voices),
+  };
 }

@@ -18,7 +18,7 @@ import {
   type LocalModelsConfig,
   type LocalModelsResponse,
   type TaskKind,
-} from '@ai-fluence/shared';
+} from '@sublime/shared';
 import { env } from '../env.js';
 import { getNodeOptions, hasNodes, isComfyRunning, modelFileSize } from './comfy.service.js';
 import { getSettingsRow } from './settings.service.js';

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSelector } from '@tanstack/react-store'
-import { ArrowUp, Circle, Dice5, Film, Footprints, Info, Loader2, MapPinned, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Square, Upload, Volume2, X } from 'lucide-react'
+import { ArrowUp, Check, Circle, Dice5, Film, FolderOpen, Footprints, Info, Loader2, MapPinned, Mic, Pencil, Plus, ScanText, Shapes, Sparkles, Square, Upload, Volume2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   imageInputInfo,
@@ -14,17 +14,29 @@ import {
   schemaSupportsLoras,
   MAX_LORAS_PER_GENERATION,
   appDefault,
+  audioInputInfo,
   APP_DEFAULT_FAMILY,
+  PROVIDERS,
+  dictationKeyterms,
   type Asset,
+  type Generation,
   type GenerationRequest,
+  type ThreadDetailResponse,
   type JsonSchemaProp,
   type MediaKind,
-  type PriceChangedResponse,
+
   type RewritePromptResponse,
   type TaskKind,
-} from '@ai-fluence/shared'
+} from '@sublime/shared'
 
-import { ApiError, assetsApi, assistApi, generationsApi, personasApi } from '@/lib/api'
+import { assetsApi, assistApi, generationsApi, personasApi } from '@/lib/api'
+import { playValidateSound, useDictation } from './useDictation'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { LoadingValue } from '@/components/ui/loading-value'
 import { composer, composerStore, isEmptyDraft } from '@/lib/composer-store'
 import {
   assistStatusQuery,
@@ -37,8 +49,13 @@ import {
 } from '@/lib/queries'
 import { formatUsd } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { startRecording, toWav, type Recording } from '@/lib/recording'
+import { startRecording, toWav } from '@/lib/recording'
 import { Button } from '@/components/ui/button'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { ModelPicker } from './ModelPicker'
 import {
   AspectRatioPicker,
@@ -52,6 +69,11 @@ import { ContextChips } from './PresetChips'
 import { AssetThumb, ReferencePicker } from './ReferencePicker'
 import { TraitPicker } from './TraitPicker'
 import { FaceButton, PlaceBubble, PlaceButton, ScenesButton } from './SceneTools'
+import { LibraryBrowser } from './LibraryBrowser'
+import { VoicePicker } from './VoicePicker'
+import { WorkflowForm, WorkflowPickerButton } from './WorkflowForm'
+import { VOICE_ENABLED } from '@/lib/features'
+import { MediaViewer } from '@/components/thread/MediaViewer'
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value)
@@ -110,9 +132,12 @@ function durationControl(prop: JsonSchemaProp | undefined, raw: unknown) {
 
 interface ComposerProps {
   threadId?: string
-  personaId: string | null
+  /** Personas dont une référence a déjà servi dans le fil (leurs LoRA sont proposées). */
+  threadPersonaIds?: string[]
   /** Modèle proposé par défaut (ex. celui de la dernière génération du fil). */
   suggestedFamily?: string | null
+  /** Workflow dont le formulaire s'ouvre d'emblée (▶ depuis l'Accueil). */
+  initialWorkflowId?: string
 }
 
 /** Temps de calcul estimé d'une vidéo LTX (en minutes) : ~40 s par seconde de vidéo en 512p, le double en 720p. */
@@ -123,15 +148,20 @@ function videoMinutes(speechSeconds: number, resolution: string): number {
 
 export function Composer({
   threadId,
-  personaId,
+  threadPersonaIds = [],
   suggestedFamily,
+  initialWorkflowId,
 }: ComposerProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(0)
+  const [addOpen, setAddOpen] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const [dragging, setDragging] = useState(false)
+  // Pièce jointe ouverte dans la visionneuse (son id).
+  const [viewing, setViewing] = useState<string | null>(null)
 
   const state = useSelector(composerStore, (s) => s)
   const { data: settings } = useQuery(settingsQuery())
@@ -209,18 +239,25 @@ ${prompt}` : prompt)
   const { data: catalog, error: catalogError } = useQuery(
     catalogQuery(Boolean(settings)),
   )
-  const { data: personas = [], status: personasStatus } =
-    useQuery(personasQuery())
+  const { data: personas = [], isSuccess: personasLoaded } = useQuery(personasQuery())
   const { data: contexts = [] } = useQuery(presetsQuery())
-  const persona = personas.find((p) => p.id === personaId) ?? null
   const families = catalog?.families ?? []
+  // Personas présents : ceux du fil et ceux des images jointes (dans l'ordre de la Bibliothèque).
+  const presentIds = new Set([
+    ...threadPersonaIds,
+    ...state.attachments.map((a) => a.personaId).filter(Boolean),
+  ])
+  const present = personas.filter((p) => presentIds.has(p.id))
+  // Personnage actif : celui posé sur le brouillon, sinon le premier présent (fil ou image jointe). Il apporte son
+  // genre (phrase des traits), sa voix (« Texte dit »), sa planche de références et ses lieux ; le fil reste libre.
+  const persona = personas.find((p) => p.id === state.personaId) ?? present[0] ?? null
 
-  const personasLoaded = personasStatus === 'success'
+  const settingsLoaded = Boolean(settings)
   const usable = (id: string | null | undefined, media: MediaKind) =>
     id && families.some((f) => f.id === id && f.available && f.media === media)
       ? id
       : null
-  // Modèle par défaut, dans l'ordre : dernier modèle du fil > modèle du persona
+  // Modèle par défaut, dans l'ordre : dernier modèle du fil > modèle par défaut (Paramétrage)
   // > dernier choix dans ce fil (type photo / vidéo) > modèle économique de l'app
   // > premier dispo. Le choix fait dans le fil lui-même est repris en premier
   // (cf. enterThread), cette cascade ne sert que s'il n'y en a pas.
@@ -231,8 +268,8 @@ ${prompt}` : prompt)
     (suggested ? usable(suggestedFamily, media) : null) ??
     usable(
       media === 'image'
-        ? persona?.defaultImageFamily
-        : persona?.defaultVideoFamily,
+        ? settings?.defaultImageFamily
+        : settings?.defaultVideoFamily,
       media,
     ) ??
     (memory ? usable(state.familyByMedia[media], media) : null) ??
@@ -241,37 +278,24 @@ ${prompt}` : prompt)
     null
 
   // Le modèle choisi est propre à chaque fil (déclaré avant la cascade ci-dessous).
+  // Garde : en développement, React monte deux fois chaque composant ; le
+  // brouillon ne doit être chargé qu'une fois par fil affiché.
+  const enteredFor = useRef<string | null | undefined>(undefined)
   useEffect(() => {
+    if (enteredFor.current === (threadId ?? null)) return
+    enteredFor.current = threadId ?? null
     composer.enterThread(threadId ?? null)
-  }, [threadId])
+  }, [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Jamais sans modèle : si le modèle courant manque ou n'est plus disponible
   // (catalogue pas encore chargé, modèle retiré…), on applique la cascade.
   useEffect(() => {
-    if (!catalog || !personasLoaded) return
+    if (!catalog || !settingsLoaded) return
     const current = families.find((f) => f.id === state.family)
     if (current?.available) return
     const pick = pickFamily(current?.media ?? 'image')
     if (pick) composer.setFamily(pick)
-  }, [catalog, personasLoaded, state.family]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Changer de persona reprend son modèle par défaut (le choix manuel ne vaut
-  // que pour le persona en cours).
-  const lastPersona = useRef(personaId)
-  useEffect(() => {
-    // Dans un fil, le persona est fixe : seul un nouveau fil change de persona.
-    if (threadId) return
-    if (lastPersona.current === personaId || !catalog || !personasLoaded) return
-    lastPersona.current = personaId
-    // Demande commencée : on garde le modèle choisi avec elle.
-    if (!isEmptyDraft(state)) return
-    const current = families.find((f) => f.id === state.family)
-    const pick = pickFamily(current?.media ?? 'image', {
-      memory: false,
-      suggested: false,
-    })
-    if (pick && pick !== state.family) composer.setFamily(pick)
-  }, [personaId, catalog, personasLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [catalog, settingsLoaded, state.family]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (state.focusTick) textareaRef.current?.focus()
@@ -296,6 +320,39 @@ ${prompt}` : prompt)
         ? state.faceChoice
         : (imageAttachments[1]?.id ?? null)
   const inputs = state.attachments.filter((a) => a.id !== faceId)
+
+  // Réinitialiser : visible dès qu'il y a du contenu (texte ou image), pas pour un simple réglage.
+  const defaultFamily = pickFamily(media, { memory: false })
+  const canReset = !isEmptyDraft(state)
+  // Workflow lancé depuis le fil : son formulaire s'affiche au-dessus du composer.
+  const [workflowFormId, setWorkflowFormId] = useState<string | null>(
+    initialWorkflowId ?? null,
+  )
+  useEffect(
+    () => setWorkflowFormId(initialWorkflowId ?? null),
+    [threadId, initialWorkflowId],
+  )
+  const [undoReset, setUndoReset] = useState<ReturnType<
+    typeof composer.reset
+  > | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const hideUndoLater = () => {
+    clearTimeout(undoTimer.current)
+    undoTimer.current = setTimeout(() => setUndoReset(null), 2500)
+  }
+  // Dictée en cours (déclarée plus bas) : arrêtée avant de vider, sans rien garder.
+  const stopDictationRef = useRef<() => void>(() => {})
+  const resetComposer = () => {
+    stopDictationRef.current()
+    setUndoReset(composer.reset(defaultFamily))
+    hideUndoLater()
+  }
+  // Changement de fil : l'annulation ne vaut que pour le brouillon réinitialisé.
+  useEffect(() => {
+    clearTimeout(undoTimer.current)
+    setUndoReset(null)
+  }, [threadId])
+  useEffect(() => () => clearTimeout(undoTimer.current), [])
   const counts = {
     images: inputs.filter((a) => a.mediaType === 'image').length,
     videos: inputs.filter((a) => a.mediaType === 'video').length,
@@ -325,9 +382,11 @@ ${prompt}` : prompt)
   const [slotPicker, setSlotPicker] = useState<string | null>(null)
   const openSlot = state.slots.find((x) => x.categoryId === slotPicker) ?? null
   const supportsLoras = schemaSupportsLoras(schema)
-  // LoRA du persona pour ce modèle : rien n'est coché d'office, 3 max.
+  // LoRA pour ce modèle, de Général et des personas présents : rien n'est coché d'office, 3 max.
   const personaLoras = supportsLoras
-    ? (persona?.loras.filter((l) => l.family === state.family && l.path) ?? [])
+    ? [...(settings?.loras ?? []), ...present.flatMap((p) => p.loras)].filter(
+        (l) => l.family === state.family && l.path,
+      )
     : []
   const activeLoras = personaLoras
     .filter((l) => l.id in state.loras)
@@ -372,6 +431,28 @@ ${prompt}` : prompt)
       })
       .catch(() => undefined)
   }, [persona?.id, state.threadKey, state.family, catalog, personasLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Voix de référence : modèles vidéo qui en acceptent (Wan 3.0, Seedance…).
+  const voiceInfo =
+    family?.media === 'video'
+      ? audioInputInfo(family.tasks)
+      : { max: 0, mode: 'none' as const }
+  // PROCHAINEMENT : ajout de la voix (VOICE_ENABLED) ; en pause, aucune voix n'est choisie ni envoyée.
+  // Voix proposées : celles du premier persona présent (la voix reviendra avec sa propre logique).
+  const voicePersona = present.find((p) => p.kind !== 'artistic') ?? null
+  const selectedVoice = VOICE_ENABLED
+    ? (voicePersona?.voices.find((v) => v.id === state.voiceId) ?? null)
+    : null
+  // La voix part comme référence audio : modèles qui en acceptent une, en mode références.
+  const voiceSent =
+    Boolean(selectedVoice) &&
+    voiceInfo.mode === 'reference' &&
+    task === 'reference-to-video'
+  // Plus d'images que le modèle n'en accepte : envoi bloqué (jamais d'image
+  // ignorée sans que la personne le décide).
+  const extraImages =
+    imageInfo.max > 0
+      ? Math.max(0, state.attachments.length - imageInfo.max)
+      : 0
   // Vidéo : le modèle sait animer une image de départ ET partir de références.
   const canChooseRefMode = Boolean(
     family?.media === 'video' &&
@@ -379,15 +460,12 @@ ${prompt}` : prompt)
     family.tasks['image-to-video'] &&
     family.tasks['reference-to-video'],
   )
-  // Sans persona (pas de menu « Réf. »), le choix reste dans la barre dès qu'une image est jointe.
-  const showRefToggle = canChooseRefMode && !persona && counts.images > 0
 
   // Contextes envoyés : ceux qui sont actifs ET proposés pour ce type de média.
   const activeContextIds = contexts
     .filter(
       (c) =>
         c.enabled &&
-        (c.personaId === null || c.personaId === personaId) &&
         state.contextIds.includes(c.id) &&
         (c.media === 'all' || c.media === (family?.media ?? 'image')),
     )
@@ -396,7 +474,8 @@ ${prompt}` : prompt)
   const request: GenerationRequest | null = family
     ? {
         threadId: threadId ?? null,
-        personaId,
+        // Personnage actif : son genre, sa voix (« Texte dit »).
+        personaId: persona?.id ?? null,
         family: family.id,
         refMode: state.refMode,
         prompt: state.prompt,
@@ -418,6 +497,7 @@ ${prompt}` : prompt)
         traitIds: state.traits.map((t) => t.optionId),
         traitSlots: state.slots.map(({ categoryId, drawFrom, pool }) => ({ categoryId, drawFrom, pool })),
         placeId: state.placeId,
+        voiceId: voiceSent ? selectedVoice!.id : undefined,
       }
     : null
 
@@ -428,9 +508,18 @@ ${prompt}` : prompt)
     (!requiresPrompt || state.prompt.trim()) &&
     !uploading,
   )
-  const debounced = useDebounced(canQuote ? request : null, 600)
+  // Devis : le texte du prompt ne change pas le prix, seuls les réglages comptent.
+  // On ne garde que « prompt vide ou non », pour ne pas redemander un prix à chaque frappe.
+  const priceRequest = request
+    ? {
+        ...request,
+        prompt: request.prompt.trim() ? 'prompt' : '',
+        threadId: null,
+      }
+    : null
+  const debounced = useDebounced(canQuote ? priceRequest : null, 600)
   const quoteKey = useMemo(
-    () => (debounced ? JSON.stringify({ ...debounced, threadId: null }) : null),
+    () => (debounced ? JSON.stringify(debounced) : null),
     [debounced],
   )
   const quote = useQuery({
@@ -441,43 +530,124 @@ ${prompt}` : prompt)
     retry: false,
   })
   const quoteIsCurrent =
-    canQuote &&
-    quoteKey !== null &&
-    JSON.stringify({ ...request, threadId: null }) === quoteKey
+    canQuote && quoteKey !== null && JSON.stringify(priceRequest) === quoteKey
 
+  // Ce qui a été envoyé et d'où : le brouillon est vidé dès l'envoi (jamais après
+  // la réponse, sinon partir pendant l'envoi garderait l'ancienne demande).
+  const sent = useRef<{
+    threadKey: string | null
+    draft: { prompt: string; attachments: Asset[]; editAssetId: string | null }
+  } | null>(null)
+  // Générations « en attente » affichées avant la réponse du serveur.
+  const optimistic = useRef<string[]>([])
+  const showOptimistic = (
+    id: string,
+    body: GenerationRequest,
+    mediaKind: MediaKind,
+    taskKind: TaskKind | null,
+  ): string[] => {
+    const n = mediaKind === 'image' ? Math.max(1, body.count ?? 1) : 1
+    const stamp = crypto.randomUUID()
+    const batchId = n > 1 ? `optimistic-batch-${stamp}` : null
+    const now = new Date().toISOString()
+    const items: Generation[] = Array.from({ length: n }, (_, i) => ({
+      id: `optimistic-${stamp}-${i}`,
+      threadId: id,
+      workflowId: null,
+      workflowNodeId: null,
+      voiceId: body.voiceId ?? null,
+      personaId: body.personaId ?? null,
+      face: null,
+      traits: [],
+      variation: null,
+      durationMs: null,
+      runtime: families.find((f) => f.id === body.family)?.runtime ?? 'spicy',
+      prompt: body.prompt,
+      finalPrompt: body.prompt,
+      family: body.family,
+      modelId: '',
+      task: taskKind ?? 'text-to-image',
+      params: body.params,
+      refMode: body.refMode ?? 'start-frame',
+      references: composerStore.state.attachments,
+      batchId,
+      batchIndex: i,
+      contexts: [],
+      loras: [],
+      lorasApplied: 0,
+      status: 'queued',
+      errorCode: null,
+      errorMessage: null,
+      estimatedCost: null,
+      cost: null,
+      settled: false,
+      seed: null,
+      outputs: [],
+      spicyTaskId: null,
+      createdAt: now,
+      completedAt: null,
+      removedAt: null,
+    }))
+    void queryClient.cancelQueries({ queryKey: qk.thread(id) })
+    queryClient.setQueryData<ThreadDetailResponse>(qk.thread(id), (old) =>
+      old ? { ...old, generations: [...old.generations, ...items] } : old,
+    )
+    return items.map((g) => g.id)
+  }
+  const dropOptimistic = (id: string, ids: string[]) =>
+    queryClient.setQueryData<ThreadDetailResponse>(qk.thread(id), (old) =>
+      old
+        ? {
+            ...old,
+            generations: old.generations.filter((g) => !ids.includes(g.id)),
+          }
+        : old,
+    )
   const create = useMutation({
     mutationFn: (body: GenerationRequest) => generationsApi.create(body),
     onSuccess: ({ thread }) => {
-      composer.clearAfterSend()
       queryClient.invalidateQueries({ queryKey: qk.threadsAll })
       queryClient.invalidateQueries({ queryKey: qk.thread(thread.id) })
       queryClient.invalidateQueries({ queryKey: qk.balance })
-      if (!threadId) composer.adoptNewThread(thread.id)
-      if (!threadId)
+      // Nouveau fil : on ne l'ouvre que si la personne est restée sur le nouveau fil.
+      if (
+        sent.current?.threadKey === 'new' &&
+        composerStore.state.threadKey === 'new'
+      ) {
+        composer.adoptNewThread(thread.id)
         navigate({ to: '/t/$threadId', params: { threadId: thread.id } })
-    },
-    onError: (err) => {
-      if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as PriceChangedResponse
-        queryClient.setQueryData(['quote', quoteKey], body.quote)
-        toast.warning(
-          `Le prix a changé : ${formatUsd(body.quote.estimatedCost)}. Reclique pour confirmer.`,
-        )
-        return
       }
+    },
+    onError: (err, body) => {
+      if (body.threadId && optimistic.current.length) {
+        dropOptimistic(body.threadId, optimistic.current)
+        optimistic.current = []
+      }
+      if (sent.current)
+        composer.restoreAfterError(sent.current.threadKey, sent.current.draft)
       toast.error((err as Error).message)
     },
   })
 
   const onFiles = async (files: FileList | File[] | null) => {
-    const list = Array.from(files ?? []).filter(
-      (f) => f.type.startsWith('image/') || f.type.startsWith('video/'),
-    )
-    if (!list.length) return
+    const all = Array.from(files ?? [])
+    const isMedia = (f: File) =>
+      f.type.startsWith('image/') || f.type.startsWith('video/')
+    // Ni image ni vidéo : même message que le serveur pour un format refusé.
+    for (const f of all.filter((f) => !isMedia(f))) {
+      toast.error(
+        `${f.name} : Formats acceptés : JPEG, PNG, WebP, GIF, MP4, WebM.`,
+      )
+    }
+    const list = all.filter(isMedia)
+    if (!list.length) {
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
     setUploading((n) => n + list.length)
     for (const f of list) {
       try {
-        const { asset } = await assetsApi.upload(f, { personaId })
+        const { asset } = await assetsApi.upload(f)
         composer.addAttachments([asset])
       } catch (e) {
         toast.error(`${f.name} : ${(e as Error).message}`)
@@ -489,15 +659,156 @@ ${prompt}` : prompt)
   }
 
   const send = () => {
-    if (!request || !canQuote || create.isPending) return
-    if (!quoteIsCurrent || !quote.data) {
-      toast.info('Calcul du prix en cours…')
-      return
+    // Le prix n'est jamais bloquant : sans devis à jour, la demande part quand même.
+    if (!request || !canQuote || create.isPending || extraImages > 0) return
+    const s = composerStore.state
+    sent.current = {
+      threadKey: s.threadKey,
+      draft: {
+        prompt: s.prompt,
+        attachments: s.attachments,
+        editAssetId: s.editAssetId,
+      },
     }
-    create.mutate({ ...request, expectedCost: quote.data.estimatedCost })
+    // Affichage optimiste : la demande apparaît tout de suite dans le fil, sans
+    // attendre la réponse du serveur (remplacée par la vraie, retirée en cas d'erreur).
+    if (threadId && family) {
+      optimistic.current = showOptimistic(threadId, request, family.media, task)
+    }
+    // Le devis n'est qu'indicatif : jamais de prix attendu envoyé, donc jamais
+    // de refus « le prix a changé » (Relancer et Upscale, eux, confirment un prix).
+    create.mutate(request)
+    composer.clearAfterSend()
   }
 
+  // ── Dictée ───────────────────────────────────────────────────
+  // Le texte dicté s'insère à la dernière position connue du curseur (sinon à la fin),
+  // en gris tant qu'il n'est pas validé : Entrée (ou le micro) valide, Échap annule.
+  const dictation = useDictation()
+  const caret = useRef<{ start: number; end: number } | null>(null)
+  const dictationBase = useRef<{
+    before: string
+    after: string
+    prompt: string
+  } | null>(null)
+  const rememberCaret = () => {
+    const t = textareaRef.current
+    if (t) caret.current = { start: t.selectionStart, end: t.selectionEnd }
+  }
+  // Morceaux affichés : texte avant, texte dicté (gris), texte après.
+  const dictated = (() => {
+    const base = dictationBase.current
+    if (!base || !dictation.text) return null
+    const lead = base.before && !/\s$/.test(base.before) ? ' ' : ''
+    const tail = base.after && !/^\s/.test(base.after) ? ' ' : ''
+    return {
+      before: base.before,
+      text: `${lead}${dictation.text}${tail}`,
+      after: base.after,
+    }
+  })()
+  useEffect(() => {
+    if (dictation.active && dictated)
+      composer.setPrompt(dictated.before + dictated.text + dictated.after)
+  }, [dictation.text]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startDictation = () => {
+    const prompt = composerStore.state.prompt
+    const at = caret.current ?? { start: prompt.length, end: prompt.length }
+    dictationBase.current = {
+      before: prompt.slice(0, at.start),
+      after: prompt.slice(at.end),
+      prompt,
+    }
+    // Vocabulaire à bien transcrire : personas, jargon de l'app, fournisseurs, modèles.
+    void dictation.start(
+      settings?.dictationProvider ?? 'elevenlabs',
+      (provider) =>
+        dictationKeyterms(provider, {
+          personas: personas.map((p) => p.name),
+          providers: Object.values(PROVIDERS).map((p) => p.label),
+          models: families.map((f) => f.label),
+        }),
+    )
+  }
+  /** Valide le texte dicté : petit son, fin de l'écoute, curseur juste après. */
+  const validateDictation = async () => {
+    const base = dictationBase.current
+    const text = await dictation.finish()
+    dictationBase.current = null
+    if (!base || !text.trim()) {
+      if (base) composer.setPrompt(base.prompt)
+      return
+    }
+    const lead = base.before && !/\s$/.test(base.before) ? ' ' : ''
+    const tail = base.after && !/^\s/.test(base.after) ? ' ' : ''
+    const head = base.before + lead + text + tail
+    composer.setPrompt(head + base.after)
+    playValidateSound()
+    caret.current = { start: head.length, end: head.length }
+    requestAnimationFrame(() => {
+      const t = textareaRef.current
+      t?.focus()
+      t?.setSelectionRange(head.length, head.length)
+    })
+  }
+  const cancelDictation = () => {
+    const base = dictationBase.current
+    dictation.cancel()
+    dictationBase.current = null
+    if (base) composer.setPrompt(base.prompt)
+  }
+  stopDictationRef.current = cancelDictation
+
+  const toggleDictation = () =>
+    dictation.active ? void validateDictation() : startDictation()
+  // ⌥M (Alt+M) : lancer ou valider la dictée, depuis n'importe où dans l'app.
+  const toggleRef = useRef(toggleDictation)
+  toggleRef.current = toggleDictation
+  // Pendant la dictée, Entrée et Échap lui reviennent, où que soit le focus.
+  const dictationKeys = useRef({
+    prefetch: () => {},
+    active: false,
+    validate: () => {},
+    cancel: () => {},
+  })
+  dictationKeys.current = {
+    prefetch: dictation.prefetch,
+    active: dictation.active,
+    validate: validateDictation,
+    cancel: cancelDictation,
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const d = dictationKeys.current
+      // ⌥ seul (début de ⌥M) : jeton préparé pendant que le doigt cherche le M.
+      if (e.key === 'Alt' && !d.active) d.prefetch()
+      if (d.active && (e.key === 'Enter' || e.key === 'Escape')) {
+        // Phase de capture : avant le champ, un bouton ou une modale qui aurait le focus.
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.key === 'Enter') d.validate()
+        else d.cancel()
+        return
+      }
+      // Par le caractère (« µ » pour ⌥M sur Mac, « m » ailleurs) : marche en AZERTY
+      // comme en QWERTY, où la touche M n'est pas au même endroit (e.code).
+      const isM =
+        e.key === 'µ' || e.key.toLowerCase() === 'm' || e.code === 'KeyM'
+      if (e.altKey && !e.metaKey && !e.ctrlKey && isM) {
+        e.preventDefault()
+        toggleRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+  // Changement de fil : la dictée en cours est abandonnée.
+  useEffect(() => () => cancelDictation(), [threadId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Pendant la dictée, Entrée et Échap sont pris plus haut (écouteur global).
+    if (dictation.active) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       send()
@@ -574,53 +885,7 @@ ${prompt}` : prompt)
       toast.error('Micro inaccessible : autorise-le dans le navigateur.')
     }
   }
-  // Dictée du prompt (Whisper, local) : le texte s'écrit pendant qu'on parle, à la suite de ce qui est déjà écrit.
-  // Toutes les 1,5 s, tout l'audio déjà dit est retranscrit (la suite corrige le début) ; à l'arrêt, une dernière fois.
   const { data: assist } = useQuery(assistStatusQuery())
-  const [dictation, setDictation] = useState<{ rec: Recording; base: string; since: number } | null>(null)
-  const [transcribing, setTranscribing] = useState(false)
-  const dictationRef = useRef(dictation)
-  dictationRef.current = dictation
-  const withDictated = (base: string, text: string) => (base.trim() && text ? `${base.trimEnd()} ${text}` : base + text)
-  useEffect(() => {
-    if (!dictation) return
-    let busy = false
-    const timer = setInterval(async () => {
-      if (busy) return
-      busy = true
-      try {
-        const { text } = await assistApi.transcribe(await dictation.rec.snapshot())
-        if (dictationRef.current === dictation) composer.setPrompt(withDictated(dictation.base, text))
-      } catch {
-        // Morceau illisible ou serveur lent : le passage suivant rattrape.
-      } finally {
-        busy = false
-      }
-    }, 1500)
-    return () => clearInterval(timer)
-  }, [dictation])
-  const toggleDictation = async () => {
-    if (dictation) {
-      setDictation(null)
-      setTranscribing(true)
-      try {
-        const { text } = await assistApi.transcribe(await dictation.rec.stop())
-        composer.setPrompt(withDictated(dictation.base, text))
-      } catch (e) {
-        toast.error((e as Error).message)
-      } finally {
-        setTranscribing(false)
-      }
-      return
-    }
-    try {
-      const rec = await startRecording({ sampleRate: 16000, timeslice: 500 })
-      setRewrite(null)
-      setDictation({ rec, base: composerStore.state.prompt, since: Date.now() })
-    } catch {
-      toast.error('Micro inaccessible : autorise-le dans le navigateur.')
-    }
-  }
   // Reformulation (Ollama, local) : l'idée réécrite pour le modèle choisi, en anglais (envoyée) et en français (à relire).
   const [rewrite, setRewrite] = useState<(RewritePromptResponse & { original: string }) | null>(null)
   const [rewriting, setRewriting] = useState(false)
@@ -682,7 +947,12 @@ ${prompt}` : prompt)
     notices.push({ text: (catalogError as Error).message, tone: 'error' })
   if (resolution && !resolution.ok)
     notices.push({ text: resolution.reason, tone: 'warn' })
-  if (quoteIsCurrent && quote.data && quote.data.dropped > 0) {
+  if (extraImages > 0) {
+    notices.push({
+      text: `Trop d'images pour ce modèle (${imageInfo.max} au maximum) : retire-en ${extraImages} pour envoyer.`,
+      tone: 'warn',
+    })
+  } else if (quoteIsCurrent && quote.data && quote.data.dropped > 0) {
     notices.push({
       text: `${quote.data.dropped} fichier(s) ignoré(s) : trop de références pour ce modèle`,
       tone: 'warn',
@@ -695,11 +965,21 @@ ${prompt}` : prompt)
       tone: 'warn',
     })
   }
+  // Voix choisie mais pas envoyée : on dit pourquoi.
+  if (selectedVoice && voiceInfo.max > 0 && !voiceSent) {
+    notices.push({
+      text:
+        voiceInfo.mode === 'lipsync'
+          ? `Voix « ${selectedVoice.name} » : la synchronisation des lèvres sur une voix arrive bientôt, elle n’est pas envoyée à ce modèle.`
+          : `Voix « ${selectedVoice.name} » : elle part en mode Références (ajoute une image de référence et choisis ce mode).`,
+      tone: 'warn',
+    })
+  }
 
   return (
     <div className="shrink-0 px-4 pt-2 pb-5">
       <div
-        className="mx-auto max-w-4xl"
+        className="mx-auto max-w-[855px]"
         onDragOver={(e) => {
           e.preventDefault()
           setDragging(true)
@@ -711,16 +991,24 @@ ${prompt}` : prompt)
           onFiles(e.dataTransfer.files)
         }}
       >
-        <ContextChips
-          media={family?.media ?? 'image'}
-          personaId={personaId}
-          activeIds={state.contextIds}
-          onToggle={composer.toggleContext}
-          loras={personaLoras}
-          activeLoras={state.loras}
-          onToggleLora={composer.toggleLora}
-          onToggleLoraWord={composer.toggleLoraWord}
-        />
+        {/* Workflow choisi : son formulaire prend la place de la rangée des raccourcis. */}
+        {workflowFormId ? (
+          <WorkflowForm
+            workflowId={workflowFormId}
+            threadId={threadId}
+            onClose={() => setWorkflowFormId(null)}
+          />
+        ) : (
+          <ContextChips
+            media={family?.media ?? 'image'}
+            activeIds={state.contextIds}
+            onToggle={composer.toggleContext}
+            loras={personaLoras}
+            activeLoras={state.loras}
+            onToggleLora={composer.toggleLora}
+            onToggleLoraWord={composer.toggleLoraWord}
+          />
+        )}
 
         <div
           className={cn(
@@ -728,24 +1016,90 @@ ${prompt}` : prompt)
             dragging ? 'border-brand/70 bg-brand/5' : 'border-border/60',
           )}
         >
+          {/* Annulation de la réinitialisation : centrée juste au-dessus du composer. */}
+          {undoReset && (
+            <div
+              role="status"
+              // Souris dessus : la personne hésite peut-être à annuler, on garde l'annulation.
+              onMouseEnter={() => clearTimeout(undoTimer.current)}
+              onMouseLeave={hideUndoLater}
+              className="absolute bottom-full left-1/2 z-10 mb-2 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border/60 bg-popover py-1 pr-1 pl-3.5 text-[13px] shadow-lg"
+            >
+              <Check className="h-4 w-4 text-emerald-400" />
+              <span className="whitespace-nowrap">Réinitialisé</span>
+              <button
+                type="button"
+                onClick={() => {
+                  composer.restore(undoReset)
+                  clearTimeout(undoTimer.current)
+                  setUndoReset(null)
+                }}
+                className="rounded-full bg-accent px-3 py-1 text-[12px] font-medium hover:bg-accent/70"
+              >
+                Annuler
+              </button>
+            </div>
+          )}
+          {canReset && (
+            <button
+              type="button"
+              onClick={resetComposer}
+              aria-label="Réinitialiser le composer"
+              title="Réinitialiser le composer"
+              className="absolute top-3 right-3 z-[1] grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-muted-foreground transition-colors hover:bg-white/[0.12] hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
           {/* Pièces jointes */}
           {(state.attachments.length > 0 || uploading > 0) && (
-            <div className="flex flex-wrap gap-2 px-3 pt-3">
+            <div
+              className={cn(
+                'flex flex-wrap gap-2 px-3 pt-3',
+                canReset && 'pr-14',
+              )}
+            >
+              <MediaViewer
+                asset={state.attachments.find((x) => x.id === viewing) ?? null}
+                onClose={() => setViewing(null)}
+                onPrev={(() => {
+                  const i = state.attachments.findIndex((x) => x.id === viewing)
+                  return i > 0
+                    ? () => setViewing(state.attachments[i - 1].id)
+                    : undefined
+                })()}
+                onNext={(() => {
+                  const i = state.attachments.findIndex((x) => x.id === viewing)
+                  return i >= 0 && i < state.attachments.length - 1
+                    ? () => setViewing(state.attachments[i + 1].id)
+                    : undefined
+                })()}
+              />
               {state.attachments.map((a, i) => (
                 <div
                   key={a.id}
+                  data-testid="attachment"
                   className="group relative overflow-hidden rounded-xl border border-border/30"
                 >
-                  <AssetThumb asset={a} className="h-20 w-20" />
+                  {/* Clic : aperçu en grand, flèches entre les images jointes. */}
+                  <button
+                    type="button"
+                    onClick={() => setViewing(a.id)}
+                    aria-label={`Voir l’image ${i + 1} en grand`}
+                    className="block"
+                  >
+                    <AssetThumb asset={a} className="h-20 w-20" />
+                  </button>
                   {/* En bas à gauche : Début / Fin (vidéo), sinon le numéro de
                       l'image tel que le prompt peut le citer (« image 2 »), ou le
                       crayon sur l'image à modifier. */}
                   {startEnd && i < 2 ? (
-                    <span className={THUMB_TAG}>
+                    <span data-testid="attachment-tag" className={THUMB_TAG}>
                       {i === 0 ? 'Début' : 'Fin'}
                     </span>
                   ) : a.mediaType === 'image' && !startEnd ? (
                     <span
+                      data-testid="attachment-tag"
                       className={cn(
                         THUMB_TAG,
                         // Crayon : pastille carrée, comme celle d'un numéro.
@@ -939,29 +1293,66 @@ ${prompt}` : prompt)
               </div>
             </div>
           )}
-          <textarea
-            ref={textareaRef}
-            value={state.prompt}
-            onChange={(e) => composer.setPrompt(e.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={(e) => {
-              const files = Array.from(e.clipboardData.files)
-              if (files.length) {
-                e.preventDefault()
-                onFiles(files)
+          {/* Pendant la dictée, le texte s'affiche par-dessus le champ : le dicté en gris. */}
+          <div className="relative">
+            {dictated && (
+              <div
+                aria-hidden
+                data-testid="dictation-preview"
+                className={cn(
+                  'pointer-events-none absolute inset-0 overflow-hidden px-4 pt-3.5 pb-2 text-[15px] leading-normal break-words whitespace-pre-wrap',
+                  canReset &&
+                    state.attachments.length === 0 &&
+                    uploading === 0 &&
+                    'pr-14',
+                )}
+              >
+                {dictated.before}
+                <span className="text-muted-foreground/60">
+                  {dictated.text}
+                </span>
+                {dictated.after}
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              data-testid="composer-prompt"
+              value={state.prompt}
+              readOnly={dictation.active}
+              onChange={(e) => composer.setPrompt(e.target.value)}
+              onSelect={rememberCaret}
+              onBlur={rememberCaret}
+              onKeyDown={onKeyDown}
+              onPaste={(e) => {
+                const files = Array.from(e.clipboardData.files)
+                if (files.length) {
+                  e.preventDefault()
+                  onFiles(files)
+                }
+              }}
+              // Pendant la dictée, jamais de placeholder : du texte arrive.
+              placeholder={
+                dictation.active
+                  ? ''
+                  : schema?.properties?.speech
+                    ? // LTX : le prompt décrit un plan de cinéma ; guider sa structure améliore nettement le rendu.
+                      'En anglais, dans l’ordre : le plan (medium shot, close-up…), la lumière, puis l’action pas à pas (« she smiles, waves, then takes a sip »), l’émotion par le corps (sourire, regard, gestes), ce que fait la caméra (fixe, suit, se rapproche) et les sons. Pas besoin de décrire la personne ni le lieu : l’image de départ les donne.'
+                    : family?.media === 'video'
+                      ? 'Décris la scène ou ajoute des références'
+                      : 'Décris l’image ou ajoute des références'
               }
-            }}
-            placeholder={
-              // LTX : le prompt décrit un plan de cinéma ; guider sa structure améliore nettement le rendu.
-              schema?.properties?.speech
-                ? 'En anglais, dans l’ordre : le plan (medium shot, close-up…), la lumière, puis l’action pas à pas (« she smiles, waves, then takes a sip »), l’émotion par le corps (sourire, regard, gestes), ce que fait la caméra (fixe, suit, se rapproche) et les sons. Pas besoin de décrire la personne ni le lieu : l’image de départ les donne.'
-                : family?.media === 'video'
-                  ? 'Décris la scène ou ajoute des références'
-                  : 'Décris l’image ou ajoute des références'
-            }
-            className="field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none"
-            rows={1}
-          />
+              className={cn(
+                'field-sizing-content max-h-[220px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-normal placeholder:text-muted-foreground/50 focus:ring-0 focus:outline-none',
+                dictated && 'text-transparent caret-transparent',
+                // Place du bouton Réinitialiser quand il est sur la ligne du texte.
+                canReset &&
+                  state.attachments.length === 0 &&
+                  uploading === 0 &&
+                  'pr-14',
+              )}
+              rows={1}
+            />
+          </div>
 
           {/* Mouvement repris d'une vidéo (LTX) : aperçu et retrait. */}
           {schema?.properties?.mouvement && typeof (params.mouvement as { video?: string } | undefined)?.video === 'string' && (
@@ -1130,34 +1521,81 @@ ${prompt}` : prompt)
                 className="hidden"
                 onChange={(e) => onFiles(e.target.files)}
               />
-              {/* Ajouter un fichier, avec le compteur d'images du modèle (n / max). */}
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className={cn(
-                  'flex h-8 shrink-0 items-center justify-center gap-1 rounded-full text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60',
-                  imageInfo.max > 0 ? 'px-2.5' : 'w-8',
-                )}
-                title={
-                  imageInfo.max > 0
-                    ? `Ajouter des images (${imageInfo.max} au maximum pour ce modèle)`
-                    : 'Ajouter un fichier'
-                }
-                aria-label="Ajouter un fichier"
-              >
-                <Plus className="size-3.5" />
-                {imageInfo.max > 0 && (
-                  <span
+              {/* Ajouter : depuis l'ordinateur ou une librairie, avec le compteur d'images du modèle (n / max). */}
+              <Popover open={addOpen} onOpenChange={setAddOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
                     className={cn(
-                      'tabular-nums',
-                      state.attachments.length > imageInfo.max &&
-                        'text-amber-300',
+                      'flex h-8 shrink-0 items-center justify-center gap-1 rounded-full text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60',
+                      imageInfo.max > 0 ? 'px-2.5' : 'w-8',
                     )}
+                    title={
+                      imageInfo.max > 0
+                        ? `Ajouter des images (${imageInfo.max} au maximum pour ce modèle)`
+                        : 'Ajouter un fichier'
+                    }
+                    aria-label="Ajouter un fichier"
                   >
-                    {state.attachments.length}/{imageInfo.max}
-                  </span>
-                )}
-              </button>
+                    <Plus className="size-3.5" />
+                    {imageInfo.max > 0 && (
+                      <span
+                        className={cn(
+                          'tabular-nums',
+                          state.attachments.length > imageInfo.max &&
+                            'text-amber-300',
+                        )}
+                      >
+                        {state.attachments.length}/{imageInfo.max}
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  className="w-auto min-w-56 rounded-2xl p-1.5"
+                >
+                  <AddMenuItem
+                    icon={<Upload className="size-4" />}
+                    label="Importer un fichier"
+                    onClick={() => {
+                      setAddOpen(false)
+                      fileRef.current?.click()
+                    }}
+                  />
+                  <AddMenuItem
+                    icon={<FolderOpen className="size-4" />}
+                    label="Choisir depuis une librairie"
+                    onClick={() => {
+                      setAddOpen(false)
+                      setLibraryOpen(true)
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              <LibraryBrowser
+                open={libraryOpen}
+                onOpenChange={setLibraryOpen}
+                personaId={null}
+                onImport={(asset) => composer.addAttachments([asset])}
+              />
+              {/* Références de tous les personas et de Général (un titre par section). */}
+              <ReferencePicker
+                personas={personas}
+                info={imageInfo}
+                refMode={
+                  canChooseRefMode
+                    ? { value: state.refMode, onChange: composer.setRefMode }
+                    : undefined
+                }
+                selectedIds={state.attachments.map((a) => a.id)}
+                onToggle={(a) =>
+                  state.attachments.some((x) => x.id === a.id)
+                    ? composer.removeAttachment(a.id)
+                    : composer.addAttachments([a])
+                }
+              />
               <button
                 type="button"
                 onClick={() => setTraitPicker('')}
@@ -1169,23 +1607,6 @@ ${prompt}` : prompt)
               <PlaceButton persona={persona} placeId={state.placeId} />
               <ScenesButton />
               {persona && family?.supportsFace && <FaceButton persona={persona} faceId={faceId} />}
-              {persona && (
-                <ReferencePicker
-                  persona={persona}
-                  info={imageInfo}
-                  refMode={
-                    canChooseRefMode
-                      ? { value: state.refMode, onChange: composer.setRefMode }
-                      : undefined
-                  }
-                  selectedIds={state.attachments.map((a) => a.id)}
-                  onToggle={(a) =>
-                    state.attachments.some((x) => x.id === a.id)
-                      ? composer.removeAttachment(a.id)
-                      : composer.addAttachments([a])
-                  }
-                />
-              )}
               <MediaSwitch value={media} onChange={switchMedia} />
               <ModelPicker
                 media={media}
@@ -1205,6 +1626,14 @@ ${prompt}` : prompt)
                     : null
                 }
               />
+              {/* Voix du persona, juste à droite du modèle : seulement pour un modèle vidéo qui accepte une voix. */}
+              {VOICE_ENABLED && voicePersona && voiceInfo.max > 0 && (
+                <VoicePicker
+                  persona={voicePersona}
+                  value={selectedVoice?.id ?? null}
+                  onChange={composer.setVoice}
+                />
+              )}
               {resolutionProp?.enum && (
                 <ResolutionToggle
                   values={resolutionProp.enum}
@@ -1288,57 +1717,19 @@ ${prompt}` : prompt)
                   state.family && composer.resetParams(state.family)
                 }
               />
-              {showRefToggle && (
-                <div className="flex h-8 items-center rounded-full border border-border/60 bg-background/40 p-0.5 text-[11px]">
-                  {(['start-frame', 'reference'] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => composer.setRefMode(m)}
-                      className={cn(
-                        'h-full rounded-full px-2.5 transition-colors',
-                        state.refMode === m
-                          ? 'bg-accent text-foreground'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {m === 'start-frame' ? 'Début / Fin' : 'Références'}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <WorkflowPickerButton
+                onPick={setWorkflowFormId}
+                active={Boolean(workflowFormId)}
+              />
             </div>
 
             {/* Générer : prix à gauche du bouton, sans infobulle. */}
             <div className="flex shrink-0 items-center gap-2">
-              {assist?.dictation && (
-                <button
-                  type="button"
-                  onClick={toggleDictation}
-                  disabled={transcribing}
-                  className={cn(
-                    'flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs hover:bg-accent disabled:opacity-40',
-                    dictation ? 'text-red-400' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                  title={dictation ? 'Arrêter la dictée' : 'Dicter le prompt au micro (Whisper, en local)'}
-                >
-                  {transcribing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : dictation ? (
-                    <>
-                      <Square className="h-3 w-3 fill-current" />
-                      <RecordingTime since={dictation.since} />
-                    </>
-                  ) : (
-                    <Mic className="h-4 w-4" />
-                  )}
-                </button>
-              )}
               {assist?.rewrite && (
                 <button
                   type="button"
                   onClick={rewritePrompt}
-                  disabled={rewriting || Boolean(dictation) || !state.prompt.trim()}
+                  disabled={rewriting || dictation.active || !state.prompt.trim()}
                   className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
                   title={`Reformuler pour ${family?.label ?? 'ce modèle'} : l'idée détaillée selon ses règles d'écriture, en anglais (envoyé) et en français (à relire). En local, par ${assist.model?.split('/').pop() ?? 'Ollama'} ; le premier appel charge le modèle (~20 s).`}
                 >
@@ -1347,22 +1738,59 @@ ${prompt}` : prompt)
                 </button>
               )}
               <span className="text-xs text-foreground/80 tabular-nums">
-                {canQuote && (quote.isFetching || !quoteIsCurrent) ? (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                ) : quoteIsCurrent && quote.data ? (
-                  isLocal ? 'Local' : <>≈ {formatUsd(quote.data.estimatedCost)}</>
-                ) : null}
+                {/* Recalcul : l'ancien prix reste, estompé ; trois points au tout premier prix du fil. */}
+                <LoadingValue
+                  key={threadId ?? 'new'}
+                  loading={canQuote && (quote.isFetching || !quoteIsCurrent)}
+                  value={
+                    canQuote && quoteIsCurrent && quote.data
+                      ? isLocal ? 'Local' : `≈ ${formatUsd(quote.data.estimatedCost)}`
+                      : null
+                  }
+                  variant="dots"
+                  keepValue
+                />
               </span>
+              {/* Dictée : à gauche de l'envoi. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={toggleDictation}
+                    // Jeton préparé dès le survol : au clic, il ne reste que la connexion.
+                    onMouseEnter={dictation.prefetch}
+                    onFocus={dictation.prefetch}
+                    aria-label={
+                      dictation.active ? 'Valider la dictée' : 'Dicter'
+                    }
+                    aria-pressed={dictation.active}
+                    data-status={dictation.status}
+                    className={cn(
+                      'grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+                      dictation.active &&
+                        'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 hover:text-blue-200',
+                    )}
+                  >
+                    {dictation.status === 'connecting' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Mic className="h-4 w-4" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="flex items-center gap-2">
+                  {dictation.active ? 'Entrée valide, Échap annule' : 'Dicter'}
+                  <kbd className="rounded bg-white/10 px-1 font-sans text-[11px]">
+                    ⌥M
+                  </kbd>
+                </TooltipContent>
+              </Tooltip>
               <Button
                 type="button"
                 size="icon"
-                onClick={send}
-                disabled={
-                  !canQuote ||
-                  create.isPending ||
-                  !quoteIsCurrent ||
-                  !quote.data
-                }
+                onClick={dictation.active ? () => void validateDictation() : send}
+                disabled={!canQuote || extraImages > 0 || create.isPending}
+                variant="primary"
                 className="h-9 w-9 rounded-full brand-gradient hover:opacity-90"
                 aria-label={
                   quoteIsCurrent && quote.data
@@ -1453,4 +1881,28 @@ function RecordingTime({ since }: { since: number }) {
   }, [])
   const s = Math.floor((now - since) / 1000)
   return <span className="tabular-nums">{`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`}</span>
+}
+
+/** Entrée du menu du bouton + : icône dans une pastille, libellé. */
+function AddMenuItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-11 w-full items-center gap-3 rounded-xl px-2.5 text-left text-sm whitespace-nowrap text-foreground outline-none hover:bg-white/[0.05] focus-visible:bg-white/[0.05]"
+    >
+      <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-white/[0.06] text-muted-foreground">
+        {icon}
+      </span>
+      {label}
+    </button>
+  )
 }

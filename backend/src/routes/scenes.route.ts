@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { Scene } from '@ai-fluence/shared';
+import type { Scene } from '@sublime/shared';
 import { db } from '../db/index.js';
 import { places, scenes } from '../db/schema.js';
 import { auth } from '../middleware/auth.js';

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Loader2, Mic, Play, Sparkles, Square, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Persona, PersonaVoice } from '@ai-fluence/shared'
+import type { Persona, PersonaLocalVoice } from '@sublime/shared'
 import { personasApi } from '@/lib/api'
 import { qk } from '@/lib/queries'
 import { Button } from '@/components/ui/button'
@@ -47,7 +47,7 @@ export function PersonaVoiceCard({ persona }: { persona: Persona }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const elapsed = useElapsed(voice?.job?.state === 'running' ? voice.job.startedAt : null)
 
-  const setVoice = (v: PersonaVoice) => queryClient.setQueryData(qk.voice(persona.id), v)
+  const setVoice = (v: PersonaLocalVoice) => queryClient.setQueryData(qk.voice(persona.id), v)
   const onError = (e: Error) => toast.error(e.message)
 
   const create = useMutation({
