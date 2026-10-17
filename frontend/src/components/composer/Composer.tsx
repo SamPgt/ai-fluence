@@ -85,6 +85,16 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /** Tailles de série proposées dans le composer. */
 const SERIES_SIZES = [1, 4, 8]
+/**
+ * Série de vidéos : la même demande N fois (une graine chacune), lancées à la suite. En local, ComfyUI les enchaîne :
+ * 3 vidéos LTX de 15 s en 720p tiennent dans une heure d'absence, on garde la meilleure au retour.
+ */
+const VIDEO_SERIES_SIZES = [1, 2, 3, 4]
+
+/** Taille de série valable pour ce type de média (le réglage est commun aux photos et aux vidéos). */
+function seriesCount(media: MediaKind, count: number): number {
+  return (media === 'image' ? SERIES_SIZES : VIDEO_SERIES_SIZES).includes(count) ? count : 1
+}
 
 /** Étiquette en bas à gauche d'une vignette jointe (numéro, crayon, Début / Fin). */
 const THUMB_TAG =
@@ -488,7 +498,7 @@ ${prompt}` : prompt)
             : undefined,
         contextIds: activeContextIds,
         // Séries ×N : photo uniquement.
-        count: family.media === 'image' ? state.count : 1,
+        count: seriesCount(family.media, state.count),
         loraIds: activeLoras.map((l) => l.id),
         loraWords: Object.fromEntries(
           activeLoras.map((l) => [l.id, state.loras[l.id] ?? []]),
@@ -545,7 +555,7 @@ ${prompt}` : prompt)
     mediaKind: MediaKind,
     taskKind: TaskKind | null,
   ): string[] => {
-    const n = mediaKind === 'image' ? Math.max(1, body.count ?? 1) : 1
+    const n = seriesCount(mediaKind, Math.max(1, body.count ?? 1))
     const stamp = crypto.randomUUID()
     const batchId = n > 1 ? `optimistic-batch-${stamp}` : null
     const now = new Date().toISOString()
@@ -1671,17 +1681,15 @@ ${prompt}` : prompt)
                   onChange={(v) => setParam('duration_seconds', v)}
                 />
               )}
-              {/* Série : nombre d'images (photo), un clic passe à x1, x4 puis x8. */}
-              {media === 'image' && (
-                <ResolutionToggle
-                  name="Nombre d'images"
-                  bars={false}
-                  values={SERIES_SIZES}
-                  value={SERIES_SIZES.includes(state.count) ? state.count : 1}
-                  format={(v) => `x${v}`}
-                  onChange={(v) => composer.setCount(v as number)}
-                />
-              )}
+              {/* Série : nombre d'images (x1, x4, x8) ou de vidéos (x1 à x4), un clic passe à la valeur suivante. */}
+              <ResolutionToggle
+                name={media === 'image' ? "Nombre d'images" : 'Nombre de vidéos (lancées à la suite)'}
+                bars={false}
+                values={media === 'image' ? SERIES_SIZES : VIDEO_SERIES_SIZES}
+                value={seriesCount(media, state.count)}
+                format={(v) => `x${v}`}
+                onChange={(v) => composer.setCount(v as number)}
+              />
               {/* Z-Image : recette « réalisme » (peau, grain, lumière naturelle), par ex. après Qwen Edit. */}
               {realismLora && (
                 <button
