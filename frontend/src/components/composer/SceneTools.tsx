@@ -16,8 +16,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
+// Icône seule (titre au survol) : la barre du composer reste sur une ligne.
 const toolButton =
-  'flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-3 text-xs font-medium transition-colors hover:bg-accent'
+  'grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border/60 bg-background/40 text-foreground/80 transition-colors hover:bg-accent'
 
 /** Bouton « Lieu » : choisir un lieu, ceux du personnage en premier. */
 export function PlaceButton({ persona, placeId }: { persona: Persona | null; placeId: string | null }) {
@@ -42,8 +43,8 @@ export function PlaceButton({ persona, placeId }: { persona: Persona | null; pla
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" className={toolButton} title="Lieu récurrent : sa fiche entre dans le prompt">
-          <MapPin className="h-3.5 w-3.5" /> Lieu
+        <button type="button" className={toolButton} aria-label="Lieu" title="Lieu récurrent : sa fiche entre dans le prompt">
+          <MapPin className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-64 p-1.5">
@@ -112,7 +113,8 @@ export function FaceButton({ persona, faceId }: { persona: Persona; faceId: stri
       type="button"
       disabled={loading}
       className={toolButton}
-      title={`Applique le visage de ${persona.name} au résultat (ReActor)`}
+      aria-label={`Visage de ${persona.name}`}
+      title={`Visage de ${persona.name} : appliqué au résultat (ReActor)`}
       onClick={async () => {
         setLoading(true)
         try {
@@ -128,7 +130,7 @@ export function FaceButton({ persona, faceId }: { persona: Persona; faceId: stri
         }
       }}
     >
-      {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScanFace className="h-3.5 w-3.5" />} Visage de {persona.name}
+      {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScanFace className="h-3.5 w-3.5" />}
     </button>
   )
 }
@@ -174,8 +176,8 @@ export function ScenesButton() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" className={toolButton} title="Scènes enregistrées : tenue, action, lieu, photo…">
-          <Bookmark className="h-3.5 w-3.5" /> Scènes
+        <button type="button" className={toolButton} aria-label="Scènes" title="Scènes enregistrées : tenue, action, lieu, photo…">
+          <Bookmark className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-80 space-y-2 p-2">

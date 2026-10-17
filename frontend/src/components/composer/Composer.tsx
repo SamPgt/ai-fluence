@@ -1597,10 +1597,11 @@ ${prompt}` : prompt)
               <button
                 type="button"
                 onClick={() => setTraitPicker('')}
-                className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60"
-                title="Choisir un trait dans la bibliothèque (coiffure, tenue, lieu…)"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60"
+                aria-label="Trait"
+                title="Trait : coiffure, tenue, pose, lieu… (page Traits)"
               >
-                <Shapes className="h-3.5 w-3.5" /> Trait
+                <Shapes className="h-3.5 w-3.5" />
               </button>
               <PlaceButton persona={persona} placeId={state.placeId} />
               <ScenesButton />
@@ -1686,10 +1687,11 @@ ${prompt}` : prompt)
                 <button
                   type="button"
                   onClick={applyRealism}
-                  className="flex h-8 shrink-0 items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 text-xs text-foreground/80 hover:bg-accent/60"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-foreground/80 shadow-[inset_0_0_0_1px_var(--color-border)] transition-colors hover:bg-accent/60"
+                  aria-label="Réalisme"
                   title={`Réalisme : LoRA ${realismLora.replace(/\.safetensors$/, '')} à 0,7, et avec une image jointe force 0,25 (garde le personnage et la scène, retrouve la peau et la lumière naturelle)`}
                 >
-                  <Sparkles className="h-3.5 w-3.5" /> Réalisme
+                  <Sparkles className="h-3.5 w-3.5" />
                 </button>
               )}
               <ParamsPopover
@@ -1715,11 +1717,11 @@ ${prompt}` : prompt)
                   type="button"
                   onClick={rewritePrompt}
                   disabled={rewriting || dictation.active || !state.prompt.trim()}
-                  className="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                  aria-label="Reformuler"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
                   title={`Reformuler pour ${family?.label ?? 'ce modèle'} : l'idée détaillée selon ses règles d'écriture, en anglais (envoyé) et en français (à relire). En local, par ${assist.model?.split('/').pop() ?? 'Ollama'} ; le premier appel charge le modèle (~20 s).`}
                 >
                   {rewriting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  Reformuler
                 </button>
               )}
               <span className="text-xs text-foreground/80 tabular-nums">
